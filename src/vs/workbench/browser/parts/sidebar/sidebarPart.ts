@@ -13,7 +13,7 @@ import { IKeybindingService } from '../../../../platform/keybinding/common/keybi
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { contrastBorder } from '../../../../platform/theme/common/colorRegistry.js';
-import { SIDE_BAR_TITLE_FOREGROUND, SIDE_BAR_TITLE_BORDER, SIDE_BAR_BACKGROUND, SIDE_BAR_FOREGROUND, SIDE_BAR_BORDER, SIDE_BAR_DRAG_AND_DROP_BACKGROUND, ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_TOP_FOREGROUND, ACTIVITY_BAR_TOP_ACTIVE_BORDER, ACTIVITY_BAR_TOP_INACTIVE_FOREGROUND, ACTIVITY_BAR_TOP_DRAG_AND_DROP_BORDER } from '../../../common/theme.js';
+import { SIDE_BAR_TITLE_FOREGROUND, SIDE_BAR_TITLE_BORDER, SIDE_BAR_BACKGROUND, SIDE_BAR_FOREGROUND, SIDE_BAR_BORDER, SIDE_BAR_DRAG_AND_DROP_BACKGROUND, ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_TOP_FOREGROUND, ACTIVITY_BAR_TOP_ACTIVE_BORDER, ACTIVITY_BAR_TOP_INACTIVE_FOREGROUND, ACTIVITY_BAR_TOP_DRAG_AND_DROP_BORDER, PART_SPACING_SIZE, PART_SPACING_BACKGROUND } from '../../../common/theme.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { AnchorAlignment } from '../../../../base/browser/ui/contextview/contextview.js';
@@ -26,12 +26,14 @@ import { ActivityBarCompositeBar, ActivitybarPart } from '../activitybar/activit
 import { ActionsOrientation } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { HoverPosition } from '../../../../base/browser/ui/hover/hoverWidget.js';
 import { IPaneCompositeBarOptions } from '../paneCompositeBar.js';
+import { runViewIcon } from '../../../contrib/debug/browser/debugIcons.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Action2, IMenuService, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { Separator } from '../../../../base/common/actions.js';
 import { ToggleActivityBarVisibilityActionId } from '../../actions/layoutActions.js';
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+
 
 export class SidebarPart extends AbstractPaneCompositePart {
 
@@ -83,7 +85,7 @@ export class SidebarPart extends AbstractPaneCompositePart {
 	) {
 		super(
 			Parts.SIDEBAR_PART,
-			{ hasTitle: true, borderWidth: () => (this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0 },
+			{ hasTitle: true, borderWidth: () => this.getColor(PART_SPACING_BACKGROUND) ? PART_SPACING_SIZE : ((this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0) },
 			SidebarPart.activeViewletSettingsKey,
 			ActiveViewletContext.bindTo(contextKeyService),
 			SidebarFocusContext.bindTo(contextKeyService),
@@ -140,12 +142,14 @@ export class SidebarPart extends AbstractPaneCompositePart {
 		container.style.backgroundColor = this.getColor(SIDE_BAR_BACKGROUND) || '';
 		container.style.color = this.getColor(SIDE_BAR_FOREGROUND) || '';
 
-		const borderColor = this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder);
+		const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
+		const borderColor = spacingColor || this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder);
+		const borderWidth = spacingColor ? `${PART_SPACING_SIZE}px` : (borderColor ? '1px' : '');
 		const isPositionLeft = this.layoutService.getSideBarPosition() === SideBarPosition.LEFT;
-		container.style.borderRightWidth = borderColor && isPositionLeft ? '1px' : '';
+		container.style.borderRightWidth = borderColor && isPositionLeft ? borderWidth : '';
 		container.style.borderRightStyle = borderColor && isPositionLeft ? 'solid' : '';
 		container.style.borderRightColor = isPositionLeft ? borderColor || '' : '';
-		container.style.borderLeftWidth = borderColor && !isPositionLeft ? '1px' : '';
+		container.style.borderLeftWidth = borderColor && !isPositionLeft ? borderWidth : '';
 		container.style.borderLeftStyle = borderColor && !isPositionLeft ? 'solid' : '';
 		container.style.borderLeftColor = !isPositionLeft ? borderColor || '' : '';
 		container.style.outlineColor = this.getColor(SIDE_BAR_DRAG_AND_DROP_BACKGROUND) ?? '';
@@ -201,7 +205,14 @@ export class SidebarPart extends AbstractPaneCompositePart {
 				badgeForeground: theme.getColor(ACTIVITY_BAR_BADGE_FOREGROUND),
 				dragAndDropBorder: theme.getColor(ACTIVITY_BAR_TOP_DRAG_AND_DROP_BORDER)
 			}),
-			compact: true
+			compact: true,
+			extraCompositeItems: [{
+				id: 'workbench.view.debug.launcher',
+				name: localize('runAndDebug', "Run and Debug"),
+				order: 1.5,
+				icon: runViewIcon,
+				targetViewContainerId: 'workbench.view.debug'
+			}]
 		};
 	}
 

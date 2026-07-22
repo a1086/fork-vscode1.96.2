@@ -538,10 +538,10 @@ const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Con
 				'default': true,
 				'description': localize('statusBarVisibility', "Controls the visibility of the status bar at the bottom of the workbench.")
 			},
-			[LayoutSettings.ACTIVITY_BAR_LOCATION]: {
-				'type': 'string',
-				'enum': ['default', 'top', 'bottom', 'hidden'],
-				'default': 'default',
+		[LayoutSettings.ACTIVITY_BAR_LOCATION]: {
+			'type': 'string',
+			'enum': ['default', 'top', 'bottom', 'hidden'],
+			'default': 'top',
 				'markdownDescription': localize({ comment: ['This is the description for a setting'], key: 'activityBarLocation' }, "Controls the location of the Activity Bar relative to the Primary and Secondary Side Bars."),
 				'enumDescriptions': [
 					localize('workbench.activityBar.location.default', "Show the Activity Bar on the side of the Primary Side Bar and on top of the Secondary Side Bar."),

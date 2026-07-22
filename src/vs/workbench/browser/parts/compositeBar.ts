@@ -157,6 +157,7 @@ export interface ICompositeBarOptions {
 
 	readonly openComposite: (compositeId: string, preserveFocus?: boolean) => Promise<IComposite | null>;
 	readonly getDefaultCompositeId: () => string | undefined;
+	readonly isCompositeDraggable?: (compositeId: string) => boolean;
 }
 
 class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks {
@@ -290,10 +291,10 @@ export class CompositeBar extends Widget implements ICompositeBar {
 					return this.compositeOverflowActionViewItem;
 				}
 				const item = this.model.findItem(action.id);
-				return item && this.instantiationService.createInstance(
-					CompositeActionViewItem,
-					{ ...options, draggable: true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact },
-					action as CompositeBarAction,
+			return item && this.instantiationService.createInstance(
+				CompositeActionViewItem,
+				{ ...options, draggable: this.options.isCompositeDraggable ? this.options.isCompositeDraggable(action.id) : true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact },
+				action as CompositeBarAction,
 					item.pinnedAction,
 					item.toggleBadgeAction,
 					compositeId => this.options.getContextMenuActionsForComposite(compositeId),

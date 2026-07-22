@@ -13,10 +13,11 @@ import { IInstantiationService, ServicesAccessor } from '../../../../platform/in
 import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { ToggleSidebarPositionAction } from '../../actions/layoutActions.js';
 import { IThemeService, IColorTheme, registerThemingParticipant } from '../../../../platform/theme/common/themeService.js';
-import { ACTIVITY_BAR_BACKGROUND, ACTIVITY_BAR_BORDER, ACTIVITY_BAR_FOREGROUND, ACTIVITY_BAR_ACTIVE_BORDER, ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_INACTIVE_FOREGROUND, ACTIVITY_BAR_ACTIVE_BACKGROUND, ACTIVITY_BAR_DRAG_AND_DROP_BORDER, ACTIVITY_BAR_ACTIVE_FOCUS_BORDER } from '../../../common/theme.js';
+import { ACTIVITY_BAR_BACKGROUND, ACTIVITY_BAR_BORDER, ACTIVITY_BAR_FOREGROUND, ACTIVITY_BAR_ACTIVE_BORDER, ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_INACTIVE_FOREGROUND, ACTIVITY_BAR_ACTIVE_BACKGROUND, ACTIVITY_BAR_DRAG_AND_DROP_BORDER, ACTIVITY_BAR_ACTIVE_FOCUS_BORDER, PART_SPACING_SIZE, PART_SPACING_BACKGROUND } from '../../../common/theme.js';
 import { activeContrastBorder, contrastBorder, focusBorder } from '../../../../platform/theme/common/colorRegistry.js';
 import { addDisposableListener, append, EventType, isAncestor, $, clearNode } from '../../../../base/browser/dom.js';
 import { assertIsDefined } from '../../../../base/common/types.js';
+import { runViewIcon } from '../../../contrib/debug/browser/debugIcons.js';
 import { CustomMenubarControl } from '../titlebar/menubarControl.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { getMenuBarVisibility } from '../../../../platform/window/common/window.js';
@@ -66,11 +67,22 @@ export class ActivitybarPart extends Part {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 	) {
-		super(Parts.ACTIVITYBAR_PART, { hasTitle: false }, themeService, storageService, layoutService);
+		super(
+			Parts.ACTIVITYBAR_PART,
+			{
+				hasTitle: false,
+				borderWidth: () => this.getColor(PART_SPACING_BACKGROUND) ? PART_SPACING_SIZE : ((this.getColor(ACTIVITY_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0)
+			},
+			themeService,
+			storageService,
+			layoutService
+		);
 	}
 
 	private createCompositeBar(): PaneCompositeBar {
 		return this.instantiationService.createInstance(ActivityBarCompositeBar, {
+
+
 			partContainerClass: 'activitybar',
 			pinnedViewContainersKey: ActivitybarPart.pinnedViewContainersKey,
 			placeholderViewContainersKey: ActivitybarPart.placeholderViewContainersKey,
@@ -96,6 +108,13 @@ export class ActivitybarPart extends Part {
 				activeBackgroundColor: undefined, inactiveBackgroundColor: undefined, activeBorderBottomColor: undefined,
 			}),
 			overflowActionSize: ActivitybarPart.ACTION_HEIGHT,
+			extraCompositeItems: [{
+				id: 'workbench.view.debug.launcher',
+				name: localize('runAndDebug', "Run and Debug"),
+				order: 1.5,
+				icon: runViewIcon,
+				targetViewContainerId: 'workbench.view.debug'
+			}]
 		}, Parts.ACTIVITYBAR_PART, this.paneCompositePart, true);
 	}
 
@@ -133,9 +152,11 @@ export class ActivitybarPart extends Part {
 		const background = this.getColor(ACTIVITY_BAR_BACKGROUND) || '';
 		container.style.backgroundColor = background;
 
-		const borderColor = this.getColor(ACTIVITY_BAR_BORDER) || this.getColor(contrastBorder) || '';
+		const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
+		const borderColor = spacingColor || this.getColor(ACTIVITY_BAR_BORDER) || this.getColor(contrastBorder) || '';
 		container.classList.toggle('bordered', !!borderColor);
 		container.style.borderColor = borderColor ? borderColor : '';
+		container.style.setProperty('--vscode-part-activitybar-border-width', spacingColor ? `${PART_SPACING_SIZE}px` : '1px');
 	}
 
 	show(focus?: boolean): void {
@@ -156,6 +177,8 @@ export class ActivitybarPart extends Part {
 			this.focus();
 		}
 	}
+
+
 
 	hide(): void {
 		if (!this.compositeBar.value) {
@@ -404,6 +427,7 @@ registerAction2(class extends Action2 {
 		configurationService.updateValue(LayoutSettings.ACTIVITY_BAR_LOCATION, ActivityBarPosition.DEFAULT);
 	}
 });
+// saved-clean
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -430,6 +454,7 @@ registerAction2(class extends Action2 {
 		configurationService.updateValue(LayoutSettings.ACTIVITY_BAR_LOCATION, ActivityBarPosition.TOP);
 	}
 });
+// saved-clean
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -456,6 +481,7 @@ registerAction2(class extends Action2 {
 		configurationService.updateValue(LayoutSettings.ACTIVITY_BAR_LOCATION, ActivityBarPosition.BOTTOM);
 	}
 });
+// saved-clean
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -482,6 +508,7 @@ registerAction2(class extends Action2 {
 		configurationService.updateValue(LayoutSettings.ACTIVITY_BAR_LOCATION, ActivityBarPosition.HIDDEN);
 	}
 });
+// saved-clean
 
 MenuRegistry.appendMenuItem(MenuId.MenubarAppearanceMenu, {
 	submenu: MenuId.ActivityBarPositionMenu,
@@ -516,6 +543,7 @@ registerAction2(class extends SwitchCompositeViewAction {
 		}, ViewContainerLocation.Sidebar, -1);
 	}
 });
+// saved-clean
 
 registerAction2(class extends SwitchCompositeViewAction {
 	constructor() {
@@ -527,6 +555,7 @@ registerAction2(class extends SwitchCompositeViewAction {
 		}, ViewContainerLocation.Sidebar, 1);
 	}
 });
+// saved-clean
 
 registerAction2(
 	class FocusActivityBarAction extends Action2 {
@@ -617,3 +646,4 @@ registerThemingParticipant((theme, collector) => {
 		}
 	}
 });
+// saved-clean

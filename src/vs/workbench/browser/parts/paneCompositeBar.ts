@@ -84,6 +84,7 @@ export interface IPaneCompositeBarOptions {
 	readonly activityHoverOptions: IActivityHoverOptions;
 	readonly fillExtraContextMenuActions: (actions: IAction[], e?: MouseEvent | GestureEvent) => void;
 	readonly colors: (theme: IColorTheme) => ICompositeBarColors;
+	readonly extraCompositeItems?: { id: string; name: string; order?: number; icon: ThemeIcon; targetViewContainerId?: string }[];
 }
 
 export class PaneCompositeBar extends Disposable {
@@ -93,7 +94,8 @@ export class PaneCompositeBar extends Disposable {
 
 	private readonly compositeBar: CompositeBar;
 	readonly dndHandler: ICompositeDragAndDrop;
-	private readonly compositeActions = new Map<string, { activityAction: ViewContainerActivityAction; pinnedAction: ToggleCompositePinnedAction; badgeAction: ToggleCompositeBadgeAction }>();
+	private readonly compositeActions = new Map<string, { activityAction: CompositeBarAction; pinnedAction: ToggleCompositePinnedAction; badgeAction: ToggleCompositeBadgeAction }>();
+
 
 	private hasExtensionsRegistered: boolean = false;
 
@@ -131,8 +133,20 @@ export class PaneCompositeBar extends Disposable {
 			}));
 		this.compositeBar = this.createCompositeBar(cachedItems);
 		this.onDidRegisterViewContainers(this.getViewContainers());
+		this.addExtraCompositeItems();
 		this.registerListeners();
 	}
+
+	private addExtraCompositeItems(): void {
+		for (const item of this.options.extraCompositeItems ?? []) {
+			this.compositeBar.addComposite({ id: item.id, name: item.name, order: item.order, requestedIndex: undefined });
+			this.compositeBar.pin(item.id);
+		}
+	}
+
+
+
+
 
 	private createCompositeBar(cachedItems: ICompositeBarItem[]) {
 		return this._register(this.instantiationService.createInstance(CompositeBar, cachedItems, {
@@ -155,13 +169,18 @@ export class PaneCompositeBar extends Disposable {
 			compositeSize: this.options.compositeSize,
 			overflowActionSize: this.options.overflowActionSize,
 			colors: theme => this.options.colors(theme),
+			isCompositeDraggable: compositeId => !this.options.extraCompositeItems?.some(item => item.id === compositeId),
 		}));
 	}
 
 	private getContextMenuActionsForComposite(compositeId: string): IAction[] {
 		const actions: IAction[] = [new Separator()];
 
-		const viewContainer = this.viewDescriptorService.getViewContainerById(compositeId)!;
+		const viewContainer = this.viewDescriptorService.getViewContainerById(compositeId);
+		if (!viewContainer) {
+			return actions; // extra composite items do not support moving/resetting
+		}
+
 		const defaultLocation = this.viewDescriptorService.getDefaultViewContainerLocation(viewContainer)!;
 		const currentLocation = this.viewDescriptorService.getViewContainerLocation(viewContainer);
 
@@ -272,6 +291,11 @@ export class PaneCompositeBar extends Disposable {
 
 		// show/hide/remove composites
 		for (const { id } of this.cachedViewContainers) {
+			// Extra composite items are not persisted and are always recreated by code.
+			if (this.options.extraCompositeItems?.some(item => item.id === id)) {
+				continue;
+			}
+
 			const viewContainer = this.getViewContainer(id);
 			if (viewContainer) {
 				this.showOrHideViewContainer(viewContainer);
@@ -286,6 +310,7 @@ export class PaneCompositeBar extends Disposable {
 
 		this.saveCachedViewContainers();
 	}
+
 
 	private onDidViewContainerVisible(id: string): void {
 		const viewContainer = this.getViewContainer(id);
@@ -309,10 +334,12 @@ export class PaneCompositeBar extends Disposable {
 		return this.compositeBar.create(parent);
 	}
 
-	private getCompositeActions(compositeId: string): { activityAction: ViewContainerActivityAction; pinnedAction: ToggleCompositePinnedAction; badgeAction: ToggleCompositeBadgeAction } {
+	private getCompositeActions(compositeId: string): { activityAction: CompositeBarAction; pinnedAction: ToggleCompositePinnedAction; badgeAction: ToggleCompositeBadgeAction } {
 		let compositeActions = this.compositeActions.get(compositeId);
 		if (!compositeActions) {
 			const viewContainer = this.getViewContainer(compositeId);
+
+
 			if (viewContainer) {
 				const viewContainerModel = this.viewDescriptorService.getViewContainerModel(viewContainer);
 				compositeActions = {
@@ -321,12 +348,21 @@ export class PaneCompositeBar extends Disposable {
 					badgeAction: this._register(new ToggleCompositeBadgeAction(this.toCompositeBarActionItemFrom(viewContainerModel), this.compositeBar))
 				};
 			} else {
-				const cachedComposite = this.cachedViewContainers.filter(c => c.id === compositeId)[0];
-				compositeActions = {
-					activityAction: this._register(this.instantiationService.createInstance(PlaceHolderViewContainerActivityAction, this.toCompositeBarActionItem(compositeId, cachedComposite?.name ?? compositeId, cachedComposite?.icon, undefined), this.part, this.paneCompositePart)),
-					pinnedAction: this._register(new PlaceHolderToggleCompositePinnedAction(compositeId, this.compositeBar)),
-					badgeAction: this._register(new PlaceHolderToggleCompositeBadgeAction(compositeId, this.compositeBar))
-				};
+				const extraItem = this.options.extraCompositeItems?.find(item => item.id === compositeId);
+				if (extraItem) {
+					compositeActions = {
+						activityAction: this._register(this.instantiationService.createInstance(OpenViewContainerActivityAction, this.toCompositeBarActionItem(extraItem.id, extraItem.name, extraItem.icon, undefined), extraItem.targetViewContainerId)),
+						pinnedAction: this._register(new ToggleCompositePinnedAction(this.toCompositeBarActionItem(extraItem.id, extraItem.name, extraItem.icon, undefined), this.compositeBar)),
+						badgeAction: this._register(new ToggleCompositeBadgeAction(this.toCompositeBarActionItem(extraItem.id, extraItem.name, extraItem.icon, undefined), this.compositeBar))
+					};
+				} else {
+					const cachedComposite = this.cachedViewContainers.filter(c => c.id === compositeId)[0];
+					compositeActions = {
+						activityAction: this._register(this.instantiationService.createInstance(PlaceHolderViewContainerActivityAction, this.toCompositeBarActionItem(compositeId, cachedComposite?.name ?? compositeId, cachedComposite?.icon, undefined), this.part, this.paneCompositePart)),
+						pinnedAction: this._register(new PlaceHolderToggleCompositePinnedAction(compositeId, this.compositeBar)),
+						badgeAction: this._register(new PlaceHolderToggleCompositeBadgeAction(compositeId, this.compositeBar))
+					};
+				}
 			}
 
 			this.compositeActions.set(compositeId, compositeActions);
@@ -540,6 +576,11 @@ export class PaneCompositeBar extends Disposable {
 		const compositeItems = this.compositeBar.getCompositeBarItems();
 
 		for (const cachedViewContainer of this.cachedViewContainers) {
+			// Skip extra composite items: they are not persisted and are always recreated by code.
+			if (this.options.extraCompositeItems?.some(item => item.id === cachedViewContainer.id)) {
+				continue;
+			}
+
 			newCompositeItems.push({
 				id: cachedViewContainer.id,
 				name: cachedViewContainer.name,
@@ -548,6 +589,7 @@ export class PaneCompositeBar extends Disposable {
 				visible: cachedViewContainer.visible && !!this.getViewContainer(cachedViewContainer.id),
 			});
 		}
+
 
 		for (const viewContainer of this.getViewContainers()) {
 			// Add missing view containers
@@ -578,7 +620,19 @@ export class PaneCompositeBar extends Disposable {
 			for (const compositeItem of compositeItems) {
 				const newCompositeItem = newCompositeItems.find(({ id }) => id === compositeItem.id);
 				if (!newCompositeItem) {
-					newCompositeItems.push(compositeItem);
+					if (this.options.extraCompositeItems?.some(item => item.id === compositeItem.id)) {
+						// Insert extra items according to their order so they stay in the
+						// intended position without disturbing the user's drag order of real
+						// view containers.
+						const order = compositeItem.order ?? Infinity;
+						let index = 0;
+						while (index < newCompositeItems.length && (newCompositeItems[index].order ?? Infinity) <= order) {
+							index++;
+						}
+						newCompositeItems.splice(index, 0, compositeItem);
+					} else {
+						newCompositeItems.push(compositeItem);
+					}
 				}
 			}
 		}
@@ -586,11 +640,17 @@ export class PaneCompositeBar extends Disposable {
 		this.compositeBar.setCompositeBarItems(newCompositeItems);
 	}
 
+
+
 	private saveCachedViewContainers(): void {
 		const state: ICachedViewContainer[] = [];
 
 		const compositeItems = this.compositeBar.getCompositeBarItems();
 		for (const compositeItem of compositeItems) {
+			if (this.options.extraCompositeItems?.some(item => item.id === compositeItem.id)) {
+				continue; // extra items are not persisted and always recreated by code
+			}
+
 			const viewContainer = this.getViewContainer(compositeItem.id);
 			if (viewContainer) {
 				const viewContainerModel = this.viewDescriptorService.getViewContainerModel(viewContainer);
@@ -642,8 +702,9 @@ export class PaneCompositeBar extends Disposable {
 			}
 		}
 
-		return this._cachedViewContainers;
+		return this._cachedViewContainers.filter(cached => !this.options.extraCompositeItems?.some(item => item.id === cached.id));
 	}
+
 
 	private storeCachedViewContainersState(cachedViewContainers: ICachedViewContainer[]): void {
 		const pinnedViewContainers = this.getPinnedViewContainers();
@@ -766,6 +827,28 @@ export class PaneCompositeBar extends Disposable {
 	}
 }
 
+/**
+ * Activity action that opens a view container in any location (not necessarily
+ * the current pane composite part). Used for extra composite items such as a
+ * launcher pinned to the Activity Bar that opens a container in the Auxiliary Bar.
+ */
+class OpenViewContainerActivityAction extends CompositeBarAction {
+
+	constructor(
+		compositeBarActionItem: ICompositeBarActionItem,
+		private readonly targetViewContainerId: string | undefined,
+		@IViewsService private readonly viewService: IViewsService,
+	) {
+		super(compositeBarActionItem);
+	}
+
+	override async run(): Promise<void> {
+		if (this.targetViewContainerId) {
+			await this.viewService.openViewContainer(this.targetViewContainerId, true);
+		}
+	}
+}
+
 class ViewContainerActivityAction extends CompositeBarAction {
 
 	private static readonly preventDoubleClickDelay = 300;
@@ -790,9 +873,10 @@ class ViewContainerActivityAction extends CompositeBarAction {
 		}));
 	}
 
-	updateCompositeBarActionItem(compositeBarActionItem: ICompositeBarActionItem): void {
+	override updateCompositeBarActionItem(compositeBarActionItem: ICompositeBarActionItem): void {
 		this.compositeBarActionItem = compositeBarActionItem;
 	}
+
 
 	private updateActivity(): void {
 		const activities = this.activityService.getViewContainerActivities(this.compositeBarActionItem.id);
