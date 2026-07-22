@@ -9,9 +9,9 @@ import { IEditorPaneRegistry, EditorPaneDescriptor } from '../../editor.js';
 import { IEditorFactoryRegistry, EditorExtensions } from '../../../common/editor.js';
 import {
 	TextCompareEditorActiveContext, ActiveEditorPinnedContext, EditorGroupEditorsCountContext, ActiveEditorStickyContext, ActiveEditorAvailableEditorIdsContext,
-	EditorPartMultipleEditorGroupsContext, ActiveEditorDirtyContext, ActiveEditorGroupLockedContext, ActiveEditorCanSplitInGroupContext, SideBySideEditorActiveContext,
+	EditorPartMultipleEditorGroupsContext, ActiveEditorGroupLockedContext, ActiveEditorCanSplitInGroupContext, SideBySideEditorActiveContext,
 	EditorTabsVisibleContext, ActiveEditorLastInGroupContext, EditorPartMaximizedEditorGroupContext, MultipleEditorGroupsContext, InEditorZenModeContext,
-	IsAuxiliaryEditorPartContext, ActiveCompareEditorCanSwapContext, MultipleEditorsSelectedInGroupContext
+	IsAuxiliaryEditorPartContext, ActiveCompareEditorCanSwapContext, MultipleEditorsSelectedInGroupContext, ActiveEditorGroupEmptyContext
 } from '../../../common/contextkeys.js';
 import { SideBySideEditorInput, SideBySideEditorInputSerializer } from '../../../common/editor/sideBySideEditorInput.js';
 import { TextResourceEditor } from './textResourceEditor.js';
@@ -353,7 +353,6 @@ if (isMacintosh) {
 // Empty Editor Group Toolbar
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroup, { command: { id: LOCK_GROUP_COMMAND_ID, title: localize('lockGroupAction', "Lock Group"), icon: Codicon.unlock }, group: 'navigation', order: 10, when: ContextKeyExpr.and(IsAuxiliaryEditorPartContext, ActiveEditorGroupLockedContext.toNegated()) });
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroup, { command: { id: UNLOCK_GROUP_COMMAND_ID, title: localize('unlockGroupAction', "Unlock Group"), icon: Codicon.lock, toggled: ContextKeyExpr.true() }, group: 'navigation', order: 10, when: ActiveEditorGroupLockedContext });
-MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroup, { command: { id: CLOSE_EDITOR_GROUP_COMMAND_ID, title: localize('closeGroupAction', "Close Group"), icon: Codicon.close }, group: 'navigation', order: 20, when: ContextKeyExpr.or(IsAuxiliaryEditorPartContext, EditorPartMultipleEditorGroupsContext) });
 
 // Empty Editor Group Context Menu
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: SPLIT_EDITOR_UP, title: localize('splitUp', "Split Up") }, group: '2_split', order: 10 });
@@ -362,7 +361,7 @@ MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: SPL
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: SPLIT_EDITOR_RIGHT, title: localize('splitRight', "Split Right") }, group: '2_split', order: 40 });
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: NEW_EMPTY_EDITOR_WINDOW_COMMAND_ID, title: localize('newWindow', "New Window") }, group: '3_window', order: 10 });
 MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: TOGGLE_LOCK_GROUP_COMMAND_ID, title: localize('toggleLockGroup', "Lock Group"), toggled: ActiveEditorGroupLockedContext }, group: '4_lock', order: 10, when: IsAuxiliaryEditorPartContext.toNegated() /* already a primary action for aux windows */ });
-MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: CLOSE_EDITOR_GROUP_COMMAND_ID, title: localize('close', "Close") }, group: '5_close', order: 10, when: MultipleEditorGroupsContext });
+MenuRegistry.appendMenuItem(MenuId.EmptyEditorGroupContext, { command: { id: CLOSE_EDITOR_GROUP_COMMAND_ID, title: localize('close', "Close") }, group: '5_close', order: 10, when: ContextKeyExpr.or(IsAuxiliaryEditorPartContext.toNegated(), EditorPartMultipleEditorGroupsContext) });
 
 // Editor Tab Container Context Menu
 MenuRegistry.appendMenuItem(MenuId.EditorTabsBarContext, { command: { id: SPLIT_EDITOR_UP, title: localize('splitUp', "Split Up") }, group: '2_split', order: 10 });
@@ -447,7 +446,6 @@ function appendEditorToolItem(primary: ICommandAction, when: ContextKeyExpressio
 }
 
 const SPLIT_ORDER = 100000;  // towards the end
-const CLOSE_ORDER = 1000000; // towards the far end
 
 // Editor Title Menu: Split Editor
 appendEditorToolItem(
@@ -491,70 +489,6 @@ appendEditorToolItem(
 	SPLIT_ORDER - 1, // left to split actions
 );
 
-// Editor Title Menu: Close (tabs disabled, normal editor)
-appendEditorToolItem(
-	{
-		id: CLOSE_EDITOR_COMMAND_ID,
-		title: localize('close', "Close"),
-		icon: Codicon.close
-	},
-	ContextKeyExpr.and(EditorTabsVisibleContext.toNegated(), ActiveEditorDirtyContext.toNegated(), ActiveEditorStickyContext.toNegated()),
-	CLOSE_ORDER,
-	{
-		id: CLOSE_EDITORS_IN_GROUP_COMMAND_ID,
-		title: localize('closeAll', "Close All"),
-		icon: Codicon.closeAll
-	}
-);
-
-// Editor Title Menu: Close (tabs disabled, dirty editor)
-appendEditorToolItem(
-	{
-		id: CLOSE_EDITOR_COMMAND_ID,
-		title: localize('close', "Close"),
-		icon: Codicon.closeDirty
-	},
-	ContextKeyExpr.and(EditorTabsVisibleContext.toNegated(), ActiveEditorDirtyContext, ActiveEditorStickyContext.toNegated()),
-	CLOSE_ORDER,
-	{
-		id: CLOSE_EDITORS_IN_GROUP_COMMAND_ID,
-		title: localize('closeAll', "Close All"),
-		icon: Codicon.closeAll
-	}
-);
-
-// Editor Title Menu: Close (tabs disabled, sticky editor)
-appendEditorToolItem(
-	{
-		id: UNPIN_EDITOR_COMMAND_ID,
-		title: localize('unpin', "Unpin"),
-		icon: Codicon.pinned
-	},
-	ContextKeyExpr.and(EditorTabsVisibleContext.toNegated(), ActiveEditorDirtyContext.toNegated(), ActiveEditorStickyContext),
-	CLOSE_ORDER,
-	{
-		id: CLOSE_EDITOR_COMMAND_ID,
-		title: localize('close', "Close"),
-		icon: Codicon.close
-	}
-);
-
-// Editor Title Menu: Close (tabs disabled, dirty & sticky editor)
-appendEditorToolItem(
-	{
-		id: UNPIN_EDITOR_COMMAND_ID,
-		title: localize('unpin', "Unpin"),
-		icon: Codicon.pinnedDirty
-	},
-	ContextKeyExpr.and(EditorTabsVisibleContext.toNegated(), ActiveEditorDirtyContext, ActiveEditorStickyContext),
-	CLOSE_ORDER,
-	{
-		id: CLOSE_EDITOR_COMMAND_ID,
-		title: localize('close', "Close"),
-		icon: Codicon.close
-	}
-);
-
 // Lock Group: only on auxiliary window and when group is unlocked
 appendEditorToolItem(
 	{
@@ -563,7 +497,7 @@ appendEditorToolItem(
 		icon: Codicon.unlock
 	},
 	ContextKeyExpr.and(IsAuxiliaryEditorPartContext, ActiveEditorGroupLockedContext.toNegated()),
-	CLOSE_ORDER - 1, // immediately to the left of close action
+	SPLIT_ORDER + 1, // right of split actions
 );
 
 // Unlock Group: only when group is locked
@@ -575,7 +509,7 @@ appendEditorToolItem(
 		toggled: ContextKeyExpr.true()
 	},
 	ActiveEditorGroupLockedContext,
-	CLOSE_ORDER - 1, // immediately to the left of close action
+	SPLIT_ORDER + 1, // right of split actions
 );
 
 // Diff Editor Title Menu: Previous Change
@@ -638,6 +572,7 @@ MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: KEEP_EDITOR_
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: PIN_EDITOR_COMMAND_ID, title: localize2('pinEditor', 'Pin Editor'), category: Categories.View } });
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: UNPIN_EDITOR_COMMAND_ID, title: localize2('unpinEditor', 'Unpin Editor'), category: Categories.View } });
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: CLOSE_EDITOR_COMMAND_ID, title: localize2('closeEditor', 'Close Editor'), category: Categories.View } });
+MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: CLOSE_EDITOR_GROUP_COMMAND_ID, title: localize2('closeEditorGroup', 'Close Editor Group'), category: Categories.View }, when: ActiveEditorGroupEmptyContext });
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: CLOSE_PINNED_EDITOR_COMMAND_ID, title: localize2('closePinnedEditor', 'Close Pinned Editor'), category: Categories.View } });
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: CLOSE_EDITORS_IN_GROUP_COMMAND_ID, title: localize2('closeEditorsInGroup', 'Close All Editors in Group'), category: Categories.View } });
 MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command: { id: CLOSE_SAVED_EDITORS_COMMAND_ID, title: localize2('closeSavedEditors', 'Close Saved Editors in Group'), category: Categories.View } });

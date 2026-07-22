@@ -22,7 +22,7 @@ import { IPaneCompositePartService } from '../../services/panecomposite/browser/
 import { ToggleAuxiliaryBarAction } from '../parts/auxiliarybar/auxiliaryBarActions.js';
 import { TogglePanelAction } from '../parts/panel/panelActions.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
-import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelVisibleContext, SideBarVisibleContext, FocusedViewContext, InEditorZenModeContext, IsMainEditorCenteredLayoutContext, MainEditorAreaVisibleContext, IsMainWindowFullscreenContext, PanelPositionContext, IsAuxiliaryWindowFocusedContext, TitleBarStyleContext } from '../../common/contextkeys.js';
+import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelVisibleContext, SideBarVisibleContext, FocusedViewContext, InEditorZenModeContext, IsMainEditorCenteredLayoutContext, MainEditorAreaVisibleContext, IsMainWindowFullscreenContext, PanelPositionContext, IsAuxiliaryWindowFocusedContext, TitleBarStyleContext, IsAuxiliaryEditorPartContext } from '../../common/contextkeys.js';
 import { Codicon } from '../../../base/common/codicons.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
@@ -306,6 +306,32 @@ MenuRegistry.appendMenuItem(MenuId.MenubarViewMenu, {
 	title: localize({ key: 'miAppearance', comment: ['&& denotes a mnemonic'] }, "&&Appearance"),
 	submenu: MenuId.MenubarAppearanceMenu,
 	order: 1
+});
+
+registerAction2(class extends Action2 {
+
+	constructor() {
+		super({
+			id: 'workbench.action.toggleEditorPartVisibility',
+			title: localize2('toggleEditorPartVisibility', "Toggle Editor Area Visibility"),
+			category: Categories.View,
+			f1: true,
+			icon: Codicon.close,
+			menu: {
+				id: MenuId.EditorTitle,
+				group: 'navigation',
+				order: 2147483647, // ensure this is the last (right-most) action in the editor title
+				when: ContextKeyExpr.and(MainEditorAreaVisibleContext, IsAuxiliaryEditorPartContext.toNegated())
+			}
+
+		});
+	}
+
+	run(accessor: ServicesAccessor): void {
+		const layoutService = accessor.get(IWorkbenchLayoutService);
+		const isVisible = layoutService.isVisible(Parts.EDITOR_PART, mainWindow);
+		layoutService.setPartHidden(isVisible, Parts.EDITOR_PART, mainWindow);
+	}
 });
 
 // Toggle Sidebar Visibility

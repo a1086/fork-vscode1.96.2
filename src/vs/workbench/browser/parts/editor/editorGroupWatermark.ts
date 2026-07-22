@@ -9,14 +9,16 @@ import { isMacintosh, isWeb, OS } from '../../../../base/common/platform.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { append, clearNode, $, h } from '../../../../base/browser/dom.js';
+import { append, clearNode, $, h, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
 import { KeybindingLabel } from '../../../../base/browser/ui/keybindingLabel/keybindingLabel.js';
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ContextKeyExpr, ContextKeyExpression, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { defaultKeybindingLabelStyles } from '../../../../platform/theme/browser/defaultStyles.js';
 import { editorForeground, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
-import { IStorageService, StorageScope, StorageTarget, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
 import { coalesce, shuffle } from '../../../../base/common/arrays.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { IStorageService, StorageScope, StorageTarget, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
 
 interface WatermarkEntry {
 	readonly id: string;
@@ -86,7 +88,8 @@ export class EditorGroupWatermark extends Disposable {
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IStorageService private readonly storageService: IStorageService
+		@IStorageService private readonly storageService: IStorageService,
+		@ICommandService private readonly commandService: ICommandService
 	) {
 		super();
 
@@ -97,6 +100,18 @@ export class EditorGroupWatermark extends Disposable {
 
 		append(container, elements.root);
 		this.shortcuts = elements.shortcuts;
+
+		// Add a close button in the top-right corner of the editor group container
+		// to make it easy to hide the main editor area when empty.
+		const closeButton = append(container, $('.editor-group-close-button'));
+		closeButton.classList.add(...ThemeIcon.asClassNameArray(Codicon.close));
+		closeButton.title = localize('closeEditorGroup', "Close Editor Group");
+		closeButton.setAttribute('role', 'button');
+		closeButton.setAttribute('tabindex', '0');
+		closeButton.setAttribute('aria-label', localize('closeEditorGroup', "Close Editor Group"));
+		this._register(addDisposableListener(closeButton, EventType.CLICK, () => {
+			this.commandService.executeCommand('workbench.action.closeGroup');
+		}));
 
 		this.registerListeners();
 

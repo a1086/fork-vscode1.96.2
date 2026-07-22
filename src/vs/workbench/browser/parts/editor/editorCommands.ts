@@ -27,7 +27,7 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { ActiveGroupEditorsByMostRecentlyUsedQuickAccess } from './editorQuickAccess.js';
 import { SideBySideEditor } from './sideBySideEditor.js';
 import { TextDiffEditor } from './textDiffEditor.js';
-import { ActiveEditorCanSplitInGroupContext, ActiveEditorGroupEmptyContext, ActiveEditorGroupLockedContext, ActiveEditorStickyContext, MultipleEditorGroupsContext, SideBySideEditorActiveContext, TextCompareEditorActiveContext } from '../../../common/contextkeys.js';
+import { ActiveEditorCanSplitInGroupContext, ActiveEditorGroupEmptyContext, ActiveEditorGroupLockedContext, ActiveEditorStickyContext, SideBySideEditorActiveContext, TextCompareEditorActiveContext } from '../../../common/contextkeys.js';
 import { CloseDirection, EditorInputCapabilities, EditorsOrder, IResourceDiffEditorInput, IUntitledTextResourceEditorInput, IVisibleEditorPane, isEditorInputWithOptionsAndGroup } from '../../../common/editor.js';
 import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -36,6 +36,8 @@ import { EditorGroupColumn, columnToEditorGroup } from '../../../services/editor
 import { EditorGroupLayout, GroupDirection, GroupLocation, GroupsOrder, IEditorGroup, IEditorGroupsService, IEditorReplacement, preferredSideBySideGroupDirection } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorResolverService } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
 import { DIFF_FOCUS_OTHER_SIDE, DIFF_FOCUS_PRIMARY_SIDE, DIFF_FOCUS_SECONDARY_SIDE, DIFF_OPEN_SIDE, registerDiffEditorCommands } from './diffEditorCommands.js';
@@ -102,7 +104,6 @@ export const API_OPEN_WITH_EDITOR_COMMAND_ID = '_workbench.openWith';
 
 export const EDITOR_CORE_NAVIGATION_COMMANDS = [
 	SPLIT_EDITOR,
-	CLOSE_EDITOR_COMMAND_ID,
 	UNPIN_EDITOR_COMMAND_ID,
 	UNLOCK_GROUP_COMMAND_ID,
 	TOGGLE_MAXIMIZE_EDITOR_GROUP
@@ -752,7 +753,7 @@ function registerCloseEditorCommands() {
 	KeybindingsRegistry.registerCommandAndKeybindingRule({
 		id: CLOSE_EDITOR_COMMAND_ID,
 		weight: KeybindingWeight.WorkbenchContrib,
-		when: undefined,
+		when: ActiveEditorGroupEmptyContext.toNegated(),
 		primary: KeyMod.CtrlCmd | KeyCode.KeyW,
 		win: { primary: KeyMod.CtrlCmd | KeyCode.F4, secondary: [KeyMod.CtrlCmd | KeyCode.KeyW] },
 		handler: (accessor, ...args: unknown[]) => {
@@ -769,18 +770,45 @@ function registerCloseEditorCommands() {
 		weight: KeybindingWeight.WorkbenchContrib,
 		when: undefined,
 		primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyCode.KeyW),
-		handler: (accessor, ...args: unknown[]) => {
-			const resolvedContext = resolveCommandsContext(args, accessor.get(IEditorService), accessor.get(IEditorGroupsService), accessor.get(IListService));
-			return Promise.all(resolvedContext.groupedEditors.map(async ({ group }) => {
+		handler: async (accessor, ...args: unknown[]) => {
+			// IMPORTANT: resolve every service we need up-front. The `accessor`
+			// is only valid synchronously during this callback; using it after
+			// an `await` is not allowed and would throw/no-op. That is why an
+			// earlier attempt to hide the editor area after awaiting the close
+			// had no effect.
+			const editorGroupsService = accessor.get(IEditorGroupsService);
+			const layoutService = accessor.get(IWorkbenchLayoutService);
+			const resolvedContext = resolveCommandsContext(args, accessor.get(IEditorService), editorGroupsService, accessor.get(IListService));
+
+			// Remember whether the operation touches the main editor part, so
+			// that afterwards we only consider hiding the (main window) editor
+			// area when it was actually the target. Closing editors in an
+			// auxiliary window must not hide the main window's editor area.
+			const mainPart = editorGroupsService.mainPart;
+			const affectsMainPart = resolvedContext.groupedEditors.some(({ group }) => editorGroupsService.getPart(group) === mainPart);
+
+			await Promise.all(resolvedContext.groupedEditors.map(async ({ group }) => {
 				await group.closeAllEditors({ excludeSticky: true });
 			}));
+
+			// After closing all editors, if every group in the main editor part
+			// is now empty, also hide the main editor area so that both the
+			// editors and the editor area are dismissed together (Ctrl+K W).
+			// Sticky editors are excluded above, so a group that still holds a
+			// sticky editor keeps the editor area visible as expected.
+			if (affectsMainPart && mainPart.groups.every(group => group.isEmpty)) {
+				layoutService.setPartHidden(true, Parts.EDITOR_PART, mainWindow);
+			}
 		}
 	});
+
+
+
 
 	KeybindingsRegistry.registerCommandAndKeybindingRule({
 		id: CLOSE_EDITOR_GROUP_COMMAND_ID,
 		weight: KeybindingWeight.WorkbenchContrib,
-		when: ContextKeyExpr.and(ActiveEditorGroupEmptyContext, MultipleEditorGroupsContext),
+		when: ActiveEditorGroupEmptyContext,
 		primary: KeyMod.CtrlCmd | KeyCode.KeyW,
 		win: { primary: KeyMod.CtrlCmd | KeyCode.F4, secondary: [KeyMod.CtrlCmd | KeyCode.KeyW] },
 		handler: (accessor, ...args: unknown[]) => {
@@ -788,7 +816,18 @@ function registerCloseEditorCommands() {
 			const commandsContext = resolveCommandsContext(args, accessor.get(IEditorService), editorGroupsService, accessor.get(IListService));
 
 			if (commandsContext.groupedEditors.length) {
-				editorGroupsService.removeGroup(commandsContext.groupedEditors[0].group);
+				const group = commandsContext.groupedEditors[0].group;
+				const part = editorGroupsService.getPart(group);
+
+				// When the last empty group in the main editor part is closed,
+				// hide the main editor area instead of removing the group so that
+				// it can be restored once an editor is opened again.
+				if (part === editorGroupsService.mainPart && part.count === 1 && group.isEmpty) {
+					const layoutService = accessor.get(IWorkbenchLayoutService);
+					layoutService.setPartHidden(true, Parts.EDITOR_PART, mainWindow);
+				} else {
+					editorGroupsService.removeGroup(group);
+				}
 			}
 		}
 	});
