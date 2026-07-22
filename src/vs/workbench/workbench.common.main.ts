@@ -332,6 +332,9 @@ import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
 import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
 import './contrib/welcomeViews/common/newFile.contribution.js';
 
+// View in Editor (P0 spike: drag views like OUTLINE/PROBLEMS into the editor area)
+import './contrib/viewInEditor/browser/viewInEditor.contribution.js';
+
 // Call Hierarchy
 import './contrib/callHierarchy/browser/callHierarchy.contribution.js';
 

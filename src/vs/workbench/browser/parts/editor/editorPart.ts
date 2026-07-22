@@ -29,7 +29,8 @@ import { DeepPartial, assertIsDefined, assertType } from '../../../../base/commo
 import { CompositeDragAndDropObserver } from '../../dnd.js';
 import { DeferredPromise, Promises } from '../../../../base/common/async.js';
 import { findGroup } from '../../../services/editor/common/editorGroupFinder.js';
-import { SIDE_GROUP } from '../../../services/editor/common/editorService.js';
+import { SIDE_GROUP, IEditorService } from '../../../services/editor/common/editorService.js';
+import { ViewEditorInput } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
 import { IBoundarySashes } from '../../../../base/browser/ui/sash/sash.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
@@ -1084,6 +1085,16 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerTarget(overlay, {
 			onDragOver: e => {
+				// Allow dropping a workbench view into the editor area (P0 spike)
+				const dragData = e.dragAndDropData?.getData();
+				if (dragData && dragData.type === 'view') {
+					EventHelper.stop(e.eventData, true);
+					if (e.eventData.dataTransfer) {
+						e.eventData.dataTransfer.dropEffect = 'copy';
+					}
+					return;
+				}
+
 				EventHelper.stop(e.eventData, true);
 				if (e.eventData.dataTransfer) {
 					e.eventData.dataTransfer.dropEffect = 'none';
@@ -1132,7 +1143,17 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 			},
 			onDragLeave: () => clearAllTimeouts(),
 			onDragEnd: () => clearAllTimeouts(),
-			onDrop: () => clearAllTimeouts()
+			onDrop: e => {
+				clearAllTimeouts();
+
+				// Drop a workbench view into the editor area (P0 spike)
+				const dragData = e.dragAndDropData?.getData();
+				if (dragData && dragData.type === 'view') {
+					EventHelper.stop(e.eventData, true);
+					const viewId = dragData.id;
+					this.instantiationService.invokeFunction(accessor => accessor.get(IEditorService).openEditor(this.instantiationService.createInstance(ViewEditorInput, viewId)));
+				}
+			}
 		}));
 	}
 
