@@ -84,23 +84,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	) {
 		super(
 			Parts.PANEL_PART,
-			{
-				hasTitle: true,
-				borderWidth: () => {
-					const position = this.layoutService.getPanelPosition();
-					const horizontal = position === Position.LEFT || position === Position.RIGHT;
-					const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
-					if (spacingColor && horizontal) {
-						return PART_SPACING_SIZE;
-					}
-					if (!spacingColor && horizontal && (this.getColor(PANEL_BORDER) || this.getColor(contrastBorder))) {
-						return 1;
-					}
-					// Top/Bottom panels have no horizontal border; their vertical gap is
-					// accounted for in layout() because PartLayout does not reserve it.
-					return 0;
-				}
-			},
+			{ hasTitle: true },
 			PanelPart.activePanelSettingsKey,
 			ActivePanelContext.bindTo(contextKeyService),
 			PanelFocusContext.bindTo(contextKeyService),
@@ -134,17 +118,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 		const container = assertIsDefined(this.getContainer());
 		container.style.backgroundColor = this.getColor(PANEL_BACKGROUND) || '';
-
-		const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
-		const borderColor = spacingColor || this.getColor(PANEL_BORDER) || this.getColor(contrastBorder) || '';
-		container.style.setProperty('--vscode-part-panel-border-width', spacingColor ? `${PART_SPACING_SIZE}px` : '1px');
+		const borderColor = this.getColor(PANEL_BORDER) || this.getColor(contrastBorder) || '';
 		container.style.borderLeftColor = borderColor;
 		container.style.borderRightColor = borderColor;
 		container.style.borderBottomColor = borderColor;
 
 		const title = this.getTitleArea();
 		if (title) {
-			title.style.borderTopColor = borderColor;
+			title.style.borderTopColor = this.getColor(PANEL_BORDER) || this.getColor(contrastBorder) || '';
 		}
 	}
 
@@ -209,18 +190,13 @@ export class PanelPart extends AbstractPaneCompositePart {
 	}
 
 	override layout(width: number, height: number, top: number, left: number): void {
-		const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
-		const position = this.layoutService.getPanelPosition();
 		let dimensions: Dimension;
-		switch (position) {
+		switch (this.layoutService.getPanelPosition()) {
 			case Position.RIGHT:
-				// Horizontal gap is reserved via borderWidth(); keep legacy 1px compensation.
-				dimensions = new Dimension(width - 1, height);
+				dimensions = new Dimension(width - 1, height); // Take into account the 1px border when layouting
 				break;
 			case Position.TOP:
-			case Position.BOTTOM:
-				// Vertical gap (border) is not reserved by PartLayout, so subtract it here.
-				dimensions = new Dimension(width, height - (spacingColor ? PART_SPACING_SIZE : 1));
+				dimensions = new Dimension(width, height - 1); // Take into account the 1px border when layouting
 				break;
 			default:
 				dimensions = new Dimension(width, height);
