@@ -24,6 +24,15 @@ export function WORKBENCH_BACKGROUND(theme: IColorTheme): Color {
 	}
 }
 
+export const PART_SPACING_SIZE = 6;
+
+export const PART_SPACING_BACKGROUND = registerColor('workbench.partSpacingBackground', {
+	dark: Color.fromHex('#252526'),
+	light: Color.fromHex('#F3F3F3'),
+	hcDark: null,
+	hcLight: null
+}, localize('partSpacingBackground', "Background color of the spacing between workbench parts."));
+
 // < --- Tabs --- >
 
 //#region Tab Background
