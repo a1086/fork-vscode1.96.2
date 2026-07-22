@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (c) Microsoft Corporation. All rights reserved.
- *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *	Copyright (c) Microsoft Corporation. All rights reserved.
+ *	Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 .monaco-workbench .part {
@@ -94,4 +94,35 @@
 	left: 0;
 	top: 33px; /* at the bottom of the 35px height title container */
 	z-index: 5; /* on top of things */
+}
+
+/* Section 14: 4px visual gap between top-level parts (editor / panel / sidebar /
+   auxiliarybar / activitybar / statusbar). Each part gets a 2px transparent border
+   with background-clip: padding-box, so two adjacent parts form a 4px gap and the
+   gap shows the grid background colour set on .monaco-grid-view below. Parts use
+   box-sizing: border-box, so the border does not change their grid size. */
+.monaco-grid-view {
+	background-color: var(--vscode-titleBar-activeBackground, #1e1e1e);
+}
+
+.monaco-workbench .part.editor,
+.monaco-workbench .part.sidebar,
+.monaco-workbench .part.auxiliarybar,
+.monaco-workbench .part.activitybar,
+.monaco-workbench .part.statusbar {
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+/* The panel keeps its original visible borders — its top separator line in
+   particular must remain a real border, not a transparent gap — so it is
+   deliberately excluded from the 4px transparent "card gap" system above. The
+   panel therefore shows its normal 1px borders and has no transparent gap of
+   its own. */
+
+/* The only gap left at the panel's bottom was the status bar's own top
+   transparent border (the status bar still takes part in the gap system). Drop
+   it so the panel is fully flush at the bottom, per the original request. */
+.monaco-workbench .part.statusbar {
+	border-top: none;
 }
