@@ -23,7 +23,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { Disposable, IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment, IStatusbarEntry } from '../../../services/statusbar/browser/statusbar.js';
 import { IMarkerService, MarkerStatistics } from '../../../../platform/markers/common/markers.js';
-import { ViewContainer, IViewContainersRegistry, Extensions as ViewContainerExtensions, ViewContainerLocation, IViewsRegistry } from '../../../common/views.js';
+import { ViewContainer, IViewContainersRegistry, Extensions as ViewContainerExtensions, ViewContainerLocation, IViewsRegistry, IViewDescriptor } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { getVisbileViewContextKey, FocusedViewContext } from '../../../common/contextkeys.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
@@ -120,8 +120,14 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration).registerConfigurat
 				Messages.PROBLEMS_PANEL_CONFIGURATION_COMPARE_ORDER_POSITION,
 			],
 		},
+		'problems.enableProblemsViewHiding': {
+			'description': localize('problems.enableProblemsViewHiding', "Controls whether the Problems view can be hidden from the Views menu. When disabled, the Problems view is always shown."),
+			'type': 'boolean',
+			'default': true
+		},
 	}
 });
+
 
 const markersViewIcon = registerIcon('markers-view-icon', Codicon.warning, localize('markersViewIcon', 'View icon of the markers view.'));
 
@@ -136,23 +142,59 @@ const VIEW_CONTAINER: ViewContainer = Registry.as<IViewContainersRegistry>(ViewC
 	storageId: Markers.MARKERS_VIEW_STORAGE_ID,
 }, ViewContainerLocation.Panel, { doNotRegisterOpenCommand: true });
 
-Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews([{
-	id: Markers.MARKERS_VIEW_ID,
-	containerIcon: markersViewIcon,
-	name: Messages.MARKERS_PANEL_TITLE_PROBLEMS,
-	canToggleVisibility: false,
-	canMoveView: true,
-	ctorDescriptor: new SyncDescriptor(MarkersView),
-	openCommandActionDescriptor: {
-		id: 'workbench.actions.view.problems',
-		mnemonicTitle: localize({ key: 'miMarker', comment: ['&& denotes a mnemonic'] }, "&&Problems"),
-		keybindings: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyM },
-		order: 0,
-	}
-}], VIEW_CONTAINER);
+const markersViewsRegistry = Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry);
+
+function createMarkersViewDescriptor(canToggleVisibility: boolean): IViewDescriptor {
+	return {
+		id: Markers.MARKERS_VIEW_ID,
+		containerIcon: markersViewIcon,
+		name: Messages.MARKERS_PANEL_TITLE_PROBLEMS,
+		canToggleVisibility,
+		canMoveView: true,
+		ctorDescriptor: new SyncDescriptor(MarkersView),
+		openCommandActionDescriptor: {
+			id: 'workbench.actions.view.problems',
+			mnemonicTitle: localize({ key: 'miMarker', comment: ['&& denotes a mnemonic'] }, "&&Problems"),
+			keybindings: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyM },
+			order: 0,
+		}
+	};
+}
+
+// Register with the default (not hideable). The actual state is reconciled by
+// MarkersViewVisibilityContribution based on the `problems.enableProblemsViewHiding` setting.
+let currentMarkersViewDescriptor: IViewDescriptor = createMarkersViewDescriptor(false);
+markersViewsRegistry.registerViews([currentMarkersViewDescriptor], VIEW_CONTAINER);
 
 // workbench
 const workbenchRegistry = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
+
+class MarkersViewVisibilityContribution extends Disposable implements IWorkbenchContribution {
+
+	constructor(
+		@IConfigurationService private readonly configurationService: IConfigurationService
+	) {
+		super();
+		this.updateCanToggleVisibility();
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('problems.enableProblemsViewHiding')) {
+				this.updateCanToggleVisibility();
+			}
+		}));
+	}
+
+	private updateCanToggleVisibility(): void {
+		const canToggleVisibility = this.configurationService.getValue<boolean>('problems.enableProblemsViewHiding') === true;
+		if (currentMarkersViewDescriptor.canToggleVisibility === canToggleVisibility) {
+			return;
+		}
+		markersViewsRegistry.deregisterViews([currentMarkersViewDescriptor], VIEW_CONTAINER);
+		currentMarkersViewDescriptor = createMarkersViewDescriptor(canToggleVisibility);
+		markersViewsRegistry.registerViews([currentMarkersViewDescriptor], VIEW_CONTAINER);
+	}
+}
+
+workbenchRegistry.registerWorkbenchContribution(MarkersViewVisibilityContribution, LifecyclePhase.Restored);
 
 // actions
 registerAction2(class extends ViewAction<IMarkersView> {

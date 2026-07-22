@@ -38,9 +38,23 @@ import { isMacintosh, isWeb } from '../../../../base/common/platform.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { isMouseEvent } from '../../../../base/browser/dom.js';
+import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { workbenchConfigurationNodeBase } from '../../../common/configuration.js';
 
 const explorerViewIcon = registerIcon('explorer-view-icon', Codicon.files, localize('explorerViewIcon', 'View icon of the explorer view.'));
 const openEditorsViewIcon = registerIcon('open-editors-view-icon', Codicon.book, localize('openEditorsIcon', 'View icon of the open editors view.'));
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	...workbenchConfigurationNodeBase,
+	'properties': {
+		'explorer.enableFoldersViewHiding': {
+			'type': 'boolean',
+			'default': true,
+			'description': localize('explorer.enableFoldersViewHiding', "Controls whether the Folders view in the Explorer can be hidden from the Views menu. When disabled, the Folders view is always shown.")
+		}
+	}
+});
+
 
 export class ExplorerViewletViewsContribution extends Disposable implements IWorkbenchContribution {
 
@@ -48,7 +62,8 @@ export class ExplorerViewletViewsContribution extends Disposable implements IWor
 
 	constructor(
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IProgressService progressService: IProgressService
+		@IProgressService progressService: IProgressService,
+		@IConfigurationService private readonly configurationService: IConfigurationService
 	) {
 		super();
 
@@ -57,8 +72,14 @@ export class ExplorerViewletViewsContribution extends Disposable implements IWor
 
 			this._register(workspaceContextService.onDidChangeWorkbenchState(() => this.registerViews()));
 			this._register(workspaceContextService.onDidChangeWorkspaceFolders(() => this.registerViews()));
+			this._register(this.configurationService.onDidChangeConfiguration(e => {
+				if (e.affectsConfiguration('explorer.enableFoldersViewHiding')) {
+					this.registerViews();
+				}
+			}));
 		});
 	}
+
 
 	private registerViews(): void {
 		mark('code/willRegisterExplorerViews');
@@ -144,7 +165,7 @@ export class ExplorerViewletViewsContribution extends Disposable implements IWor
 			ctorDescriptor: new SyncDescriptor(ExplorerView),
 			order: 1,
 			canMoveView: true,
-			canToggleVisibility: false,
+			canToggleVisibility: this.configurationService.getValue<boolean>('explorer.enableFoldersViewHiding') === true,
 			focusCommand: {
 				id: 'workbench.explorer.fileView.focus'
 			}

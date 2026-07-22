@@ -8,6 +8,8 @@ import * as nls from '../../../../nls.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { asCssVariable, foreground } from '../../../../platform/theme/common/colorRegistry.js';
 import { after, append, $, trackFocus, EventType, addDisposableListener, Dimension, reset, isAncestorOfActiveElement, isActiveElement } from '../../../../base/browser/dom.js';
+import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
+import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { createCSSRule } from '../../../../base/browser/domStylesheets.js';
 import { asCssValueWithDefault, asCSSUrl } from '../../../../base/browser/cssValue.js';
 import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -26,6 +28,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { assertIsDefined, PartialExcept } from '../../../../base/common/types.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { MenuId, Action2, IAction2Options, SubmenuItemAction } from '../../../../platform/actions/common/actions.js';
 import { createActionViewItem } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
 import { parseLinkedText } from '../../../../base/common/linkedText.js';
@@ -449,9 +452,15 @@ export abstract class ViewPane extends Pane implements IView {
 	protected renderHeader(container: HTMLElement): void {
 		this.headerContainer = container;
 
-		this.twistiesContainer = append(container, $(`.twisty-container${ThemeIcon.asCSSSelector(this.getTwistyIcon(this.isExpanded()))}`));
-
 		this.renderHeaderTitle(container, this.title);
+
+		// When the view can be hidden, expose the existing "Hide view" functionality
+		// as a close button in the header that appears on hover/focus. A flex spacer
+		// keeps the actions and close button aligned to the right edge of the header.
+		const canClose = !!this.viewDescriptorService.getViewDescriptorById(this.id)?.canToggleVisibility;
+		if (canClose) {
+			append(container, $('.pane-header-spacer'));
+		}
 
 		const actions = append(container, $('.actions'));
 		actions.classList.toggle('show-always', this.showActions === ViewPaneShowActions.Always);
@@ -470,6 +479,29 @@ export abstract class ViewPane extends Pane implements IView {
 		this.setActions();
 
 		this._register(addDisposableListener(actions, EventType.CLICK, e => e.preventDefault()));
+
+		if (canClose) {
+			const closeButton = append(container, $(`.pane-close-action${ThemeIcon.asCSSSelector(Codicon.close)}`));
+			closeButton.setAttribute('role', 'button');
+			closeButton.setAttribute('tabindex', '0');
+			const closeLabel = nls.localize('closeView', "Close");
+			closeButton.setAttribute('aria-label', closeLabel);
+			this._register(this.hoverService.setupManagedHover(getDefaultHoverDelegate('mouse'), closeButton, closeLabel));
+			const runClose = () => this.instantiationService.invokeFunction(accessor => accessor.get(ICommandService).executeCommand(`${this.id}.removeView`));
+			this._register(addDisposableListener(closeButton, EventType.CLICK, e => {
+				e.stopPropagation();
+				e.preventDefault();
+				runClose();
+			}));
+			this._register(addDisposableListener(closeButton, EventType.KEY_DOWN, e => {
+				const event = new StandardKeyboardEvent(e);
+				if (event.equals(KeyCode.Enter) || event.equals(KeyCode.Space)) {
+					e.stopPropagation();
+					e.preventDefault();
+					runClose();
+				}
+			}));
+		}
 
 		const viewContainerModel = this.viewDescriptorService.getViewContainerByViewId(this.id);
 		if (viewContainerModel) {

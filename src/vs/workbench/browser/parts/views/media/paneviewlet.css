@@ -13,6 +13,7 @@
 
 .monaco-pane-view .pane > .pane-header {
 	position: relative;
+	margin-bottom: 4px;
 }
 
 .monaco-pane-view .pane > .pane-header.not-collapsible .twisty-container {
@@ -84,4 +85,46 @@
 
 .monaco-pane-view .pane:not(.merged-header) .monaco-progress-container {
 	top: 20px;
+}
+
+/* --- Remove twisty arrow and add close button in view headers --- */
+
+/* Twisty arrows are no longer created by ViewPane; keep this as a guard for any
+   other pane headers that still contain a twisty. */
+.monaco-pane-view .pane > .pane-header > .twisty-container {
+	display: none !important;
+}
+
+/* Provide the left padding the twisty used to occupy */
+.monaco-pane-view .pane > .pane-header > .title {
+	margin-left: 8px;
+}
+
+/* Flex spacer pushes actions and close button to the right edge of the header */
+.monaco-pane-view .pane > .pane-header > .pane-header-spacer {
+	flex: 1;
+}
+
+/* Close button that exposes the existing "Hide view" functionality in the header.
+   Hidden by default, shown on hover or keyboard focus (matching the actions toolbar). */
+.monaco-pane-view .pane > .pane-header > .pane-close-action {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-left: 4px;
+	cursor: pointer;
+	opacity: 0.7;
+	flex-shrink: 0;
+}
+
+.monaco-pane-view .pane:hover > .pane-header > .pane-close-action,
+.monaco-pane-view .pane:focus-within > .pane-header > .pane-close-action,
+.monaco-pane-view .pane > .pane-header.focused > .pane-close-action {
+	display: flex;
+}
+
+.monaco-pane-view .pane > .pane-header > .pane-close-action:hover {
+	opacity: 1;
 }
