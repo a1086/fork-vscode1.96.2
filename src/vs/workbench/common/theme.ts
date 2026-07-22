@@ -24,6 +24,15 @@ export function WORKBENCH_BACKGROUND(theme: IColorTheme): Color {
 	}
 }
 
+export const PART_SPACING_SIZE = 6;
+
+export const PART_SPACING_BACKGROUND = registerColor('workbench.partSpacingBackground', {
+	dark: Color.fromHex('#252526'),
+	light: Color.fromHex('#F3F3F3'),
+	hcDark: null,
+	hcLight: null
+}, localize('partSpacingBackground', "Background color of the spacing between workbench parts."));
+
 // < --- Tabs --- >
 
 //#region Tab Background
@@ -308,15 +317,20 @@ export const PANEL_DRAG_AND_DROP_BORDER = registerColor('panel.dropBorder', PANE
 export const PANEL_SECTION_DRAG_AND_DROP_BACKGROUND = registerColor('panelSection.dropBackground', EDITOR_DRAG_AND_DROP_BACKGROUND, localize('panelSectionDragAndDropBackground', "Drag and drop feedback color for the panel sections. The color should have transparency so that the panel sections can still shine through. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
 
 export const PANEL_SECTION_HEADER_BACKGROUND = registerColor('panelSectionHeader.background', {
-	dark: Color.fromHex('#808080').transparent(0.2),
-	light: Color.fromHex('#808080').transparent(0.2),
+	dark: Color.fromHex('#3c3c3c'),
+	light: Color.fromHex('#C0C0C0'),
 	hcDark: null,
 	hcLight: null,
 }, localize('panelSectionHeaderBackground', "Panel section header background color. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
 
 export const PANEL_SECTION_HEADER_FOREGROUND = registerColor('panelSectionHeader.foreground', null, localize('panelSectionHeaderForeground', "Panel section header foreground color. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
 
-export const PANEL_SECTION_HEADER_BORDER = registerColor('panelSectionHeader.border', contrastBorder, localize('panelSectionHeaderBorder', "Panel section header border color used when multiple views are stacked vertically in the panel. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
+export const PANEL_SECTION_HEADER_BORDER = registerColor('panelSectionHeader.border', {
+	dark: Color.fromHex('#4e4e4e'),
+	light: Color.fromHex('#B0B0B0'),
+	hcDark: contrastBorder,
+	hcLight: contrastBorder
+}, localize('panelSectionHeaderBorder', "Panel section header border color used when multiple views are stacked vertically in the panel. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
 
 export const PANEL_SECTION_BORDER = registerColor('panelSection.border', PANEL_BORDER, localize('panelSectionBorder', "Panel section border color used when multiple views are stacked horizontally in the panel. Panels are shown below the editor area and contain views like output and integrated terminal. Panel sections are views nested within the panels."));
 

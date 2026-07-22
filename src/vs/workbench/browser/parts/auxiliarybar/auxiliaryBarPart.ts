@@ -14,7 +14,7 @@ import { IStorageService } from '../../../../platform/storage/common/storage.js'
 import { contrastBorder } from '../../../../platform/theme/common/colorRegistry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ActiveAuxiliaryContext, AuxiliaryBarFocusContext } from '../../../common/contextkeys.js';
-import { ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_TOP_ACTIVE_BORDER, ACTIVITY_BAR_TOP_DRAG_AND_DROP_BORDER, ACTIVITY_BAR_TOP_FOREGROUND, ACTIVITY_BAR_TOP_INACTIVE_FOREGROUND, PANEL_ACTIVE_TITLE_BORDER, PANEL_ACTIVE_TITLE_FOREGROUND, PANEL_DRAG_AND_DROP_BORDER, PANEL_INACTIVE_TITLE_FOREGROUND, SIDE_BAR_BACKGROUND, SIDE_BAR_BORDER, SIDE_BAR_TITLE_BORDER, SIDE_BAR_FOREGROUND } from '../../../common/theme.js';
+import { ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND, ACTIVITY_BAR_TOP_ACTIVE_BORDER, ACTIVITY_BAR_TOP_DRAG_AND_DROP_BORDER, ACTIVITY_BAR_TOP_FOREGROUND, ACTIVITY_BAR_TOP_INACTIVE_FOREGROUND, PANEL_ACTIVE_TITLE_BORDER, PANEL_ACTIVE_TITLE_FOREGROUND, PANEL_DRAG_AND_DROP_BORDER, PANEL_INACTIVE_TITLE_FOREGROUND, SIDE_BAR_BACKGROUND, SIDE_BAR_BORDER, SIDE_BAR_TITLE_BORDER, SIDE_BAR_FOREGROUND, PART_SPACING_SIZE, PART_SPACING_BACKGROUND } from '../../../common/theme.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { ActivityBarPosition, IWorkbenchLayoutService, LayoutSettings, Parts, Position } from '../../../services/layout/browser/layoutService.js';
@@ -93,7 +93,7 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 			Parts.AUXILIARYBAR_PART,
 			{
 				hasTitle: true,
-				borderWidth: () => (this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0,
+				borderWidth: () => this.getColor(PART_SPACING_BACKGROUND) ? PART_SPACING_SIZE : ((this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0),
 			},
 			AuxiliaryBarPart.activePanelSettingsKey,
 			ActiveAuxiliaryContext.bindTo(contextKeyService),
@@ -137,7 +137,9 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 
 		const container = assertIsDefined(this.getContainer());
 		container.style.backgroundColor = this.getColor(SIDE_BAR_BACKGROUND) || '';
-		const borderColor = this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder);
+		const spacingColor = this.getColor(PART_SPACING_BACKGROUND);
+		const borderColor = spacingColor || this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder);
+		const borderWidth = spacingColor ? `${PART_SPACING_SIZE}px` : (borderColor ? '1px' : '0px');
 		const isPositionLeft = this.layoutService.getSideBarPosition() === Position.RIGHT;
 
 		container.style.color = this.getColor(SIDE_BAR_FOREGROUND) || '';
@@ -148,8 +150,8 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 		container.style.borderLeftStyle = borderColor && !isPositionLeft ? 'solid' : 'none';
 		container.style.borderRightStyle = borderColor && isPositionLeft ? 'solid' : 'none';
 
-		container.style.borderLeftWidth = borderColor && !isPositionLeft ? '1px' : '0px';
-		container.style.borderRightWidth = borderColor && isPositionLeft ? '1px' : '0px';
+		container.style.borderLeftWidth = borderColor && !isPositionLeft ? borderWidth : '0px';
+		container.style.borderRightWidth = borderColor && isPositionLeft ? borderWidth : '0px';
 	}
 
 	protected getCompositeBarOptions(): IPaneCompositeBarOptions {
@@ -182,6 +184,7 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 			}),
 			compact: true
 		};
+
 	}
 
 	private fillExtraContextMenuActions(actions: IAction[]): void {

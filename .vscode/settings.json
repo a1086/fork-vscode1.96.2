@@ -171,4 +171,48 @@
 	"eslint.useFlatConfig": true,
 	"editor.occurrencesHighlightDelay": 0,
 	"typescript.experimental.expandableHover": true,
+	"workbench.colorCustomizations": {
+		"[Light+]": {
+			"sideBarSectionHeader.background": "#C0C0C0",
+			"sideBarSectionHeader.border": "#A0A0A0",
+			"panelSectionHeader.background": "#C0C0C0",
+			"panelSectionHeader.border": "#A0A0A0"
+		},
+		"[Light Modern]": {
+			"sideBarSectionHeader.background": "#CCCCCC",
+			"sideBarSectionHeader.border": "#B0B0B0",
+			"panelSectionHeader.background": "#CCCCCC",
+			"panelSectionHeader.border": "#B0B0B0"
+		},
+		"[Light (Visual Studio)]": {
+			"sideBarSectionHeader.background": "#C0C0C0",
+			"sideBarSectionHeader.border": "#A0A0A0",
+			"panelSectionHeader.background": "#C0C0C0",
+			"panelSectionHeader.border": "#A0A0A0"
+		},
+		"[Light High Contrast]": {
+			"sideBarSectionHeader.background": "#C0C0C0",
+			"sideBarSectionHeader.border": "#A0A0A0",
+			"panelSectionHeader.background": "#C0C0C0",
+			"panelSectionHeader.border": "#A0A0A0"
+		},
+		"[Dark+]": {
+			"sideBarSectionHeader.background": "#3c3c3c",
+			"sideBarSectionHeader.border": "#4e4e4e",
+			"panelSectionHeader.background": "#3c3c3c",
+			"panelSectionHeader.border": "#4e4e4e"
+		},
+		"[Dark Modern]": {
+			"sideBarSectionHeader.background": "#3c3c3c",
+			"sideBarSectionHeader.border": "#4e4e4e",
+			"panelSectionHeader.background": "#3c3c3c",
+			"panelSectionHeader.border": "#4e4e4e"
+		},
+		"[Dark (Visual Studio)]": {
+			"sideBarSectionHeader.background": "#3c3c3c",
+			"sideBarSectionHeader.border": "#4e4e4e",
+			"panelSectionHeader.background": "#3c3c3c",
+			"panelSectionHeader.border": "#4e4e4e"
+		}
+	}
 }

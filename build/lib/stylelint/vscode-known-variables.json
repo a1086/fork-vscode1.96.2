@@ -884,6 +884,8 @@
 		"--vscode-repl-line-height",
 		"--vscode-sash-hover-size",
 		"--vscode-sash-size",
+		"--vscode-part-activitybar-border-width",
+		"--vscode-part-panel-border-width",
 		"--vscode-testing-coverage-lineHeight",
 		"--vscode-editorStickyScroll-scrollableWidth",
 		"--vscode-editorStickyScroll-foldingOpacityTransition",
