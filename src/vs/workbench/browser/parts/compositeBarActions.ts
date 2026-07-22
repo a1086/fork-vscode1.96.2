@@ -102,6 +102,10 @@ export class CompositeBarAction extends Action {
 		this._onDidChangeCompositeBarActionItem.fire(this);
 	}
 
+	updateCompositeBarActionItem(compositeBarActionItem: ICompositeBarActionItem): void {
+		this.compositeBarActionItem = compositeBarActionItem;
+	}
+
 	get activities(): IActivity[] {
 		return this._activities;
 	}

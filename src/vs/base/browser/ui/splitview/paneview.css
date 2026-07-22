@@ -29,6 +29,7 @@
 	cursor: pointer;
 	align-items: center;
 	box-sizing: border-box;
+	padding-right: 8px;
 }
 
 .monaco-pane-view .pane > .pane-header.not-collapsible {
@@ -60,7 +61,7 @@
 	margin-right: 8px;
 }
 
-.monaco-pane-view .pane > .pane-header > .actions .action-item {
+.monaco-pane-view .pane > .pane-header > .actions .action-item:not(:last-child) {
 	margin-right: 4px;
 }
 
