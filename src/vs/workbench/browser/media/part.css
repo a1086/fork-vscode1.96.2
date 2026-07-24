@@ -105,14 +105,14 @@
 	background-color: var(--vscode-titleBar-activeBackground, #1e1e1e);
 }
 
-.monaco-workbench .part.editor,
+/* .monaco-workbench .part.editor,
 .monaco-workbench .part.sidebar,
 .monaco-workbench .part.auxiliarybar,
 .monaco-workbench .part.activitybar,
 .monaco-workbench .part.statusbar {
 	border: 2px solid transparent;
 	background-clip: padding-box;
-}
+} */
 
 /* The panel keeps its original visible borders — its top separator line in
    particular must remain a real border, not a transparent gap — so it is
@@ -125,4 +125,8 @@
    it so the panel is fully flush at the bottom, per the original request. */
 .monaco-workbench .part.statusbar {
 	border-top: none;
+}
+
+.monaco-workbench .part.panelbar {
+	border-bottom: none;
 }

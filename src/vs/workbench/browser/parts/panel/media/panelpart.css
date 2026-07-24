@@ -9,7 +9,7 @@
 }
 
 .monaco-workbench .part.panel.bottom .composite.title {
-	border-top-width: var(--vscode-part-panel-border-width, 1px);
+	border-top-width: var(--vscode-part-panel-border-width, 6px);
 	border-top-style: solid;
 }
 
