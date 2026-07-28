@@ -26,7 +26,8 @@ import { HoverPosition } from '../../../base/browser/ui/hover/hoverWidget.js';
 import { URI } from '../../../base/common/uri.js';
 import { badgeBackground, badgeForeground, contrastBorder } from '../../../platform/theme/common/colorRegistry.js';
 import { Action2, IAction2Options } from '../../../platform/actions/common/actions.js';
-import { ViewContainerLocation } from '../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../common/views.js';
+
 import { IPaneCompositePartService } from '../../services/panecomposite/browser/panecomposite.js';
 import { createConfigureKeybindingAction } from '../../../platform/actions/common/menuService.js';
 
@@ -530,8 +531,10 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@IConfigurationService configurationService: IConfigurationService,
-		@ICommandService private readonly commandService: ICommandService
+		@ICommandService private readonly commandService: ICommandService,
+		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
 	) {
+
 		super(
 			compositeActivityAction,
 			options,
@@ -561,7 +564,8 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 
 		// Allow to drag
 		let insertDropBefore: Before2D | undefined = undefined;
-		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(this.container, () => { return { type: 'composite', id: this.compositeBarActionItem.id }; }, {
+		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(this.container, () => this.getDraggedItem(), {
+
 			onDragOver: e => {
 				const isValidMove = e.dragAndDropData.getData().id !== this.compositeBarActionItem.id && this.dndHandler.onDragOver(e.dragAndDropData, this.compositeBarActionItem.id, e.eventData);
 				toggleDropEffect(e.eventData.dataTransfer, 'move', isValidMove);
@@ -601,7 +605,35 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 		this.updateStyles();
 	}
 
+	/**
+	 * Determine the drag payload for this composite bar item.
+	 *
+	 * Normally a composite bar item drags the whole composite (`type: 'composite'`)
+	 * so it can be reordered or moved between bars. However, when the composite is a
+	 * view container in the Panel / Auxiliary Bar that hosts a single view (e.g.
+	 * Output, Ports, Problems), the composite bar tab is the only drag handle the
+	 * user has for that view. In that case we report the payload as `type: 'view'`
+	 * so it can be dropped into the editor area (which only accepts views).
+	 */
+	private getDraggedItem(): { type: 'composite' | 'view'; id: string } {
+		const compositeId = this.compositeBarActionItem.id;
+
+		const viewContainer = this.viewDescriptorService.getViewContainerById(compositeId);
+		if (viewContainer) {
+			const location = this.viewDescriptorService.getViewContainerLocation(viewContainer);
+			if (location === ViewContainerLocation.Panel || location === ViewContainerLocation.AuxiliaryBar) {
+				const model = this.viewDescriptorService.getViewContainerModel(viewContainer);
+				if (model && model.allViewDescriptors.length === 1) {
+					return { type: 'view', id: model.allViewDescriptors[0].id };
+				}
+			}
+		}
+
+		return { type: 'composite', id: compositeId };
+	}
+
 	private updateFromDragging(element: HTMLElement, showFeedback: boolean, event: DragEvent): Before2D | undefined {
+
 		const rect = element.getBoundingClientRect();
 		const posX = event.clientX;
 		const posY = event.clientY;

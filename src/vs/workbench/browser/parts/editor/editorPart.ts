@@ -31,6 +31,7 @@ import { DeferredPromise, Promises } from '../../../../base/common/async.js';
 import { findGroup } from '../../../services/editor/common/editorGroupFinder.js';
 import { SIDE_GROUP, IEditorService } from '../../../services/editor/common/editorService.js';
 import { ViewEditorInput } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IBoundarySashes } from '../../../../base/browser/ui/sash/sash.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
@@ -1085,15 +1086,18 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerTarget(overlay, {
 			onDragOver: e => {
-				// Allow dropping a workbench view into the editor area (P0 spike)
+				// Allow dropping a workbench view (single 'view') or a whole view
+				// container ('composite', e.g. a Panel whose header is dragged while
+				// it hosts multiple views) into the editor area.
 				const dragData = e.dragAndDropData?.getData();
-				if (dragData && dragData.type === 'view') {
+				if (dragData && (dragData.type === 'view' || dragData.type === 'composite')) {
 					EventHelper.stop(e.eventData, true);
 					if (e.eventData.dataTransfer) {
-						e.eventData.dataTransfer.dropEffect = 'copy';
+						e.eventData.dataTransfer.dropEffect = 'move';
 					}
 					return;
 				}
+
 
 				EventHelper.stop(e.eventData, true);
 				if (e.eventData.dataTransfer) {
@@ -1146,13 +1150,39 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 			onDrop: e => {
 				clearAllTimeouts();
 
-				// Drop a workbench view into the editor area (P0 spike)
+				// Drop a workbench view (or a whole view container) into the editor area
 				const dragData = e.dragAndDropData?.getData();
-				if (dragData && dragData.type === 'view') {
+				if (dragData && (dragData.type === 'view' || dragData.type === 'composite')) {
 					EventHelper.stop(e.eventData, true);
-					const viewId = dragData.id;
-					this.instantiationService.invokeFunction(accessor => accessor.get(IEditorService).openEditor(this.instantiationService.createInstance(ViewEditorInput, viewId)));
+					this.instantiationService.invokeFunction(accessor => {
+						const viewDescriptorService = accessor.get(IViewDescriptorService);
+						const editorService = accessor.get(IEditorService);
+
+						// Resolve the set of view ids to move into the editor area. For a
+						// single 'view' this is just that view; for a 'composite' (view
+						// container) we take every view currently hosted by that container
+						// so the source panel/container ends up empty.
+						let viewIds: string[];
+						if (dragData.type === 'view') {
+							viewIds = [dragData.id];
+						} else {
+							const container = viewDescriptorService.getViewContainerById(dragData.id);
+							viewIds = container
+								? viewDescriptorService.getViewContainerModel(container).allViewDescriptors.map(v => v.id)
+								: [];
+						}
+
+						for (const viewId of viewIds) {
+							const viewDescriptor = viewDescriptorService.getViewDescriptorById(viewId);
+							const originalLocation = viewDescriptorService.getViewLocationById(viewId) ?? undefined;
+							if (viewDescriptor) {
+								viewDescriptorService.moveViewToLocation(viewDescriptor, ViewContainerLocation.Editor, 'dnd');
+							}
+							editorService.openEditor(this.instantiationService.createInstance(ViewEditorInput, viewId, originalLocation));
+						}
+					});
 				}
+
 			}
 		}));
 	}

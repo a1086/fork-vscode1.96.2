@@ -631,6 +631,8 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			case ViewContainerLocation.Panel: {
 				return isHorizontal(this.layoutService.getPanelPosition()) ? Orientation.HORIZONTAL : Orientation.VERTICAL;
 			}
+			case ViewContainerLocation.Editor:
+				return Orientation.VERTICAL;
 		}
 
 		return Orientation.VERTICAL;
@@ -936,6 +938,11 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
 						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
 						if (oldViewContainer !== this.viewContainer && viewDescriptor && viewDescriptor.canMoveView && !this.viewContainer.rejectAddedViews) {
+							viewsToMove.push(viewDescriptor);
+						}
+
+						// Handle reverse-drag from editor area
+						if (viewDescriptor && oldViewContainer && this.viewDescriptorService.getViewContainerLocation(oldViewContainer) === ViewContainerLocation.Editor) {
 							viewsToMove.push(viewDescriptor);
 						}
 

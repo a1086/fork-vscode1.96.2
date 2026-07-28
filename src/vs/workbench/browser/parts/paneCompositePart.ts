@@ -366,8 +366,20 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		this.titleLabelElement!.draggable = true;
 		const draggedItemProvider = (): { type: 'view' | 'composite'; id: string } => {
 			const activeViewlet = this.getActivePaneComposite()!;
+
+			// When the composite hosts a single view merged with its container
+			// (e.g. Panel views like Output/Problems), the title bar acts as the
+			// drag handle for that single view. Report it as a 'view' so it can be
+			// dropped into the editor area just like sidebar views.
+			const viewPaneContainer = (activeViewlet as PaneComposite | undefined)?.getViewPaneContainer();
+			if (viewPaneContainer && viewPaneContainer.isViewMergedWithContainer() && viewPaneContainer.panes.length === 1) {
+				return { type: 'view', id: viewPaneContainer.panes[0].id };
+			}
+
+
 			return { type: 'composite', id: activeViewlet.getId() };
 		};
+
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(this.titleLabelElement!, draggedItemProvider, {}));
 
 		return titleLabel;

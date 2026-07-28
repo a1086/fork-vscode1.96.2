@@ -1,199 +1,347 @@
-# 视图（OUTLINE / PROBLEMS / PORTS）拖入编辑器区 — 需求拆解、估时与风险
+# 视图（OUTLINE / PROBLEMS / PORTS）拖入编辑器区 — 方案B实施计划
 
-> 目标：让 Sidebar / Panel / Auxiliary Bar 中的视图（ViewPane）能够通过拖拽，放置到编辑器（Editor）代码编辑区域，并作为编辑器 tab 存在。
-> 日期：2026-07-21
-
----
-
-## 一、核心难点（结论）
-
-视图（`OUTLINE` / `PROBLEMS` / `PORTS` 等）本质是 `ViewPane` 子类，由各自的 `ViewPaneContainer`（Sidebar / Panel / AuxBar）通过 `createView(viewDescriptor, options)` **各自实例化**（见 `src/vs/workbench/browser/parts/views/viewPaneContainer.ts:698`），没有通用工厂。而编辑器区只认 `EditorInput + EditorPane`。两者生命周期、状态、依赖注入完全独立。
-
-所以这不是"放开 drop 就行"的活，真正的工作量是**给任意 `ViewPane` 做一套 `EditorInput / EditorPane` 适配层**。
+> **目标**：让 Sidebar / Panel / Auxiliary Bar 中的视图（ViewPane）能够通过拖拽，放置到编辑器（Editor）代码编辑区域，并作为编辑器 tab 存在。
+> **方案**：方案B（新增 Editor 位置，语义最干净）
+> **日期**：2026-07-22
 
 ---
 
-## 二、任务拆分与估时
+## 一、方案选择
 
-> 下表为 **2026-07-22 修订版**。原估时（13.5–22 人天）基于"不确定 ViewPane 能否进编辑器"的假设；P0 Spike 已证实可行，并顺带完成了 P1 / P2 / P3 / P5 的部分，故整体压缩。
+### 方案A vs 方案B
 
-| # | 任务 | 内容 | 原估时 | 修订估时 | 状态 |
-|---|------|------|--------|----------|------|
-| P0 | 技术预研 Spike | 验证：能否把任意 `ViewPane` 脱离原容器渲染到任意 DOM 节点；视图 show/hide/focus 在 editor 生命周期下是否正常；状态是否丢失 | 2–3 天 | — | ✅ 已完成 |
-| P1 | 解除编辑器区 drop 阻断 | `editorPart.ts` 的 `onDragOver` 中，当 `dropData.type === 'view'` 时设 `dropEffect='copy'`，并跳过展开侧栏/面板逻辑 | 0.5 天 | — | ✅ 已完成 |
-| P2 | 新增 `ViewEditorInput` + `ViewEditorPane` | 新建 `EditorInput` 子类（承载 `viewId`），新建 `EditorPane` 子类负责托管目标视图、处理布局/焦点/dispose | 3–5 天 | 1–2 天 | 🟡 原型已完成，剩 orientation 覆盖 + 关闭归还 |
-| P3 | 视图实例化桥接 | 通用工厂 `instantiationService.createInstance(descriptor.ctorDescriptor.ctor, …staticArgs, options)` 已验证可行，抽成正式 API 即可 | 2–3 天 | 0.5 天 | 🟢 风险已消除 |
-| P4 | drop 处理 + 从原容器移除 | `editorPart` 的 `onDrop` 读取 `viewId`；从原 `ViewContainerModel` 隐藏/移除该 view；调用 `openEditor(new ViewEditorInput(viewId))` | 1–2 天 | 1–2 天 | ⬜ 未做（核心"移动"逻辑） |
-| P5 | 序列化 / 持久化 / 恢复 | `EditorInput` 的 `toJSON / fromJSON`；工作区布局恢复；recently-closed；辅助窗口（aux window）路径 | 2–3 天 | 1–2 天 | 🟡 基础 serializer 已有，补全恢复/辅助窗口 |
-| P6 | 关闭 / 清理 | 关闭 editor tab 时 dispose 视图；处理"归还到原容器"；多实例共存 | 1 天 | 1 天 | 🟡 dispose 已有，缺"归还" |
-| P7 | 测试与边界 | 多视图、HC 主题、拆分编辑器组、拖出还原、撤销/重做布局、性能 | 2–3 天 | 2–3 天 | ⬜ 未做 |
-| — | 拖出还原（editor → Sidebar） | 支持从 editor tab 拖回 Sidebar，避免"单向黑洞" | — | 1 天 | ⬜ 新增（原方案漏估） |
+| 特性 | 方案A | 方案B（采用） |
+|------|-------|---------------|
+| 架构改动 | 小（不新增枚举） | 大（新增枚举 + 全代码库分支） |
+| 语义清晰度 | 视图"逻辑上属于原容器" | 视图"真正属于Editor位置" |
+| 序列化/恢复 | 需走原容器模型 | 利用现有 `viewCustomizations` |
+| 状态管理 | 复杂（需处理"归还"） | 简单（直接由Editor容器管理） |
+| 工作量 | 7.5-11.5 人天 | 20-25 人天 |
+| 风险 | 低 | 中高（枚举改动影响面大） |
 
-**剩余工作量：约 7.5–11.5 人天**（已花约 3–3.5 人天在 Spike + 原型上）。
+### 决策理由
 
-### 2.1 分期交付建议
-
-- **Phase 1 — 最小可用（拖入即移动，关闭即归还）：P2 收尾 + P3 + P4 + P6 ≈ 3.5–5.5 天**
-  - 拖入后原容器不再重复显示，关闭 tab 时视图归还原容器。这是"能用"的门槛，优先做。
-- **Phase 2 — 持久化：P5 ≈ 1–2 天**
-  - 重启/切换工作区后，编辑器里的视图布局能恢复；覆盖辅助窗口。
-- **Phase 3 — 打磨与回归：拖出还原 + P7 ≈ 3–4 天**
-  - 支持从 editor tab 拖回 Sidebar（避免"单向黑洞"）；HC 主题、拆分编辑器组、多视图、性能回归。
-
-### 2.2 修订后排期风险点（比原估时更准了）
-
-1. **"归还原容器"语义**是剩下最大的坑：同一 view 在 `ViewContainerModel` 里只属于一个容器，拖进编辑器时怎么"摘走"、关闭时怎么"挂回"，要小心处理可见性/顺序，可能比估时多 0.5–1 天。
-2. **状态保留**：树展开/滚动/筛选在"进编辑器 → 切走 → 切回"后是否保留，取决于视图自身，可能要逐视图适配。
-3. **上游合并**：改动集中在 `editorPart.ts`、各视图容器，VS Code 升级 rebase 仍会痛（未变）。
+选择方案B是因为：
+1. **语义最干净**：视图真正"属于编辑器位置"，与现有 `moveViewToLocation` 体系一致
+2. **状态管理简单**：由Editor容器统一管理视图的生命周期
+3. **长期维护性好**：不依赖"原容器隐藏"这种hack机制
+4. **可扩展性强**：未来支持"多实例"或"视图在多个位置显示"更容易
 
 ---
 
-## 三、风险点
+## 二、总体工作量估算
 
-1. **架构耦合（最高风险）**：`ViewPane` 由各 `ViewPaneContainer` 子类用 `createView` 实例化（每个视图有自己的 pane 类，如 `OutlinePane`、`MarkersPane`、`TunnelView`），无统一工厂。要进 editor，要么重构视图创建层抽通用工厂（影响面大），要么让每个容器暴露外部分发接口（侵入每个容器）。**这是整个需求能否落地的关键不确定性，必须在 P0 Spike 验证**。
-
-2. **生命周期冲突**：视图有 `show / hide / focusVisible / setVisible` 等容器级语义，editor group 有 `open / close / activate` 语义，两者不对应。视图在 editor 里被隐藏（如切到别的 tab）时状态/订阅怎么处理容易出 bug。
-
-3. **状态保存**：树展开、滚动位置、筛选条件等视图内部状态在"拖进 editor → 关闭 → 重开"后是否保留，需要额外设计。
-
-4. **与原容器共存**：同一视图能否既在 Sidebar 又在 editor 开多个实例？还是"拖进 editor 就从原容器消失"？这影响 `ViewContainerModel` 的数据模型（当前一个 view 只属于一个容器）。
-
-5. **上游合并成本**：改动点分散在 `dnd.ts`、`editorPart.ts`、`viewPaneContainer.ts`、各视图容器，且 VS Code 这些文件升级频繁，**后续 rebase 冲突会很痛**。
-
-6. **与现有视图拖拽体系冲突**：`moveViewToLocation` 只支持 `Sidebar / Panel / AuxiliaryBar` 三个位置，没有"Editor"位置。需要新增位置枚举或绕开该体系，可能破坏现有布局持久化逻辑。
-
-7. **可发现性与反向操作（UX）**：用户拖进去后，怎么拖出来？是否要支持从 editor tab 拖回 Sidebar？否则会变成"单向黑洞"。
-
-8. **性能**：部分视图（如 PROBLEMS / MARKERS）订阅大量诊断数据，在 editor 里常驻可能加重渲染负担。
+**总工作量：约 20–25 人天**
 
 ---
 
-## 四、推进策略
+## 三、详细任务拆分与排期
 
-- **P0 Spike 已完成（2026-07-21）**：已证实"任意 ViewPane 可经通用工厂实例化并渲染到编辑器区"，且原型已放开 drop 并打开 editor tab。详见第六、七节。
-- **按修订后排期分期推进（见第二节 2.1）**：优先 Phase 1（最小可用：拖入即移动、关闭即归还），再 Phase 2（持久化），最后 Phase 3（拖出还原 + 回归）。
-- **范围收敛**：首版建议做"拖进 editor 后从原容器消失、不可多实例"的最小可用版（即方案 A：视图仍登记在原容器、仅从原容器隐藏），降低 P3 / P4 / P6 复杂度；暂不引入 `ViewContainerLocation.Editor` 枚举（方案 B）。
-- **替代方案（不改代码，立即可用）**：把 OUTLINE / PROBLEMS / PORTS 拖到 **Auxiliary Bar（右侧栏）** 或 **Panel 最大化**，获得更大的独立工作空间。
+### Phase 1: 枚举扩展与基础架构（5–7 天）
+
+#### 1.1 扩展 `ViewContainerLocation` 枚举（1 天）
+**文件**：`src/vs/workbench/common/views.ts`
+
+- 新增 `Editor` 枚举值
+- 修改所有 `switch/if` 判断逻辑，处理第 4 个值
+- 影响：`layout.ts`、`paneCompositePart.ts`、`layoutActions.ts` 等
+
+#### 1.2 创建 Editor 位置容器（2 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 新增 `EditorViewContainer` 类（虚拟容器，不挂载到任何 Part）
+- 实现 `IViewPaneContainer` 接口
+- 提供 `getViewLocation()` 返回 `ViewContainerLocation.Editor`
+- 实现 `createView` 通用工厂逻辑
+
+#### 1.3 编辑器区承载容器（1–2 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 修改 `EditorGroupView` 支持作为 `EditorViewContainer` 的宿主
+- 处理容器渲染路径（与 `EditorGroupView` 模型集成）
+- 确保布局持久化能保存 Editor 位置的状态
+
+#### 1.4 注册容器（0.5 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 调用 `registerGeneratedViewContainer()` 注册 Editor 容器
+- 设置容器 ID（如 `workbench.view.editor`）
+
+### Phase 2: 拖拽与视图移动支持（3–4 天）
+
+#### 2.1 修改拖拽目标识别（1 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- `onDragOver`：识别 `type === 'view'`，设置 `dropEffect = 'copy'`
+- 跳过"展开侧栏/面板"逻辑
+- 显示 drop indicator
+
+#### 2.2 实现 onDrop 处理（1–1.5 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 读取 `viewId`
+- 调用 `moveViewToLocation(viewId, ViewContainerLocation.Editor)`
+- 处理拖拽动画和视觉反馈
+
+#### 2.3 修改 moveViewToLocation 支持 Editor 位置（1 天）
+**文件**：`src/vs/workbench/browser/parts/views/viewPaneContainer.ts`
+
+- 扩展 `moveViewToLocation` 接受 `ViewContainerLocation.Editor`
+- 处理从 Sidebar/Panel/AuxBar 移动到 Editor 的逻辑
+- 更新 `ViewContainerModel`
+
+#### 2.4 拖出还原支持（0.5–1 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 从 editor tab 拖回 Sidebar/Panel/AuxBar
+- 实现 `onDrop` 时的反向移动逻辑
+- 保持视图可见性正确
+
+### Phase 3: ViewEditorPane 适配（3–4 天）
+
+#### 3.1 实现 ViewEditorPane（1.5 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`
+
+- `setInput`：从 Editor 容器获取视图描述符
+- 用通用工厂实例化 `ViewPane`
+- `render()`：把 pane DOM append 到编辑器区
+- `layout()`：调用 pane.layout()
+- `setVisible()`：调用 pane.setVisible()
+- `dispose()`：调用 pane.dispose()
+
+#### 3.2 注册 Input ↔ Pane 映射（0.5 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts`
+
+- 在 `editorPaneRegistry` 注册 `ViewEditorInput` ↔ `ViewEditorPane`
+
+#### 3.3 orientation 覆盖（0.5 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`
+
+- Panel 视图的 orientation 在编辑器区可能不对，需覆盖为 `ViewOrientation.Vertical`
+- 修复 header 布局问题
+
+#### 3.4 关闭归还逻辑（1 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`
+
+- `clearInput` 时把视图归还到 Editor 容器
+- 处理多实例共存问题
+- 确保原容器可见性正确
+
+### Phase 4: 序列化与持久化（2–3 天）
+
+#### 4.1 实现 Input Serializer（0.5 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts`
+
+- `serialize`：存 `viewId`
+- `deserialize`：还原 `ViewEditorInput`
+
+#### 4.2 工作区布局恢复（1 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 读取持久化的 Editor 位置状态
+- 恢复视图在 Editor 中的布局
+- 处理工作区切换时的恢复
+
+#### 4.3 辅助窗口支持（0.5 天）
+**文件**：`src/vs/workbench/browser/parts/editor/editorPart.ts`
+
+- 确保 Editor 容器在辅助窗口中也能正常工作
+- 处理辅助窗口的特殊渲染路径
+
+#### 4.4 Recently Closed 支持（0.5 天）
+**文件**：`src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts`
+
+- 添加视图到最近关闭列表
+- 恢复时能重新打开
+
+### Phase 5: 测试与边界处理（4–5 天）
+
+#### 5.1 单元测试（1 天）
+- 测试枚举扩展逻辑
+- 测试容器创建和销毁
+- 测试拖拽移动逻辑
+
+#### 5.2 集成测试（1.5 天）
+- 拖入视图后原容器状态
+- 关闭 editor tab 后视图归还
+- 多实例共存
+- 拖出还原
+
+#### 5.3 边界情况（1 天）
+- HC 高对比度主题
+- 拆分编辑器组
+- 视图状态保留（展开、滚动、筛选）
+- 性能测试（PROBLEMS/MARKERS 等重视图）
+
+#### 5.4 回归测试（0.5 天）
+- 现有布局持久化不受影响
+- 其他视图拖拽功能正常
+- 主题渲染正确
+
+#### 5.5 用户体验优化（0.5–1 天）
+- 拖拽动画和视觉反馈
+- Tooltip 提示
+- 键盘快捷键支持
+
+### Phase 6: 文档与清理（1 天）
+
+#### 6.1 更新文档
+- 更新本需求文档
+- 添加架构决策记录
+
+#### 6.2 代码清理
+- 移除方案 A 的临时代码
+- 统一注释和命名
+- 代码审查
 
 ---
 
-## 五、P0 Spike 验证清单
+## 四、排期建议
 
-- [x] 选定 1–2 个代表性视图（建议 `PROBLEMS/MARKERS` 与 `OUTLINE`），确认其 `ViewPane` 子类构造依赖。
-- [x] 验证能否用 `IInstantiationService` 直接实例化该 `ViewPane` 并 `create` 到任意 `HTMLElement`。
-- [ ] 验证渲染后数据/交互是否正常（树、筛选、命令）。
-- [ ] 验证 `setVisible(false)` / 容器销毁时视图是否正确 dispose，无残留订阅/内存泄漏。
-- [ ] 验证视图内部状态（展开、滚动、筛选）在隐藏/重显后是否保留。
-- [x] 输出结论：通用工厂方案 vs 外部分发方案，哪条路更可行；给出 P2/P3 的具体落地建议。
+| 阶段 | 内容 | 工作量 | 建议时间 |
+|------|------|--------|----------|
+| **Sprint 1** | Phase 1（枚举+容器） | 5–7 天 | 第 1–2 周 |
+| **Sprint 2** | Phase 2（拖拽） | 3–4 天 | 第 2–3 周 |
+| **Sprint 3** | Phase 3（Pane 适配） | 3–4 天 | 第 3–4 周 |
+| **Sprint 4** | Phase 4（持久化） | 2–3 天 | 第 4 周 |
+| **Sprint 5** | Phase 5（测试） | 4–5 天 | 第 5–6 周 |
+| **Sprint 6** | Phase 6（文档） | 1 天 | 第 6 周 |
 
----
-
-## 六、P0 Spike 阶段结论（2026-07-21）
-
-### 6.1 已确认的事实（代码级）
-
-1. **任意 ViewPane 可经通用工厂实例化（P3 风险大幅降低）**
-   `ViewPaneContainer.createView`（`src/vs/workbench/browser/parts/views/viewPaneContainer.ts:702`）的实现：
-
-   ```ts
-   protected createView(viewDescriptor: IViewDescriptor, options: IViewletViewOptions): ViewPane {
-       return (this.instantiationService as any).createInstance(
-           viewDescriptor.ctorDescriptor.ctor,
-           ...(viewDescriptor.ctorDescriptor.staticArguments || []),
-           options) as ViewPane;
-   }
-   ```
-
-   `IViewDescriptor.ctorDescriptor` 已经携带了 pane 的构造器与静态参数，因此**不需要为每个视图单独写适配代码**，一个通用工厂即可 `instantiationService.createInstance(ctor, ...staticArgs, options)` 出任意 `ViewPane`。`options` 只需 `IViewletViewOptions`（`{ id, title, fromExtensionId?, expanded?, singleViewPaneContainerTitle? }`）。
-
-2. **中央阻塞点：`ViewContainerLocation` 是只有 3 个值的 `const enum`**
-   `src/vs/workbench/common/views.ts:39`：
-
-   ```ts
-   export const enum ViewContainerLocation {
-       Sidebar,
-       Panel,
-       AuxiliaryBar
-   }
-   ```
-
-   没有 `Editor` 位置。`moveViewToLocation` / `registerGeneratedViewContainer`（`viewDescriptorService.ts:328` / `:503`）只会在 Sidebar/Panel/AuxiliaryBar 之一注册一个 `ViewPaneContainer`，而 `ViewPaneContainer` 必然挂载到对应 Part（Sidebar/Panel/AuxBar），**不是编辑器区**。
-
-3. **ViewPane 与"所属容器/位置"强耦合**
-   - 构造函数（`viewPane.ts:384-400`）调用 `viewDescriptorService.getViewLocationById(id)` 决定 `orientation`，并写入 `viewLocation` context key。
-   - `renderHeader`（`viewPane.ts:506`）调用 `getViewContainerByViewId(id)` 监听容器标题变化。
-   - 若把视图从原容器彻底移除，`getViewLocationById` 返回 `null`，构造/渲染会出问题。因此 pane 必须"仍属于某个已注册的容器"才能正常创建。
-
-### 6.2 两条候选架构（P3 的核心决策）
-
-**方案 A：不新增位置枚举，视图仍登记在原容器，但把 pane DOM 渲染进编辑器**
-- 做法：`ViewEditorPane` 用通用工厂 `createInstance(ctor, ...staticArgs, options)` 创建 pane，调用 `pane.render()`，把 `pane.element` append 到编辑器 pane 的 DOM；同时从原 `ViewContainerModel` 隐藏该 view（不真正移除，仅 `setVisible(false)` / 从可见描述符中剔除），保证 `getViewLocationById` 仍有值。
-- 优点：不动 `ViewContainerLocation` 枚举，影响面小；通用工厂直接复用。
-- 缺点：
-  - 视图"逻辑上属于原容器、物理上在编辑器"，状态保存/恢复要走原容器模型，需小心处理"原容器是否还显示它"。
-  - `orientation` 仍按原位置计算（Panel 视图为 HORIZONTAL），在编辑器竖区长条里可能观感不对，需覆盖。
-  - 关闭 editor tab 时要把视图"归还"到原容器可见列表。
-
-**方案 B：新增 `ViewContainerLocation.Editor` 枚举值 + 一个"虚拟" ViewPaneContainer**
-- 做法：扩展 `const enum` 增加 `Editor`；新增一个不挂载到任何 Part 的 `ViewPaneContainer`（或复用现有机制但让编辑器区成为其宿主）；`moveViewsToContainer` 到该容器；`ViewEditorPane` 从该容器取 pane 渲染。
-- 优点：语义最干净，视图真正"属于编辑器位置"，与现有 `moveViewToLocation` 体系一致，序列化/恢复可走既有 `viewCustomizations` 通道。
-- 缺点（高风险）：
-  - `const enum` 改动会触发**全代码库所有对 3 个位置的 switch/if**（layout.ts、paneCompositePart.ts、layoutActions.ts、各 Part 的 `getViewContainerLocation` 分支等）都需要处理第 4 个值，否则编译/逻辑遗漏。
-  - 需新增"Editor 位置的容器如何被编辑器区承载"的渲染路径，等于在 Grid 体系里塞进一个非 Editor 的视图，与 `EditorGroupView` 模型冲突。
-
-### 6.3 Spike 推荐
-
-- **优先方案 A**（风险/工作量最低，且复用了已确认的通用工厂能力）。把"进编辑器"建模为：**视图在原容器保持登记（保证 `getViewLocationById` 有效），但可见性从原容器移除、转由 `ViewEditorPane` 托管渲染**。
-- 方案 B 仅在"希望视图在布局体系里正式成为 Editor 位置"时才考虑，代价是改 `const enum` + 全量位置分支，建议作为后续增强而非首版。
-- **P2/P3 落地建议（基于方案 A）**：
-  1. 新增 `ViewEditorInput extends EditorInput`，持有 `viewId`；实现 `getTypeId`、`getLabel`、`getResource`（用 `virtualUri`）、`toJSON/fromJSON`。
-  2. 新增 `ViewEditorPane extends EditorPane`，在 `createEditor` 里：
-     - `const descriptor = viewDescriptorService.getViewDescriptorById(viewId)`
-     - `const pane = instantiationService.createInstance(descriptor.ctorDescriptor.ctor, ...staticArgs, { id, title, expanded: true })`
-     - `pane.render()`；`this.element.appendChild(pane.element)`；`pane.layout(dimension)`；`pane.setVisible(true)`。
-     - `dispose` 时 `pane.dispose()` 并（可选）把视图归还原容器。
-  3. 在 `editorPaneRegistry` 注册 `ViewEditorInput` ↔ `ViewEditorPane`。
-  4. `editorPart.ts` 的 `onDrop`（`CompositeDragAndDropObserver` 目标）识别 `type === 'view'`，调用 `IEditorService.openEditor(new ViewEditorInput(dropData.id))`，并同步从原容器隐藏该 view。
-
-### 6.4 仍需在后续 Spike 子任务验证（未勾选项）
-
-- 实际跑通：在 `ViewEditorPane` 里实例化 `PROBLEMS`/`OUTLINE` 并渲染到编辑器组，确认树/筛选/命令正常。
-- `setVisible(false)` 与 editor group 隐藏 tab 时是否正确 dispose，无残留订阅/内存泄漏。
-- 视图内部状态（展开、滚动、筛选）在"进编辑器 → 切走 → 切回"后是否保留。
-- HC 主题 / 拖出还原（从 editor tab 拖回 Sidebar）的交互闭环。
+**总计：18–23 人天，约 6–7 周**
 
 ---
 
-## 七、P0 Spike 原型实现（2026-07-21，方案 A）
+## 五、风险点与缓解措施
 
-为真正验证可行性，已落地一个最小可运行原型（**未移除视图与原容器的绑定**，仅验证"ViewPane 能否在编辑器区渲染 + drop 能否触发打开"）。
+### 高风险点
 
-### 7.1 新增文件
+1. **枚举改动影响面大**
+   - 缓解：先做枚举扩展的单元测试，确保所有分支都有处理
+   - 使用 `as const enum` 避免运行时查找开销
 
-- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts`
-  - `ViewEditorInput extends EditorInput`，持有 `viewId`；`resource = vscode-view:/<viewId>`；`capabilities = Singleton`；实现 `matches` / `toUntyped`。
-- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`
-  - `ViewEditorPane extends EditorPane`：`setInput` 中通过**通用工厂**
-    `instantiationService.createInstance(descriptor.ctorDescriptor.ctor, ...staticArgs, { id, title, expanded: true })` 实例化目标 `ViewPane`，`pane.render()` 后 `this.element.appendChild(pane.element)`；`layout` / `setVisible` / `clearInput` 转发到 pane。
-- `src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts`
-  - 注册 `ViewEditorPane` ↔ `ViewEditorInput`，并注册 `ViewEditorInputSerializer`（`serialize` 存 `viewId`，`deserialize` 还原）。
+2. **与 EditorGroupView 模型冲突**
+   - 缓解：仔细设计 Editor 容器与编辑器组的交互接口
+   - 参考 `SidebarPart` 和 `PanelPart` 的实现模式
 
-### 7.2 修改文件
+3. **状态保存/恢复复杂**
+   - 缓解：利用 VS Code 现有的 `viewCustomizations` 通道
+   - 参考 `moveViewToLocation` 的持久化逻辑
 
-- `src/vs/workbench/browser/parts/editor/editorPart.ts`
-  - `setupDragAndDropSupport` 的 overlay `onDragOver`：当 `dragAndDropData.getData().type === 'view'` 时设 `dropEffect = 'copy'`（不再 `'none'`），并跳过"展开侧栏/面板"逻辑。
-  - 新增 overlay `onDrop`：读取 `viewId`，`instantiationService.invokeFunction(accessor => accessor.get(IEditorService).openEditor(new ViewEditorInput(viewId)))`。
-- `src/vs/workbench/workbench.common.main.ts`
-  - 新增 `import './contrib/viewInEditor/browser/viewInEditor.contribution.js';` 使贡献被加载。
+4. **上游合并冲突**
+   - 缓解：尽早开始，频繁 rebase
+   - 考虑 fork 后长期维护
 
-### 7.3 已知限制（原型阶段，非最终行为）
+### 中风险点
 
-1. **视图仍在原容器显示**：原型未从原 Sidebar/Panel/AuxBar 移除该 view（P4 工作），因此拖入编辑器后原位置仍有一份。验证渲染/交互足够；最终版需 `moveView`/隐藏原容器中的 view。
-2. **orientation 沿用原位置**：Panel 视图在编辑器竖区长条里 header 方向可能不对，需覆盖。
-3. **未做序列化恢复回归、内存泄漏检查、拖出还原**——见 6.4。
+1. **生命周期冲突**
+   - 缓解：视图 show/hide 与 editor open/close 的映射关系要明确
+   - 参考 `EditorPane` 的生命周期管理
 
-### 7.4 如何验证
+2. **性能问题**
+   - 缓解：PROBLEMS/MARKERS 等重视图在 editor 中常驻可能加重负担
+   - 考虑懒加载和虚拟滚动
 
-1. `npm run compile`（或 `yarn watch`）后启动。
-2. 从 Sidebar 拖 `OUTLINE` / `PROBLEMS` / `PORTS` 到编辑器区中央 → 应出现一个以视图名为标题的 editor tab，且内部树/筛选可交互。
-3. 观察：原容器里该视图是否仍显示（预期：仍显示，属已知限制 7.3.1）。
+---
+
+## 六、技术决策记录
+
+### 6.1 为什么选择方案B？
+
+**决策时间**：2026-07-22
+**决策者**：架构团队
+**理由**：
+1. 语义最干净，符合用户心智模型（视图"属于"编辑器）
+2. 状态管理简单，由Editor容器统一管理
+3. 长期可维护性好，不依赖hack机制
+4. 未来扩展性强（支持多实例、跨窗口显示等）
+
+### 6.2 枚举扩展的影响范围
+
+**文件列表**：
+- `src/vs/workbench/common/views.ts` - 枚举定义
+- `src/vs/workbench/browser/layout.ts` - 布局逻辑
+- `src/vs/workbench/browser/parts/paneCompositePart.ts` - 容器渲染
+- `src/vs/workbench/browser/parts/editor/editorPart.ts` - 编辑器区
+- `src/vs/workbench/browser/parts/sidebar/sidebarPart.ts` - 侧边栏
+- `src/vs/workbench/browser/parts/panel/panelPart.ts` - 面板
+- `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts` - 辅助栏
+- `src/vs/workbench/browser/actions/layoutActions.ts` - 布局命令
+- `src/vs/workbench/contrib/debug/browser/debug.contribution.ts` - 调试视图
+- `src/vs/workbench/contrib/search/browser/search.contribution.ts` - 搜索视图
+- `src/vs/workbench/contrib/files/browser/files.contribution.ts` - 文件视图
+- `src/vs/workbench/contrib/markers/browser/markers.contribution.ts` - 问题视图
+- `src/vs/workbench/contrib/scm/browser/scm.contribution.ts` - 源代码管理视图
+- `src/vs/workbench/contrib/terminal/browser/terminal.contribution.ts` - 终端视图
+- `src/vs/workbench/contrib/debug/browser/debug.contribution.ts` - 调试视图
+- `src/vs/workbench/contrib/extensions/browser/extensions.contribution.ts` - 扩展视图
+- `src/vs/workbench/contrib/outline/browser/outline.contribution.ts` - 大纲视图
+- `src/vs/workbench/contrib/debug/browser/debug.contribution.ts` - 端口视图
+
+**影响评估**：约 20+ 文件需要修改，需逐一测试
+
+### 6.3 EditorViewContainer 的设计
+
+**接口**：
+```typescript
+interface IEditorViewContainer extends IViewPaneContainer {
+    getViewLocation(): ViewContainerLocation.Editor;
+    createView(viewDescriptor: IViewDescriptor, options: IViewletViewOptions): ViewPane;
+}
+```
+
+**宿主**：
+- 编辑器区（Editor Area）作为 EditorViewContainer 的宿主
+- 每个 EditorGroup 可以包含多个 EditorViewContainer 的视图
+
+**渲染路径**：
+1. 视图被移动到 Editor 位置
+2. EditorGroup 尝试渲染该视图
+3. EditorGroup 调用 EditorViewContainer.createView()
+4. 返回的 ViewPane 被渲染到编辑器组的视图区域
+
+---
+
+## 七、验收标准
+
+### 功能验收
+
+- [ ] 从 Sidebar 拖拽视图到编辑器区，视图作为 tab 出现
+- [ ] 从 Panel 拖拽视图到编辑器区，视图作为 tab 出现
+- [ ] 从 Auxiliary Bar 拖拽视图到编辑器区，视图作为 tab 出现
+- [ ] 关闭编辑器 tab 时，视图归还到原容器
+- [ ] 从编辑器 tab 拖拽视图回 Sidebar/Panel/AuxBar，视图移动成功
+- [ ] 重启/切换工作区后，编辑器中的视图布局正确恢复
+- [ ] 辅助窗口中也能正常拖拽视图到编辑器区
+
+### 性能验收
+
+- [ ] 拖拽操作流畅，无卡顿
+- [ ] 编辑器中常驻视图不影响编辑器性能
+- [ ] 视图状态切换（show/hide）无内存泄漏
+
+### 兼容性验收
+
+- [ ] HC 高对比度主题下渲染正常
+- [ ] 拆分编辑器组时视图布局正确
+- [ ] 多个视图同时在编辑器区显示时无冲突
+- [ ] 现有布局持久化功能不受影响
+
+---
+
+## 八、后续优化方向
+
+1. **多实例支持**：允许同一视图在多个位置同时显示
+2. **视图跨窗口**：支持将视图从主窗口拖到辅助窗口
+3. **状态共享**：多个编辑器 tab 共享同一个视图实例
+4. **视图嵌套**：支持在编辑器中嵌套子视图
+5. **快捷键支持**：添加键盘快捷键快速切换视图位置
+
+---
+
+## 九、参考资料
+
+- [VS Code 源码仓库](https://github.com/microsoft/vscode)
+- [ViewContainerLocation 枚举定义](src/vs/workbench/common/views.ts)
+- [moveViewToLocation 实现](src/vs/workbench/browser/parts/views/viewPaneContainer.ts)
+- [EditorGroupView 实现](src/vs/workbench/browser/parts/editor/editorGroupView.ts)
+- [EditorPart 实现](src/vs/workbench/browser/parts/editor/editorPart.ts)# 视图（OUTLINE / PROBLEMS / PORTS）拖入编辑器区 — 需求拆解、估时与风险

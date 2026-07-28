@@ -6,7 +6,7 @@
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorInputCapabilities, IUntypedEditorInput } from '../../../common/editor.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IViewDescriptorService } from '../../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 
 export const VIEW_EDITOR_INPUT_TYPE_ID = 'workbench.editors.viewEditorInput';
 
@@ -22,6 +22,7 @@ export class ViewEditorInput extends EditorInput {
 
 	constructor(
 		public readonly viewId: string,
+		public readonly originalLocation: ViewContainerLocation | undefined,
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
 	) {
 		super();

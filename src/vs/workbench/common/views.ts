@@ -39,16 +39,26 @@ export namespace Extensions {
 export const enum ViewContainerLocation {
 	Sidebar,
 	Panel,
-	AuxiliaryBar
+	AuxiliaryBar,
+	Editor
 }
 
-export const ViewContainerLocations = [ViewContainerLocation.Sidebar, ViewContainerLocation.Panel, ViewContainerLocation.AuxiliaryBar];
+export const ViewContainerLocations = [ViewContainerLocation.Sidebar, ViewContainerLocation.Panel, ViewContainerLocation.AuxiliaryBar, ViewContainerLocation.Editor];
+
+/**
+ * Stable id for the view container that hosts workbench views inside the editor area.
+ * Kept here (in the common layer) so that both `layout.ts` and `viewDescriptorService.ts`
+ * can reference it without creating a circular dependency on the browser layer.
+ */
+export const EDITOR_VIEW_CONTAINER_ID = 'workbench.view.editor';
+
 
 export function ViewContainerLocationToString(viewContainerLocation: ViewContainerLocation) {
 	switch (viewContainerLocation) {
 		case ViewContainerLocation.Sidebar: return 'sidebar';
 		case ViewContainerLocation.Panel: return 'panel';
 		case ViewContainerLocation.AuxiliaryBar: return 'auxiliarybar';
+		case ViewContainerLocation.Editor: return 'editor';
 	}
 }
 

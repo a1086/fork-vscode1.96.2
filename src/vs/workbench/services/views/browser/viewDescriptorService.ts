@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ViewContainerLocation, IViewDescriptorService, ViewContainer, IViewsRegistry, IViewContainersRegistry, IViewDescriptor, Extensions as ViewExtensions, ViewVisibilityState, defaultViewIcon, ViewContainerLocationToString, VIEWS_LOG_ID, VIEWS_LOG_NAME } from '../../../common/views.js';
+import { ViewContainerLocation, IViewDescriptorService, ViewContainer, IViewsRegistry, IViewContainersRegistry, IViewDescriptor, Extensions as ViewExtensions, ViewVisibilityState, defaultViewIcon, ViewContainerLocationToString, VIEWS_LOG_ID, VIEWS_LOG_NAME, EDITOR_VIEW_CONTAINER_ID } from '../../../common/views.js';
 import { IContextKey, RawContextKey, IContextKeyService, ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
@@ -327,7 +327,8 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 
 	moveViewToLocation(view: IViewDescriptor, location: ViewContainerLocation, reason?: string): void {
 		this.logger.value.info(`moveViewToLocation: view:${view.id} location:${location} reason:${reason}`);
-		const container = this.registerGeneratedViewContainer(location);
+		const existingId = location === ViewContainerLocation.Editor ? EDITOR_VIEW_CONTAINER_ID : undefined;
+		const container = this.registerGeneratedViewContainer(location, existingId);
 		this.moveViewsToContainer([view], container);
 	}
 

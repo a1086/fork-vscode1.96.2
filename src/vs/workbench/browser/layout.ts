@@ -36,7 +36,9 @@ import { IThemeService } from '../../platform/theme/common/themeService.js';
 import { WINDOW_ACTIVE_BORDER, WINDOW_INACTIVE_BORDER } from '../common/theme.js';
 import { LineNumbersType } from '../../editor/common/config/editorOptions.js';
 import { URI } from '../../base/common/uri.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation, Extensions as ViewContainerExtensions, IViewContainersRegistry, EDITOR_VIEW_CONTAINER_ID } from '../common/views.js';
+
+import { Registry } from '../../platform/registry/common/platform.js';
 import { DiffEditorInput } from '../common/editor/diffEditorInput.js';
 import { mark } from '../../base/common/performance.js';
 import { IExtensionService } from '../services/extensions/common/extensions.js';
@@ -115,6 +117,8 @@ interface IInitialEditorsState {
 
 	readonly layout?: EditorGroupLayout;
 }
+
+
 
 export const TITLE_BAR_SETTINGS = [
 	LayoutSettings.ACTIVITY_BAR_LOCATION,
@@ -325,6 +329,35 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		// State
 		this.initLayoutState(accessor.get(ILifecycleService), accessor.get(IFileService));
+
+		// Editor view container (Phase 1 scaffold)
+		this.registerEditorViewContainer();
+	}
+
+	/**
+	 * Registers the view container that will host views dragged into the editor
+	 * area at the new `ViewContainerLocation.Editor` location.
+	 *
+	 * Phase 1: this is a scaffold. We only reserve the container id in the
+	 * `ViewContainersRegistry` bookkeeping and make sure it is not registered
+	 * twice. The real registration (providing a `ctorDescriptor` that points to
+	 * an `IViewPaneContainer` implementation, plus wiring into a workbench part)
+	 * is intentionally deferred to a later phase so that nothing tries to
+	 * instantiate a not-yet-existing container.
+	 */
+	private registerEditorViewContainer(): void {
+		const viewContainersRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
+
+		// Guard against double registration (e.g. on reload).
+		if (viewContainersRegistry.get(EDITOR_VIEW_CONTAINER_ID)) {
+			return;
+		}
+
+		// TODO@phase2: call `viewContainersRegistry.registerViewContainer(...)`
+		// with a real `ctorDescriptor` for the editor-hosted view container at
+		// `ViewContainerLocation.Editor` once the container implementation and
+		// its host part exist.
+		this.logService.trace(`Editor view container '${EDITOR_VIEW_CONTAINER_ID}' scaffold ready (registration deferred to a later phase).`);
 	}
 
 	private registerLayoutListeners(): void {
