@@ -12,6 +12,12 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { EditorPaneDescriptor } from '../../../browser/editor.js';
 import { ViewEditorInput } from './viewEditorInput.js';
 import { ViewEditorPane } from './viewEditorPane.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
+
+interface ISerializedViewEditorInput {
+	readonly viewId: string;
+	readonly originalLocation: number | undefined;
+}
 
 class ViewEditorInputSerializer implements IEditorSerializer {
 
@@ -20,11 +26,35 @@ class ViewEditorInputSerializer implements IEditorSerializer {
 	}
 
 	serialize(input: ViewEditorInput): string {
-		return input.viewId;
+		const state: ISerializedViewEditorInput = {
+			viewId: input.viewId,
+			originalLocation: input.originalLocation
+		};
+		return JSON.stringify(state);
 	}
 
 	deserialize(instantiationService: IInstantiationService, serialized: string): ViewEditorInput {
-		return instantiationService.createInstance(ViewEditorInput, serialized);
+		let viewId: string;
+		let originalLocation: ViewContainerLocation | undefined;
+		try {
+			const state: ISerializedViewEditorInput = JSON.parse(serialized);
+			viewId = state.viewId;
+			originalLocation = state.originalLocation;
+		} catch {
+			viewId = serialized;
+			originalLocation = undefined;
+		}
+
+		// Restore view to Editor location if not already there
+		instantiationService.invokeFunction(accessor => {
+			const viewDescriptorService = accessor.get(IViewDescriptorService);
+			const descriptor = viewDescriptorService.getViewDescriptorById(viewId);
+			if (descriptor && viewDescriptorService.getViewLocationById(viewId) !== ViewContainerLocation.Editor) {
+				viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'restore');
+			}
+		});
+
+		return instantiationService.createInstance(ViewEditorInput, viewId, originalLocation);
 	}
 }
 
