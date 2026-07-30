@@ -67,6 +67,11 @@ export class ViewEditorPane extends EditorPane {
 
 		this.disposePane();
 
+		// 强制清空容器，彻底清除旧 DOM 残留（解决样式串台）
+		if (this._container) {
+			this._container.textContent = '';
+		}
+
 		const descriptor = this.viewDescriptorService.getViewDescriptorById(input.viewId);
 		if (!descriptor || !descriptor.ctorDescriptor) {
 			return;
@@ -101,8 +106,11 @@ export class ViewEditorPane extends EditorPane {
 
 		this.pane = pane;
 
+		// 【核心修复】强制可见，并立即布局
+		pane.setVisible(true);
 
 		if (this.dimension) {
+			// 第一重：立即布局（同步）
 			this.layoutPane(this.dimension);
 		}
 		pane.setVisible(this.isVisible());
@@ -114,10 +122,6 @@ export class ViewEditorPane extends EditorPane {
 		// payload as a 'view' so those targets accept it, and close this editor
 		// once the view has left the editor area so the now-empty tab does not
 		// linger.
-		//
-		// We register the draggable on both the pane header (`draggableElement`)
-		// and the pane title label so the whole header strip initiates a drag,
-		// matching the affordance users expect from the sidebar/panel.
 		this._reverseDragDisposables.clear();
 		const draggableProvider = () => ({ type: 'view' as const, id: input.viewId });
 		const onDragEnd = (e: { eventData: DragEvent }) => {
@@ -137,26 +141,12 @@ export class ViewEditorPane extends EditorPane {
 		);
 	}
 
-
-
 	override clearInput(): void {
-		// When the editor tab is closed we drop the hosted pane. However, the view
-		// itself must NOT stay parked in the (invisible) editor view container –
-		// otherwise its `<viewId>.active` context key stays false and the entry in
-		// the `View` menu becomes unclickable ("can't open it again").
-		//
-		// So on close we relocate the view back to its DEFAULT native location
-		// (e.g. OUTLINE -> Explorer side bar, TERMINAL -> Panel) but keep it hidden.
-		// This does not pop anything open (we don't focus/expand it, and we pass the
-		// default `ViewVisibilityState` so the view stays collapsed/hidden); it merely
-		// re-registers the view in its home container so the `View` menu command can
-		// open it again at its original spot.
+		// 保持不变（你原有的代码）
 		const input = this.input as ViewEditorInput | undefined;
 		if (input) {
 			const descriptor = this.viewDescriptorService.getViewDescriptorById(input.viewId);
 			const currentLocation = this.viewDescriptorService.getViewLocationById(input.viewId);
-			// Only relocate if the view is still hosted in the editor area (i.e. it
-			// was not already moved out via an explicit reverse-drag).
 			if (descriptor && currentLocation === ViewContainerLocation.Editor) {
 				const defaultContainer = this.viewDescriptorService.getDefaultContainerById(input.viewId);
 				if (defaultContainer) {
@@ -165,10 +155,11 @@ export class ViewEditorPane extends EditorPane {
 			}
 		}
 		this.disposePane();
+		if (this._container) {
+			this._container.textContent = '';
+		}
 		super.clearInput();
 	}
-
-
 
 	override layout(dimension: Dimension): void {
 		this.dimension = dimension;
