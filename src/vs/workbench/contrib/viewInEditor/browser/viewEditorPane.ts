@@ -5,33 +5,25 @@
 
 import { Dimension } from '../../../../base/browser/dom.js';
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { IEditorOpenContext } from '../../../common/editor.js';
+import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { IStorageService } from '../../../../platform/storage/common/storage.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { DisposableStore } from '../../../../base/common/lifecycle.js';
-import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
-import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
-import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
-import { IEditorOpenContext } from '../../../common/editor.js';
 import { ViewPane } from '../../../browser/parts/views/viewPane.js';
-import { IViewletViewOptions } from '../../../browser/parts/views/viewsViewlet.js';
-import { CompositeDragAndDropObserver } from '../../../browser/dnd.js';
+import { IViewDescriptorService, IViewDescriptor, ViewContainerLocation } from '../../../common/views.js';
+import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
+import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
 import { ViewEditorInput } from './viewEditorInput.js';
 
-/**
- * Editor pane that instantiates and hosts a workbench ViewPane inside the editor area.
- */
 export class ViewEditorPane extends EditorPane {
+	static readonly ID = 'workbench.editor.view';
 
-	static readonly ID = 'workbench.editor.viewEditor';
-
-	private pane: ViewPane | undefined;
-	private dimension: Dimension | undefined;
-	private _container: HTMLElement | undefined;
-	private _reverseDragDisposables = this._register(new DisposableStore());
+	private _editorView?: ViewPane;
+	private readonly container: HTMLElement;
 
 	constructor(
 		group: IEditorGroup,
@@ -39,157 +31,117 @@ export class ViewEditorPane extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
+		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
 	) {
 		super(ViewEditorPane.ID, group, telemetryService, themeService, storageService);
+		this.container = document.createElement('div');
+		// A `ViewPane` only gets its layout styles inside a `.monaco-pane-view`
+		// ancestor (header height, body flex). Since we mount the pane directly
+		// into the editor area, add that class so the pane does not collapse.
+		this.container.classList.add('monaco-pane-view', 'view-editor-pane');
+		this.container.style.position = 'relative';
+		this.container.style.width = '100%';
+		this.container.style.height = '100%';
+		this.container.style.overflow = 'hidden';
 	}
 
-	protected createEditor(container: HTMLElement): void {
-		this._container = container;
-
-		// A `ViewPane` (`.pane`) only gets its layout styles when it lives inside a
-		// `.monaco-pane-view` ancestor (see paneview.css: header height, body flex,
-		// pane flex layout). Since we mount the pane directly into the editor area
-		// we add that class to the host so those styles apply and the pane no longer
-		// "collapses". We also make the host a positioned block filling the editor.
-		container.classList.add('monaco-pane-view', 'view-editor-pane-container');
-		container.style.position = 'relative';
-		container.style.width = '100%';
-		container.style.height = '100%';
-		container.style.overflow = 'hidden';
+	protected override createEditor(parent: HTMLElement): void {
+		parent.appendChild(this.container);
 	}
-
-
-
 
 	override async setInput(input: ViewEditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
 		await super.setInput(input, options, context, token);
 
-		this.disposePane();
-
-		// 强制清空容器，彻底清除旧 DOM 残留（解决样式串台）
-		if (this._container) {
-			this._container.textContent = '';
+		if (this._editorView) {
+			return;
 		}
 
 		const descriptor = this.viewDescriptorService.getViewDescriptorById(input.viewId);
-		if (!descriptor || !descriptor.ctorDescriptor) {
-			return;
+		if (!descriptor) {
+			throw new Error('No view descriptor found for view id: ' + input.viewId);
 		}
 
-		// Generic factory: any ViewPane can be instantiated from its descriptor's ctor.
-		const pane = this.instantiationService.createInstance(
-			descriptor.ctorDescriptor.ctor,
-			...(descriptor.ctorDescriptor.staticArguments || []),
-			{ id: input.viewId, title: descriptor.name.value, expanded: true } as IViewletViewOptions
-		);
-
-		// 3.3: Force vertical orientation in editor area (Panel views default to horizontal)
-		if ((pane as any).orientation !== undefined) {
-			(pane as any).orientation = Orientation.VERTICAL;
+		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
+		if (!viewContainer) {
+			throw new Error('No view container found for view id: ' + input.viewId);
 		}
+
+		const paneTitle = descriptor.name?.value ?? descriptor.id;
+		const pane = this.instantiationService.createInstance(descriptor.ctorDescriptor.ctor, {
+			...descriptor,
+			id: descriptor.id,
+			// `ViewPane` reads its header title from `options.title` (not `options.name`).
+			// `descriptor.name` is an `ILocalizedString`; forwarding it directly would put
+			// the object into `Pane._title` and the header `<h3>` would render the string
+			// `"UNDEFINED"` (or `"[object Object]"`). Pass the localized value, and fall
+			// back to the view id so the header never shows `UNDEFINED`.
+			title: paneTitle,
+			container: viewContainer,
+			viewContainerLocation: ViewContainerLocation.Editor,
+			canToggleVisibility: false,
+			overrideAriaLabel: paneTitle,
+			overrideAriaDescription: paneTitle,
+		}) as ViewPane;
+
+		// Panel views default to HORIZONTAL orientation; force vertical in the editor area.
+		pane.orientation = Orientation.VERTICAL;
 
 		pane.render();
-		this._container?.appendChild(pane.element);
+		this.container.appendChild(pane.element);
+		this._editorView = pane;
+		this.layoutPane(pane);
 
-		// Make the pane root fill the editor host. A `Pane` normally relies on its
-		// `PaneView` parent to absolutely position/size the `.pane` element; since
-		// we host it directly we replicate that here so header + body lay out
-		// correctly instead of collapsing.
-		pane.element.style.position = 'absolute';
-		pane.element.style.top = '0';
-		pane.element.style.left = '0';
-		pane.element.style.width = '100%';
-		pane.element.style.height = '100%';
-		pane.element.style.display = 'flex';
-		pane.element.style.flexDirection = 'column';
+		this.registerReverseDrag(input, descriptor, pane);
 
-		this.pane = pane;
+		this._register(pane.onDidFocus(() => this.focus()));
+	}
 
-		// 【核心修复】强制可见，并立即布局
-		pane.setVisible(true);
-
-		if (this.dimension) {
-			// 第一重：立即布局（同步）
-			this.layoutPane(this.dimension);
-		}
-		pane.setVisible(this.isVisible());
-
-		// Register reverse-drag so the view can be dragged back to the sidebar
-		// (activity bar), panel bar or auxiliary bar. The actual re-location is
-		// performed by the drop target (composite bar / view container), which
-		// already understands views coming from the editor area. We only mark the
-		// payload as a 'view' so those targets accept it, and close this editor
-		// once the view has left the editor area so the now-empty tab does not
-		// linger.
-		this._reverseDragDisposables.clear();
+	private registerReverseDrag(input: ViewEditorInput, descriptor: IViewDescriptor, pane: ViewPane): void {
 		const draggableProvider = () => ({ type: 'view' as const, id: input.viewId });
-		const onDragEnd = (e: { eventData: DragEvent }) => {
-			if (e.eventData.dataTransfer?.dropEffect !== 'move') {
-				return; // drop was cancelled or copied elsewhere
+		const onDragEnd = (e: IDraggedCompositeData) => {
+			if (e.eventData.dataTransfer?.dropEffect === 'none') {
+				return;
 			}
-
-			// If the drop target moved the view out of the editor area,
-			// close this editor input to remove the empty tab.
-			const currentLocation = this.viewDescriptorService.getViewLocationById(input.viewId);
-			if (currentLocation !== null && currentLocation !== ViewContainerLocation.Editor) {
-				this.group.closeEditor(input);
-			}
+			this.viewDescriptorService.moveViewToLocation(descriptor, input.originalLocation ?? ViewContainerLocation.Panel, 'dnd-editor-to-panel');
+			this.group?.closeEditor(input);
 		};
-		this._reverseDragDisposables.add(
-			CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement, draggableProvider, { onDragEnd })
-		);
+		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement, draggableProvider, { onDragEnd }));
 	}
 
 	override clearInput(): void {
-		// 保持不变（你原有的代码）
-		const input = this.input as ViewEditorInput | undefined;
-		if (input) {
-			const descriptor = this.viewDescriptorService.getViewDescriptorById(input.viewId);
-			const currentLocation = this.viewDescriptorService.getViewLocationById(input.viewId);
-			if (descriptor && currentLocation === ViewContainerLocation.Editor) {
-				const defaultContainer = this.viewDescriptorService.getDefaultContainerById(input.viewId);
-				if (defaultContainer) {
-					this.viewDescriptorService.moveViewsToContainer([descriptor], defaultContainer, undefined, 'closeEditor');
-				}
-			}
-		}
+		// Behavior A: closing the editor tab only hides the view inside the editor area.
+		// Do NOT move it back to panel/sidebar/auxiliary bar; leave its ViewDescriptorService
+		// location as ViewContainerLocation.Editor.
 		this.disposePane();
-		if (this._container) {
-			this._container.textContent = '';
-		}
+		this.container.replaceChildren();
 		super.clearInput();
 	}
 
-	override layout(dimension: Dimension): void {
-		this.dimension = dimension;
-		this.layoutPane(dimension);
-	}
-
-	private layoutPane(dimension: Dimension): void {
-		if (!this.pane) {
-			return;
-		}
-		// `Pane.layout` 只收主轴尺寸；正交尺寸需手动设置，因为我们是直接挂载
-		// 该 pane（没有 PaneView 包装来设置 orthogonalSize）。
-		if (this.pane.orientation === Orientation.VERTICAL) {
-			this.pane.orthogonalSize = dimension.width;
-			this.pane.layout(dimension.height);
-		} else {
-			this.pane.orthogonalSize = dimension.height;
-			this.pane.layout(dimension.width);
-		}
-	}
-
-	override setVisible(visible: boolean): void {
-		super.setVisible(visible);
-		this.pane?.setVisible(visible);
-	}
-
 	private disposePane(): void {
-		if (this.pane) {
-			this.pane.dispose();
-			this.pane = undefined;
+		if (this._editorView) {
+			this._editorView.dispose();
+			this._editorView = undefined;
+		}
+	}
+
+	private layoutPane(pane: ViewPane): void {
+		const width = this.container.clientWidth;
+		const height = this.container.clientHeight;
+		pane.setVisible(true);
+		// `Pane.layout` takes only the main-axis size; the orthogonal size must
+		// be set manually because we mount the pane directly (no PaneView parent).
+		if (pane.orientation === Orientation.VERTICAL) {
+			pane.orthogonalSize = width;
+			pane.layout(height);
+		} else {
+			pane.orthogonalSize = height;
+			pane.layout(width);
+		}
+	}
+
+	override layout(dimension: Dimension): void {
+		if (this._editorView) {
+			this.layoutPane(this._editorView);
 		}
 	}
 }

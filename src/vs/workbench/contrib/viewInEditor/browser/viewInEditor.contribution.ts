@@ -4,12 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { EditorExtensions, IEditorFactoryRegistry } from '../../../common/editor.js';
-import { IEditorPaneRegistry } from '../../../browser/editor.js';
+import { EditorExtensions, IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
+import { IEditorPaneRegistry, EditorPaneDescriptor } from '../../../browser/editor.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { IEditorSerializer } from '../../../common/editor.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { EditorPaneDescriptor } from '../../../browser/editor.js';
 import { ViewEditorInput } from './viewEditorInput.js';
 import { ViewEditorPane } from './viewEditorPane.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
@@ -45,11 +43,11 @@ class ViewEditorInputSerializer implements IEditorSerializer {
 			originalLocation = undefined;
 		}
 
-		// Restore view to Editor location if not already there
+		// Always restore the view to the Editor container on deserialization
 		instantiationService.invokeFunction(accessor => {
 			const viewDescriptorService = accessor.get(IViewDescriptorService);
 			const descriptor = viewDescriptorService.getViewDescriptorById(viewId);
-			if (descriptor && viewDescriptorService.getViewLocationById(viewId) !== ViewContainerLocation.Editor) {
+			if (descriptor) {
 				viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'restore');
 			}
 		});
