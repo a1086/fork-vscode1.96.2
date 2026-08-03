@@ -300,19 +300,38 @@ export class ViewsService extends Disposable implements IViewsService {
 	}
 
 	async openView<T extends IView>(id: string, focus?: boolean): Promise<T | null> {
-		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(id);
+		const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(id);
+		if (!viewDescriptor) {
+			return null;
+		}
+
+		let viewContainer = this.viewDescriptorService.getViewContainerByViewId(id);
 		if (!viewContainer) {
 			return null;
 		}
 
-		if (!this.viewDescriptorService.getViewContainerModel(viewContainer).activeViewDescriptors.some(viewDescriptor => viewDescriptor.id === id)) {
+		// Behavior B: if the view is currently hidden in the editor area (its editor tab was closed),
+		// move it back to its default/original container so the View menu can show it there.
+		const location = this.viewDescriptorService.getViewContainerLocation(viewContainer);
+		if (location === ViewContainerLocation.Editor) {
+			const defaultContainer = this.viewDescriptorService.getDefaultContainerById(id);
+			if (defaultContainer) {
+				const defaultLocation = this.viewDescriptorService.getViewContainerLocation(defaultContainer);
+				if (defaultLocation !== null) {
+					this.viewDescriptorService.moveViewToLocation(viewDescriptor, defaultLocation, 'view-menu-restore');
+					viewContainer = defaultContainer;
+				}
+			}
+		}
+
+		if (!this.viewDescriptorService.getViewContainerModel(viewContainer).activeViewDescriptors.some(v => v.id === id)) {
 			return null;
 		}
 
-		const location = this.viewDescriptorService.getViewContainerLocation(viewContainer);
-		const compositeDescriptor = this.getComposite(viewContainer.id, location!);
+		const targetLocation = this.viewDescriptorService.getViewContainerLocation(viewContainer);
+		const compositeDescriptor = this.getComposite(viewContainer.id, targetLocation!);
 		if (compositeDescriptor) {
-			const paneComposite = await this.openComposite(compositeDescriptor.id, location!) as IPaneComposite | undefined;
+			const paneComposite = await this.openComposite(compositeDescriptor.id, targetLocation!) as IPaneComposite | undefined;
 			if (paneComposite && paneComposite.openView) {
 				return paneComposite.openView<T>(id, focus) || null;
 			} else if (focus) {

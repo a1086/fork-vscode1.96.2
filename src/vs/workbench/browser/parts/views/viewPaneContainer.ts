@@ -768,6 +768,25 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	}
 
 	openView(id: string, focus?: boolean): IView | undefined {
+		const descriptor = this.viewDescriptorService.getViewDescriptorById(id);
+		if (descriptor) {
+			const container = this.viewDescriptorService.getViewContainerByViewId(id);
+			const location = container ? this.viewDescriptorService.getViewContainerLocation(container) : null;
+			if (location === ViewContainerLocation.Editor) {
+				const defaultContainer = this.viewDescriptorService.getDefaultContainerById(id);
+				const defaultLocation = defaultContainer ? this.viewDescriptorService.getViewContainerLocation(defaultContainer) : null;
+				if (defaultLocation !== null) {
+					this.viewDescriptorService.moveViewToLocation(descriptor, defaultLocation, 'view-menu-restore');
+					// If this container is the original one, fall through to show/focus the view here.
+					// Otherwise, delegate to the views service to open it in its original container.
+					if (!defaultContainer || defaultContainer.id !== this.viewContainer.id) {
+						this.instantiationService.invokeFunction(accessor => accessor.get(IViewsService).openView(id, focus));
+						return undefined;
+					}
+				}
+			}
+		}
+
 		let view = this.getView(id);
 		if (!view) {
 			this.toggleViewVisibility(id);
@@ -937,13 +956,12 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					} else if (dropData.type === 'view') {
 						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
 						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
-						if (oldViewContainer !== this.viewContainer && viewDescriptor && viewDescriptor.canMoveView && !this.viewContainer.rejectAddedViews) {
-							viewsToMove.push(viewDescriptor);
-						}
+						const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
 
-						// Handle reverse-drag from editor area
-						if (viewDescriptor && oldViewContainer && this.viewDescriptorService.getViewContainerLocation(oldViewContainer) === ViewContainerLocation.Editor) {
-							viewsToMove.push(viewDescriptor);
+						if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
+							if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
+								viewsToMove.push(viewDescriptor);
+							}
 						}
 
 						if (viewDescriptor) {
