@@ -826,6 +826,7 @@ export class TestViewsService implements IViewsService {
 	getActiveViewPaneContainerWithId(id: string) { return null; }
 	getFocusedViewName(): string { return ''; }
 	getFocusedView(): IViewDescriptor | null { return null; }
+	withViewMoving<T>(fn: () => T): T { return fn(); }
 }
 
 export class TestEditorGroupsService implements IEditorGroupsService {

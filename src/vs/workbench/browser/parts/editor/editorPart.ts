@@ -32,6 +32,7 @@ import { findGroup } from '../../../services/editor/common/editorGroupFinder.js'
 import { SIDE_GROUP, IEditorService } from '../../../services/editor/common/editorService.js';
 import { ViewEditorInput } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IBoundarySashes } from '../../../../base/browser/ui/sash/sash.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
@@ -1157,6 +1158,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 					this.instantiationService.invokeFunction(accessor => {
 						const viewDescriptorService = accessor.get(IViewDescriptorService);
 						const editorService = accessor.get(IEditorService);
+						const viewsService = accessor.get(IViewsService);
 
 						// Resolve the set of view ids to move into the editor area. For a
 						// single 'view' this is just that view; for a 'composite' (view
@@ -1172,14 +1174,20 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 								: [];
 						}
 
-						for (const viewId of viewIds) {
-							const viewDescriptor = viewDescriptorService.getViewDescriptorById(viewId);
-							const originalLocation = viewDescriptorService.getViewLocationById(viewId) ?? undefined;
-							if (viewDescriptor) {
-								viewDescriptorService.moveViewToLocation(viewDescriptor, ViewContainerLocation.Editor, 'dnd');
+						// Run the move inside `withViewMoving` so that ViewsService does
+						// not auto-hide the Panel while the descriptor model is in a
+						// transient state (e.g. views removed from Panel but not yet added
+						// to the Editor container).
+						viewsService.withViewMoving(() => {
+							for (const viewId of viewIds) {
+								const viewDescriptor = viewDescriptorService.getViewDescriptorById(viewId);
+								const originalLocation = viewDescriptorService.getViewLocationById(viewId) ?? undefined;
+								if (viewDescriptor) {
+									viewDescriptorService.moveViewToLocation(viewDescriptor, ViewContainerLocation.Editor, 'dnd');
+								}
+								editorService.openEditor(this.instantiationService.createInstance(ViewEditorInput, viewId, originalLocation));
 							}
-							editorService.openEditor(this.instantiationService.createInstance(ViewEditorInput, viewId, originalLocation));
-						}
+						});
 					});
 				}
 

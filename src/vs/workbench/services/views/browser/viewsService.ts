@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, IDisposable, toDisposable, DisposableStore, DisposableMap } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, toDisposable, DisposableStore, DisposableMap, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { IViewDescriptorService, ViewContainer, IViewDescriptor, IView, ViewContainerLocation, IViewPaneContainer } from '../../../common/views.js';
 import { FocusedViewContext, getVisbileViewContextKey } from '../../../common/contextkeys.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
@@ -56,6 +57,18 @@ export class ViewsService extends Disposable implements IViewsService {
 	private readonly visibleViewContextKeys: Map<string, IContextKey<boolean>>;
 	private readonly focusedViewContextKey: IContextKey<string>;
 
+	/** Pending deferred check that auto-hides the Panel part once it becomes empty. */
+	private readonly pendingPanelVisibilityUpdate = this._register(new MutableDisposable<IDisposable>());
+
+	/**
+	 * Guard flag to prevent `updatePanelVisibility` from hiding the Panel while a
+	 * view move (drag-and-drop, programmatic moveViewsToContainer, etc.) is in
+	 * progress.  Without this, transient descriptor-model states during the move can
+	 * make `isPanelEmpty()` return `true` and auto-hide the Panel even though the
+	 * user did not drag the *last* view out.
+	 */
+	private _isMovingViews = false;
+
 	constructor(
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
 		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
@@ -77,11 +90,33 @@ export class ViewsService extends Disposable implements IViewsService {
 
 		this.viewDescriptorService.viewContainers.forEach(viewContainer => this.onDidRegisterViewContainer(viewContainer, this.viewDescriptorService.getViewContainerLocation(viewContainer)!));
 		this._register(this.viewDescriptorService.onDidChangeViewContainers(({ added, removed }) => this.onDidChangeContainers(added, removed)));
-		this._register(this.viewDescriptorService.onDidChangeContainerLocation(({ viewContainer, from, to }) => this.onDidChangeContainerLocation(viewContainer, from, to)));
+		this._register(this.viewDescriptorService.onDidChangeContainerLocation(({ viewContainer, from, to }) => {
+			this.onDidChangeContainerLocation(viewContainer, from, to);
+			this.updatePanelVisibility();
+		}));
 
 		// View Container Visibility
 		this._register(this.paneCompositeService.onDidPaneCompositeOpen(e => this._onDidChangeViewContainerVisibility.fire({ id: e.composite.getId(), visible: true, location: e.viewContainerLocation })));
 		this._register(this.paneCompositeService.onDidPaneCompositeClose(e => this._onDidChangeViewContainerVisibility.fire({ id: e.composite.getId(), visible: false, location: e.viewContainerLocation })));
+
+		// When the last view of the Panel is dragged out (to the editor area, sidebar,
+		// auxiliary bar or another container), the Panel part becomes empty and should
+		// auto-hide, just like invoking "Hide Panel" (layoutService.setPartHidden).
+		// Moving a view across containers keeps the container itself registered, so the
+		// per-container `onDidChangeActiveViewDescriptors` hook in
+		// `onDidRegisterViewContainer` is what normally detects this; these two cover the
+		// cases where whole containers move between locations.
+		this._register(this.viewDescriptorService.onDidChangeContainer(() => this.updatePanelVisibility()));
+		this._register(this.viewDescriptorService.onDidChangeLocation(() => this.updatePanelVisibility()));
+
+		// Guard against the empty Panel being re-shown after we hid it: opening any pane
+		// composite goes through `PaneCompositePart.doOpenPaneComposite`, which forces the
+		// part visible again via `setPartHidden(false, ...)`.
+		this._register(this.paneCompositeService.onDidPaneCompositeOpen(e => {
+			if (e.viewContainerLocation === ViewContainerLocation.Panel) {
+				this.updatePanelVisibility();
+			}
+		}));
 
 		this.focusedViewContextKey = FocusedViewContext.bindTo(contextKeyService);
 	}
@@ -133,7 +168,10 @@ export class ViewsService extends Disposable implements IViewsService {
 			this.onViewDescriptorsRemoved(removed);
 		}));
 		this.updateViewContainerEnablementContextKey(viewContainer);
-		disposables.add(viewContainerModel.onDidChangeActiveViewDescriptors(() => this.updateViewContainerEnablementContextKey(viewContainer)));
+		disposables.add(viewContainerModel.onDidChangeActiveViewDescriptors(() => {
+			this.updateViewContainerEnablementContextKey(viewContainer);
+			this.updatePanelVisibility();
+		}));
 		disposables.add(this.registerOpenViewContainerAction(viewContainer));
 
 		this.viewContainerDisposables.set(viewContainer.id, disposables);
@@ -189,6 +227,75 @@ export class ViewsService extends Disposable implements IViewsService {
 			this.enabledViewContainersContextKeys.set(viewContainer.id, contextKey);
 		}
 		contextKey.set(!(viewContainer.hideIfEmpty && this.viewDescriptorService.getViewContainerModel(viewContainer).activeViewDescriptors.length === 0));
+	}
+
+	/**
+	 * Returns `true` when no Panel view container hosts any active view.
+	 *
+	 * This mirrors how `PaneCompositePart` decides to auto-hide a part when its last
+	 * container goes away (see the `registry.onDidDeregister` handler there), so the
+	 * Panel behaves exactly like the Auxiliary Bar and Sidebar do.
+	 *
+	 * Notes on the two deliberate choices here:
+	 *  - `activeViewDescriptors` (not `visibleViewDescriptors`) is the right signal:
+	 *    a view that merely got collapsed or unchecked still *belongs* to the Panel and
+	 *    must not cause the whole part to disappear.
+	 *  - Only the descriptor model is consulted. The rendered panes
+	 *    (`IPaneComposite.getViewPaneContainer().views`) must NOT be used, because while
+	 *    a drag-and-drop is in flight the pane of the view being moved away can still be
+	 *    attached to the old composite, making an empty Panel look non-empty.
+	 */
+	private isPanelEmpty(): boolean {
+		const containers = this.viewDescriptorService
+			.getViewContainersByLocation(ViewContainerLocation.Panel)
+			.filter(container => !this.isBuiltinAlwaysActiveContainer(container));
+		return !containers.some(container => this.viewDescriptorService.getViewContainerModel(container).activeViewDescriptors.length > 0);
+	}
+
+	/**
+	 * Containers whose views are built-in and always active (e.g. the Debug
+	 * panel's callStack/variables views) should not count as "the Panel still has
+	 * content".  If only such containers remain after the user dragged away all
+	 * movable views, the Panel is effectively empty and should be hidden.
+	 */
+	private isBuiltinAlwaysActiveContainer(container: ViewContainer): boolean {
+		return container.id === 'workbench.view.debug';
+	}
+
+	/**
+	 * Hides the Panel part (just like invoking "Hide Panel") once it no longer hosts any
+	 * view - e.g. after its last view was dragged into the editor area, sidebar or
+	 * auxiliary bar. It never re-shows the Panel, so an explicit "Hide Panel" by the user
+	 * is not overridden.
+	 *
+	 * `PaneCompositePart` already auto-hides a part when its last container is
+	 * deregistered, which is what makes the Auxiliary Bar disappear once emptied: its
+	 * container is generated and therefore cleaned up by `cleanUpGeneratedViewContainer`.
+	 * The Panel's default container is *not* generated, so it survives as an empty
+	 * container and that handler never runs - hence this explicit check.
+	 */
+	private updatePanelVisibility(): void {
+		// While a view move is in progress the descriptor model can be transiently
+		// empty (or look empty) even though the user did not intend to empty the
+		// Panel.  Skip the check entirely until the move settles.
+		if (this._isMovingViews) {
+			return;
+		}
+
+		if (!this.isPanelEmpty() || !this.layoutService.isVisible(Parts.PANEL_PART)) {
+			return;
+		}
+
+		// Defer the hide to the end of the current task so it runs after the drop
+		// handling (including the `openEditor` of the dragged view) has fully settled:
+		// `PaneCompositePart.doOpenPaneComposite` calls `setPartHidden(false, ...)`, so
+		// any composite opened while the drop is still being processed would immediately
+		// undo a synchronous hide.
+		this.pendingPanelVisibilityUpdate.value = disposableTimeout(() => {
+			if (this.isPanelEmpty() && this.layoutService.isVisible(Parts.PANEL_PART)) {
+				this.layoutService.setPartHidden(true, Parts.PANEL_PART);
+			}
+		}, 0);
 	}
 
 	private async openComposite(compositeId: string, location: ViewContainerLocation, focus?: boolean): Promise<IPaneComposite | undefined> {
@@ -319,6 +426,12 @@ export class ViewsService extends Disposable implements IViewsService {
 				const defaultLocation = this.viewDescriptorService.getViewContainerLocation(defaultContainer);
 				if (defaultLocation !== null) {
 					this.viewDescriptorService.moveViewToLocation(viewDescriptor, defaultLocation, 'view-menu-restore');
+					// If this container is the original one, fall through to show/focus the view here.
+					// Otherwise, delegate to the views service to open it in its original container.
+					if (!defaultContainer || defaultContainer.id !== viewContainer.id) {
+						await this.openView(id, focus);
+						return null;
+					}
 					viewContainer = defaultContainer;
 				}
 			}
@@ -696,6 +809,14 @@ export class ViewsService extends Disposable implements IViewsService {
 		disposables.add(viewPaneContainer.onDidAddViews(views => this.onViewsAdded(views)));
 		disposables.add(viewPaneContainer.onDidChangeViewVisibility(view => this.onViewsVisibilityChanged(view, view.isBodyVisible())));
 		disposables.add(viewPaneContainer.onDidRemoveViews(views => this.onViewsRemoved(views)));
+
+		// Whenever a Panel's actual panes change (a view dragged out/in), re-evaluate
+		// whether the Panel part should auto-hide. This is the most direct signal that
+		// the rendered Panel content changed, independent of descriptor bookkeeping.
+		if (this.viewDescriptorService.getViewContainerLocation(viewPaneContainer.viewContainer) === ViewContainerLocation.Panel) {
+			disposables.add(viewPaneContainer.onDidAddViews(() => this.updatePanelVisibility()));
+			disposables.add(viewPaneContainer.onDidRemoveViews(() => this.updatePanelVisibility()));
+		}
 		disposables.add(viewPaneContainer.onDidFocusView(view => {
 			if (this.focusedViewContextKey.get() !== view.id) {
 				this.focusedViewContextKey.set(view.id);
@@ -710,6 +831,23 @@ export class ViewsService extends Disposable implements IViewsService {
 		}));
 
 		return viewPaneContainer;
+	}
+
+	/**
+	 * Run the given callback with the view-move guard active, so that
+	 * `updatePanelVisibility` will not auto-hide the Panel while views are being
+	 * moved (e.g. during a drag-and-drop or programmatic moveViewsToContainer).
+	 * After the callback finishes the Panel visibility is re-checked so that a
+	 * genuinely-empty Panel is still hidden.
+	 */
+	withViewMoving<T>(fn: () => T): T {
+		this._isMovingViews = true;
+		try {
+			return fn();
+		} finally {
+			this._isMovingViews = false;
+			this.updatePanelVisibility();
+		}
 	}
 }
 
