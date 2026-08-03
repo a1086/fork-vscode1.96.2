@@ -47,7 +47,7 @@ export class ViewEditorInput extends EditorInput {
 
 	override getName(): string {
 		const descriptor = this.viewDescriptorService.getViewDescriptorById(this.viewId);
-		return descriptor ? descriptor.name.value : this.viewId;
+		return descriptor?.name.value ?? this.viewId;
 	}
 
 	override matches(other: EditorInput | IUntypedEditorInput): boolean {
