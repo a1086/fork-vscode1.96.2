@@ -9,7 +9,7 @@ import { IInstantiationService } from '../../../platform/instantiation/common/in
 import { IProgressIndicator } from '../../../platform/progress/common/progress.js';
 import { Extensions, PaneComposite, PaneCompositeDescriptor, PaneCompositeRegistry } from '../panecomposite.js';
 import { IPaneComposite } from '../../common/panecomposite.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../../common/views.js';
+import { IViewDescriptorService, ViewContainer, ViewContainerLocation } from '../../common/views.js';
 import { DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { IView } from '../../../base/browser/ui/grid/grid.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
@@ -524,6 +524,23 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		return undefined;
 	}
 
+	private hasActiveViewContainers(): boolean {
+		return this.viewDescriptorService
+			.getViewContainersByLocation(this.location)
+			.filter(container => !this.isBuiltinAlwaysActiveContainer(container))
+			.some(container => this.viewDescriptorService.getViewContainerModel(container).activeViewDescriptors.length > 0);
+	}
+
+	/**
+	 * Containers whose views are built-in and always active (e.g. the Debug
+	 * panel's callStack/variables views) should not count as "the part still has
+	 * content".  If only such containers remain after the user dragged away all
+	 * movable views, the part is effectively empty and should stay hidden.
+	 */
+	private isBuiltinAlwaysActiveContainer(container: ViewContainer): boolean {
+		return container.id === 'workbench.view.debug';
+	}
+
 	private async doOpenPaneComposite(id: string, focus?: boolean): Promise<PaneComposite | undefined> {
 		if (this.blockOpening) {
 			// Workaround against a potential race condition when calling
@@ -535,11 +552,20 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 		let blockOpening: DeferredPromise<PaneComposite | undefined> | undefined;
 		if (!this.layoutService.isVisible(this.partId)) {
-			try {
-				blockOpening = this.blockOpening = new DeferredPromise<PaneComposite | undefined>();
-				this.layoutService.setPartHidden(false, this.partId);
-			} finally {
-				this.blockOpening = undefined;
+			const hasActive = this.hasActiveViewContainers();
+			// Do not force the part back into view when it no longer hosts any
+			// view. This happens when the last view was dragged out (e.g. into the
+			// editor area): the container stays registered as an empty shell, so the
+			// `onDidDeregister` auto-hide path never runs. If we re-show the part here,
+			// the empty Panel would flicker back instead of staying hidden.
+			if (hasActive) {
+				try {
+					blockOpening = this.blockOpening = new DeferredPromise<PaneComposite | undefined>();
+					this.layoutService.setPartHidden(false, this.partId);
+				} finally {
+					this.blockOpening = undefined;
+				}
+			}
 			}
 		}
 

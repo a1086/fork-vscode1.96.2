@@ -34,4 +34,11 @@ export interface IViewsService {
 	getActiveViewWithId<T extends IView>(id: string): T | null;
 	getViewWithId<T extends IView>(id: string): T | null;
 	getViewProgressIndicator(id: string): IProgressIndicator | undefined;
+
+	/**
+	 * Run the given callback with the view-move guard active, so that
+	 * `updatePanelVisibility` will not auto-hide the Panel while views are being
+	 * moved (e.g. during a drag-and-drop or programmatic moveViewsToContainer).
+	 */
+	withViewMoving<T>(fn: () => T): T;
 }
