@@ -9,6 +9,12 @@
 	height: 100%;
 }
 
+/* 6px visible divider: adjacent groups each contribute 3px border, merging into a 6px line */
+.monaco-workbench .part.editor > .content .editor-group-container:not(.empty) {
+	box-sizing: border-box;
+	border: 3px solid var(--separator-border, var(--vscode-editorGroup-border, #3c3c3c));
+}
+
 .monaco-workbench .part.editor > .content .editor-group-container.empty  {
 	opacity: 0.5; /* dimmed to indicate inactive state */
 }
