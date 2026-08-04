@@ -289,6 +289,42 @@
 2. 创建嵌套布局（如 2×2 或多列分组），拖拽其中一条分隔线，确认只有其两侧的组尺寸变化，其余非相邻组保持不动。
 3. 动态 `addGroup` 新增分组后，拖拽行为同样只影响相邻组。
 
+---
+
+## 16. 编辑器分组拖拽只影响相邻组（修复 SplitView.resize 核心算法）（2026-08-04）
+
+**需求**：同 #15。上一次修复在 `editorPart.ts` 设置 `proportionalLayout: false` 后问题仍然存在——拖拽某个编辑器组的分隔线时，同一行/列中非紧邻的其他组仍被连带缩放。
+
+**根因**：`proportionalLayout: false` 只是禁用了"按比例缩放"，但 SplitView 的核心 `resize()` 函数（`src/vs/base/browser/ui/splitview/splitview.ts:1250-1251`）在计算哪些 view 参与尺寸分配时，使用的是：
+
+```
+upIndexes = range(index, -1)      // sash 左侧所有 view
+downIndexes = range(index + 1, this.viewItems.length)  // sash 右侧所有 view
+```
+
+对于 **3 个 group 水平排列（索引 0, 1, 2）**，拖拽 sash[0]（group0 与 group1 之间）时：
+- upIndexes = [0] ✓
+- downIndexes = [1, 2] ✗ — **group2 不应该参与**
+
+随后 `resize()` 的 delta 分配循环（1302-1318行）会遍历 downItems **所有元素**：当 group1 到达 min/max 边界后，剩余 delta 会溢出到 group2，导致非相邻组也被改变大小。
+
+**修复**：将 `resize()` 和 `onSashStart()` 中的 `upIndexes` / `downIndexes` 从"整侧所有 view"改为**仅包含紧邻 sash 的两个 view（index 和 index+1）**。这样拖拽任何 sash 时，delta 只在两个相邻 view 之间传递，不会波及更远的 view。
+
+### 16.1 改动文件
+`src/vs/base/browser/ui/splitview/splitview.ts`
+- `resize()` 函数（~1251行）：`upIndexes = [index]`, `downIndexes = [index + 1]`
+- `onSashStart()` 函数（~929行）：同步修改
+
+### 16.2 影响分析
+- **2 个 view 的 SplitView**（Panel、Sidebar 等）：修改前后行为完全一致（up=[0], down=[1]），无影响。
+- **3+ 个 view 的 SplitView**（编辑器多 group）：从"拖一带动一片"变为"只动相邻两个"，符合预期。
+- **边界安全**：sash index 最大为 `viewItems.length - 2`，故 `index + 1` 最大为 `viewItems.length - 1`，不会越界。
+
+### 16.3 验证
+1. 编译通过（tsc 无错误）。
+2. 创建 3 个及以上水平排列的编辑器组，拖拽中间的任意一条分隔线，确认只有该分隔线两侧的两个组尺寸变化，第三个及之后的组保持不变。
+
+
 
 
 
