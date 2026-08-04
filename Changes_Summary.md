@@ -263,6 +263,34 @@
 
 > 注：先前误将该需求实现为"视图分组（View Pane）标题栏间距"（改 `paneviewlet.css`），已回退，仅保留本 Part 级实现。
 
+---
+
+## 15. 编辑器分组拖拽只影响相邻组（禁用 Grid 比例布局）（2026-08-04）
+
+**需求**：多个编辑器分组（edit group）宽度/高度不同时，拖拽某个组的分隔线（sash）应当**只调整紧邻的两个组**，而不应连带缩放其他非拖拽目标的组（即不希望"一个组被拖，其他组也跟着变"）。
+
+**根因**：编辑器区底层是树状嵌套的 `Grid`（`src/vs/base/browser/ui/grid/grid.ts`），由多层 `SplitView` 组成。Grid 的 `proportionalLayout` 默认值为 `true`（`src/vs/base/browser/ui/grid/gridview.ts:1171`）。该开关会沿 `BranchNode` 逐层传给每一层 `SplitView`。当布局为嵌套结构（例如左侧一个组、右侧上下两个组）时，拖拽某个分隔线导致父分支尺寸变化，会**按比例**重新分配其所有子组尺寸——包括那些非拖拽目标的组，表现就是"拖一个组，其他组也被缩放"。
+
+**修复**：在 `editorPart.ts` 创建 Grid 的两处入口显式传 `proportionalLayout: false`，使拖拽只调整 sash 两侧的相邻两个视图，其余视图尺寸保持不变。`proportionalLayout: false` 会被 `BranchNode` 自动继承到所有后续 `addGroup` 动态新增的子分支，无需额外改动。
+
+### 15.1 改动文件
+`src/vs/workbench/browser/parts/editor/editorPart.ts`
+- `doCreateGridControlWithState()` 中 `SerializableGrid.deserialize(...)` 的 options 增加 `proportionalLayout: false`：
+  ```ts
+  { styles: { separatorBorder: this.gridSeparatorBorder }, proportionalLayout: false }
+  ```
+- `doCreateGridControl()` 中首次创建（无历史状态）时同样传入：
+  ```ts
+  this.doSetGridWidget(new SerializableGrid(initialGroup, { proportionalLayout: false }));
+  ```
+
+### 15.2 验证
+1. 编译通过（`watch-client` 0 errors）。
+2. 创建嵌套布局（如 2×2 或多列分组），拖拽其中一条分隔线，确认只有其两侧的组尺寸变化，其余非相邻组保持不动。
+3. 动态 `addGroup` 新增分组后，拖拽行为同样只影响相邻组。
+
+
+
 
 
 

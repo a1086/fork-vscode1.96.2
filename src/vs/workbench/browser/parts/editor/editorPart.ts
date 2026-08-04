@@ -1730,7 +1730,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		// Grid Widget (no previous UI state or failed to restore)
 		if (!this.gridWidget || restoreError) {
 			const initialGroup = this.doCreateGroupView();
-			this.doSetGridWidget(new SerializableGrid(initialGroup));
+			this.doSetGridWidget(new SerializableGrid(initialGroup, { proportionalLayout: false }));
 
 			// Ensure a group is active
 			this.doSetGroupActive(initialGroup);
@@ -1811,7 +1811,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 					return groupView;
 				},
 			},
-			{ styles: { separatorBorder: this.gridSeparatorBorder } },
+			{ styles: { separatorBorder: this.gridSeparatorBorder }, proportionalLayout: false },
 		);
 
 		// If the active group was not found when restoring the grid
