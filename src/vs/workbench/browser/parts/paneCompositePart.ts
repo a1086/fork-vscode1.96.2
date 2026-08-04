@@ -523,9 +523,13 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	 * panel's callStack/variables views) should not count as "the part still has
 	 * content".  If only such containers remain after the user dragged away all
 	 * movable views, the part is effectively empty and should stay hidden.
+	 *
+	 * This only applies to the Panel: when the same container lives in the
+	 * Auxiliary Bar (Debug's default location in this fork) it must still be
+	 * considered active so that opening it will reveal the Auxiliary Bar.
 	 */
 	private isBuiltinAlwaysActiveContainer(container: ViewContainer): boolean {
-		return container.id === 'workbench.view.debug';
+		return this.location === ViewContainerLocation.Panel && container.id === 'workbench.view.debug';
 	}
 
 	private doOpenPaneComposite(id: string, focus?: boolean): PaneComposite | undefined {
