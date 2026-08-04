@@ -22,6 +22,7 @@ import { IPaneCompositePartService } from '../../services/panecomposite/browser/
 import { ToggleAuxiliaryBarAction } from '../parts/auxiliarybar/auxiliaryBarActions.js';
 import { TogglePanelAction } from '../parts/panel/panelActions.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
+import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelVisibleContext, SideBarVisibleContext, FocusedViewContext, InEditorZenModeContext, IsMainEditorCenteredLayoutContext, MainEditorAreaVisibleContext, IsMainWindowFullscreenContext, PanelPositionContext, IsAuxiliaryWindowFocusedContext, TitleBarStyleContext, IsAuxiliaryEditorPartContext } from '../../common/contextkeys.js';
 import { Codicon } from '../../../base/common/codicons.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
@@ -327,10 +328,52 @@ registerAction2(class extends Action2 {
 		});
 	}
 
-	run(accessor: ServicesAccessor): void {
+	async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
 		const layoutService = accessor.get(IWorkbenchLayoutService);
-		const isVisible = layoutService.isVisible(Parts.EDITOR_PART, mainWindow);
-		layoutService.setPartHidden(isVisible, Parts.EDITOR_PART, mainWindow);
+		const editorGroupsService = accessor.get(IEditorGroupsService);
+
+		// If the editor area is currently hidden, this command was almost
+		// certainly invoked from the command palette (F1) or keybinding to
+		// bring it back. Just show it again and return.
+		if (!layoutService.isVisible(Parts.EDITOR_PART, mainWindow)) {
+			layoutService.setPartHidden(false, Parts.EDITOR_PART, mainWindow);
+			return;
+		}
+
+		// The editor area is currently visible, so the most likely source is
+		// the X button rendered on the Editor Title navigation bar. In that
+		// case the user wants to close the *current* editor group instead of
+		// dismissing the entire editor area. We model the behaviour on
+		// `CLOSE_EDITORS_IN_GROUP_COMMAND_ID` (Ctrl+K W) + `closeGroup`:
+		//   1. Close every editor in the active group.
+		//   2. If only one group remains, hide the main editor area (so the
+		//      next open-editor action re-shows it, matching the previous
+		//      "empty editor area" behaviour and what the right-most X
+		//      button has always done when there is only a single group).
+		//   3. Otherwise remove the now-empty group so that the remaining
+		//      groups are unaffected.
+		const mainPart = editorGroupsService.mainPart;
+		const activeGroup = mainPart.activeGroup;
+		const isOnlyGroup = mainPart.count === 1;
+
+		await activeGroup.closeAllEditors({ excludeSticky: true });
+
+		if (isOnlyGroup) {
+			// No other groups to fall back to: hide the editor area so that
+			// it can be restored cleanly. Sticky editors were excluded
+			// above, so any pinned/keep-open editor keeps the area visible.
+			if (activeGroup.isEmpty) {
+				layoutService.setPartHidden(true, Parts.EDITOR_PART, mainWindow);
+			}
+			return;
+		}
+
+		// Multiple groups existed: only remove the group we just emptied
+		// when no sticky editors are keeping it non-empty. Otherwise the
+		// group remains as a placeholder.
+		if (activeGroup.isEmpty && editorGroupsService.getGroup(activeGroup.id)) {
+			editorGroupsService.removeGroup(activeGroup);
+		}
 	}
 });
 
