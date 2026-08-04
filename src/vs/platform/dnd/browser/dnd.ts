@@ -364,8 +364,14 @@ export class LocalSelectionTransfer<T> {
 
 	private static readonly INSTANCE = new LocalSelectionTransfer();
 
-	private data?: T[];
-	private proto?: T;
+	// Store one payload per `proto` so that several drag payloads can coexist
+	// during a single drag operation. This is required for the "view hosted in
+	// the editor area" feature: dragging an editor tab that is also a view must
+	// publish *both* an editor payload (so the editor area can reorder/split it)
+	// and a view payload (so it can be dropped back onto the Panel/Sidebar/
+	// Auxiliary bar). The previous single-slot implementation silently dropped
+	// whichever payload was written last, breaking one of the two directions.
+	private readonly map = new Map<T, T[]>();
 
 	private constructor() {
 		// protect against external instantiation
@@ -376,28 +382,20 @@ export class LocalSelectionTransfer<T> {
 	}
 
 	hasData(proto: T): boolean {
-		return proto && proto === this.proto;
+		return this.map.has(proto);
 	}
 
 	clearData(proto: T): void {
-		if (this.hasData(proto)) {
-			this.proto = undefined;
-			this.data = undefined;
-		}
+		this.map.delete(proto);
 	}
 
 	getData(proto: T): T[] | undefined {
-		if (this.hasData(proto)) {
-			return this.data;
-		}
-
-		return undefined;
+		return this.map.get(proto);
 	}
 
 	setData(data: T[], proto: T): void {
 		if (proto) {
-			this.data = data;
-			this.proto = proto;
+			this.map.set(proto, data);
 		}
 	}
 }

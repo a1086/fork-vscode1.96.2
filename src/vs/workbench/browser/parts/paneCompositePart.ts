@@ -9,7 +9,7 @@ import { IInstantiationService } from '../../../platform/instantiation/common/in
 import { IProgressIndicator } from '../../../platform/progress/common/progress.js';
 import { Extensions, PaneComposite, PaneCompositeDescriptor, PaneCompositeRegistry } from '../panecomposite.js';
 import { IPaneComposite } from '../../common/panecomposite.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../../common/views.js';
+import { IViewDescriptorService, ViewContainer, ViewContainerLocation } from '../../common/views.js';
 import { DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { IView } from '../../../base/browser/ui/grid/grid.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';

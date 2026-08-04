@@ -475,6 +475,20 @@ export class CompositeDragAndDropObserver extends Disposable {
 		this.transferData.setData([type === 'view' ? new DraggedViewIdentifier(id) : new DraggedCompositeIdentifier(id)], type === 'view' ? DraggedViewIdentifier.prototype : DraggedCompositeIdentifier.prototype);
 	}
 
+	/**
+	 * Publishes a view drag onto the shared composite transfer so that view drop
+	 * targets (panel/sidebar/auxiliary bar) recognize the drag. Needed for drag
+	 * sources that are not registered via `registerDraggable`, e.g. the editor tab
+	 * of a `ViewEditorInput`.
+	 */
+	setViewDragData(id: string): void {
+		this.writeDragData(id, 'view');
+	}
+
+	clearViewDragData(): void {
+		this.transferData.clearData(DraggedViewIdentifier.prototype);
+	}
+
 	registerTarget(element: HTMLElement, callbacks: ICompositeDragAndDropObserverCallbacks): IDisposable {
 		const disposableStore = new DisposableStore();
 		disposableStore.add(new DragAndDropObserver(element, {
@@ -545,6 +559,14 @@ export class CompositeDragAndDropObserver extends Disposable {
 			onDragStart: e => {
 				const { id, type } = draggedItemProvider();
 				this.writeDragData(id, type);
+
+				if (e.dataTransfer) {
+					e.dataTransfer.effectAllowed = 'move';
+					// A drag needs at least one data type on `e.dataTransfer` for the
+					// browser/Electron to actually start the operation. This is required
+					// even outside Firefox (where PaneDnd sets it unconditionally).
+					e.dataTransfer.setData(DataTransfers.TEXT, id);
+				}
 
 				e.dataTransfer?.setDragImage(element, 0, 0);
 

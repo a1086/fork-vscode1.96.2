@@ -22,7 +22,9 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { listActiveSelectionBackground, listActiveSelectionForeground } from '../../../../platform/theme/common/colorRegistry.js';
 import { IThemeService, Themable } from '../../../../platform/theme/common/themeService.js';
-import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, fillEditorsDragData, isWindowDraggedOver } from '../../dnd.js';
+import { CompositeDragAndDropObserver, DraggedEditorGroupIdentifier, DraggedEditorIdentifier, fillEditorsDragData, isWindowDraggedOver } from '../../dnd.js';
+import { ViewEditorInput } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { EditorPane } from './editorPane.js';
 import { IEditorGroupsView, IEditorGroupView, IEditorPartsView, IInternalEditorOpenOptions } from './editor.js';
 import { IEditorCommandsContext, EditorResourceAccessor, IEditorPartOptions, SideBySideEditor, EditorsOrder, EditorInputCapabilities, IToolbarActions, GroupIdentifier, Verbosity } from '../../../common/editor.js';
@@ -98,6 +100,13 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 	protected readonly editorTransfer = LocalSelectionTransfer.getInstance<DraggedEditorIdentifier>();
 	protected readonly groupTransfer = LocalSelectionTransfer.getInstance<DraggedEditorGroupIdentifier>();
 	protected readonly treeItemsTransfer = LocalSelectionTransfer.getInstance<DraggedTreeItemsIdentifier>();
+
+	/**
+	 * Set while a `ViewEditorInput` tab is being dragged so that the drag can be
+	 * recognized by view drop targets (panel/sidebar/auxiliary bar) and the tab can
+	 * be closed once the view has actually left the editor area.
+	 */
+	private draggedViewEditor: ViewEditorInput | undefined;
 
 	private static readonly EDITOR_TAB_HEIGHT = {
 		normal: 35 as const,
@@ -295,13 +304,38 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 		// Drag all tabs of the group if tabs are enabled
 		let hasDataTransfer = false;
 		if (this.groupsView.partOptions.showTabs === 'multiple') {
-			hasDataTransfer = this.doFillResourceDataTransfers(this.groupView.getEditors(EditorsOrder.SEQUENTIAL), e, isNewWindowOperation);
+			const editors = this.groupView.getEditors(EditorsOrder.SEQUENTIAL);
+			// `ViewEditorInput`s carry no real resource, but they must still be
+			// published onto the editor transfer so the editor area's own drop
+			// target (editorDropTarget) recognizes the drag and can re-arrange,
+			// split or move the tab across groups. Only *real* resources are also
+			// written as resource transfers: a `ViewEditorInput` resolves to a
+			// `vscode-view://` URI that `ResourcesDropHandler` cannot open and which
+			// would surface "Unable to resolve resource vscode-view/…" errors. Views
+			// are instead handled by `publishViewDragData` (composite transfer).
+			const viewEditors = editors.filter(e => e instanceof ViewEditorInput);
+			const nonViewEditors = editors.filter(e => !(e instanceof ViewEditorInput));
+			if (viewEditors.length > 0) {
+				this.fillEditorTransfer(viewEditors);
+				hasDataTransfer = true;
+			}
+			if (nonViewEditors.length > 0) {
+				hasDataTransfer = this.doFillResourceDataTransfers(nonViewEditors, e, isNewWindowOperation);
+			}
 		}
 
 		// Otherwise only drag the active editor
 		else {
 			if (this.groupView.activeEditor) {
-				hasDataTransfer = this.doFillResourceDataTransfers([this.groupView.activeEditor], e, isNewWindowOperation);
+				if (this.groupView.activeEditor instanceof ViewEditorInput) {
+					// Publish onto the editor transfer so the editor area recognizes
+					// the drag (re-arrange/split/move across groups). No resource
+					// transfer: handled by `publishViewDragData` below.
+					this.fillEditorTransfer([this.groupView.activeEditor]);
+					hasDataTransfer = true;
+				} else {
+					hasDataTransfer = this.doFillResourceDataTransfers([this.groupView.activeEditor], e, isNewWindowOperation);
+				}
 			}
 		}
 
@@ -320,11 +354,50 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 			applyDragImage(e, label, 'monaco-editor-group-drag-image', this.getColor(listActiveSelectionBackground), this.getColor(listActiveSelectionForeground));
 		}
 
+		// If a view hosted in the editor area is dragged, also publish the view id onto
+		// the shared composite transfer. Panel/Sidebar/Auxiliary bar drop targets only
+		// react to `DraggedViewIdentifier`/`DraggedCompositeIdentifier`, not to the
+		// editor transfer, so without this the reverse drag shows no drop overlay.
+		this.publishViewDragData(this.groupView.activeEditor);
+
 		return isNewWindowOperation;
+	}
+
+	protected publishViewDragData(editor: EditorInput | null): void {
+		this.draggedViewEditor = undefined;
+
+		if (editor instanceof ViewEditorInput) {
+			this.draggedViewEditor = editor;
+			CompositeDragAndDropObserver.INSTANCE.setViewDragData(editor.viewId);
+		}
+	}
+
+	protected clearViewDragData(e: DragEvent): void {
+		const draggedViewEditor = this.draggedViewEditor;
+		this.draggedViewEditor = undefined;
+
+		if (!draggedViewEditor) {
+			return;
+		}
+
+		CompositeDragAndDropObserver.INSTANCE.clearViewDragData();
+
+		if (e.dataTransfer?.dropEffect === 'none') {
+			return; // drag was cancelled, keep the view in the editor area
+		}
+
+		// Only close the tab when the view actually left the editor area. Dropping it
+		// back onto the editor keeps its location at `Editor` and must not close it.
+		const viewDescriptorService = this.instantiationService.invokeFunction(accessor => accessor.get(IViewDescriptorService));
+		if (viewDescriptorService.getViewLocationById(draggedViewEditor.viewId) !== ViewContainerLocation.Editor) {
+			this.groupView.closeEditor(draggedViewEditor);
+		}
 	}
 
 	protected async onGroupDragEnd(e: DragEvent, previousDragEvent: DragEvent | undefined, element: HTMLElement, isNewWindowOperation: boolean): Promise<void> {
 		this.groupTransfer.clearData(DraggedEditorGroupIdentifier.prototype);
+		this.editorTransfer.clearData(DraggedEditorIdentifier.prototype);
+		this.clearViewDragData(e);
 
 		if (
 			e.target !== element ||
@@ -393,6 +466,18 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 		const isCopy = (e.ctrlKey && !isMacintosh) || (e.altKey && isMacintosh);
 
 		return (!isCopy || sourceGroup === this.groupView.id);
+	}
+
+	/**
+	 * Publishes the given editors onto the editor transfer (`DraggedEditorIdentifier`)
+	 * so the editor area's own drop target can re-arrange, split and move them across
+	 * groups. This is the internal, in-memory transfer used by `editorDropTarget` and
+	 * is independent of the dragged editor type (e.g. `ViewEditorInput`).
+	 */
+	protected fillEditorTransfer(editors: readonly EditorInput[]): void {
+		if (editors.length) {
+			this.editorTransfer.setData(editors.map(editor => new DraggedEditorIdentifier({ editor, groupId: this.groupView.id })), DraggedEditorIdentifier.prototype);
+		}
 	}
 
 	protected doFillResourceDataTransfers(editors: readonly EditorInput[], e: DragEvent, disableStandardTransfer: boolean): boolean {
