@@ -1663,6 +1663,22 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		this.workbenchGrid.resizeView(this.getPart(part), size);
 	}
 
+	resetPanelSize(): void {
+		if (!this.workbenchGrid) {
+			return;
+		}
+
+		const panelPosition = this.getPanelPosition();
+		const isPanelHorizontal = isHorizontal(panelPosition);
+		const defaultSize = Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 3 : this._mainContainerDimension.width / 4);
+		const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
+
+		this.workbenchGrid.resizeView(this.panelPartView, {
+			width: isPanelHorizontal ? currentSize.width : defaultSize,
+			height: isPanelHorizontal ? defaultSize : currentSize.height
+		});
+	}
+
 	resizePart(part: Parts, sizeChangeWidth: number, sizeChangeHeight: number): void {
 		const sizeChangePxWidth = Math.sign(sizeChangeWidth) * computeScreenAwareSize(getActiveWindow(), Math.abs(sizeChangeWidth));
 		const sizeChangePxHeight = Math.sign(sizeChangeHeight) * computeScreenAwareSize(getActiveWindow(), Math.abs(sizeChangeHeight));
@@ -1903,7 +1919,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, hidden);
 
 		const isPanelMaximized = this.isPanelMaximized();
-		const panelOpensMaximized = this.panelOpensMaximized();
 
 		// Adjust CSS
 		if (hidden) {
@@ -1952,7 +1967,11 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		// If in process of showing, toggle whether or not panel is maximized
 		if (!hidden) {
-			if (!skipLayout && isPanelMaximized !== panelOpensMaximized) {
+			// Reset the last maximized state to ensure panel opens at default height
+			// instead of inheriting the previous maximized size
+			this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_WAS_LAST_MAXIMIZED, false);
+			const panelOpensMaximizedNow = this.panelOpensMaximized();
+			if (!skipLayout && isPanelMaximized !== panelOpensMaximizedNow) {
 				this.toggleMaximizedPanel();
 			}
 		} else {
