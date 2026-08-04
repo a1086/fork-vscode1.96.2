@@ -100,9 +100,21 @@ export class ViewEditorPane extends EditorPane {
 		const draggableProvider = () => ({ type: 'view' as const, id: input.viewId });
 		const onDragEnd = (e: IDraggedCompositeData) => {
 			if (e.eventData.dataTransfer?.dropEffect === 'none') {
-				return;
+				return; // drag was cancelled, keep the view in the editor area
 			}
-			this.viewDescriptorService.moveViewToLocation(descriptor, input.originalLocation ?? ViewContainerLocation.Panel, 'dnd-editor-to-panel');
+
+			// When the view is still hosted in the editor area at drag end, the
+			// panel/sidebar/auxiliary bar drop target did not relocate it (its
+			// current view container is seen as equal to the target, so the target's
+			// `moveViewsToContainer` is a no-op). In that case move it back to its
+			// original location explicitly. If the target already relocated it to a
+			// different location we leave it there. Either way the editor tab must
+			// close because the view has left the editor area.
+			const location = this.viewDescriptorService.getViewLocationById(descriptor.id);
+			if (location === null || location === ViewContainerLocation.Editor) {
+				this.viewDescriptorService.moveViewToLocation(descriptor, input.originalLocation ?? ViewContainerLocation.Panel, 'dnd-editor-to-panel');
+			}
+
 			this.group?.closeEditor(input);
 		};
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement, draggableProvider, { onDragEnd }));
