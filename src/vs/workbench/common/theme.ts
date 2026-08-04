@@ -24,7 +24,7 @@ export function WORKBENCH_BACKGROUND(theme: IColorTheme): Color {
 	}
 }
 
-export const PART_SPACING_SIZE = 6;
+export const PART_SPACING_SIZE = 4;
 
 export const PART_SPACING_BACKGROUND = registerColor('workbench.partSpacingBackground', {
 	dark: Color.fromHex('#252526'),
