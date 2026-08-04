@@ -926,8 +926,9 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
 			let snapAfter: ISashDragSnapState | undefined;
 
 			if (!alt) {
-				const upIndexes = range(index, -1);
-				const downIndexes = range(index + 1, this.viewItems.length);
+			// Only consider the two views adjacent to the sash for drag limits
+			const upIndexes = [index];
+			const downIndexes = index + 1 < this.viewItems.length ? [index + 1] : [];
 				const minDeltaUp = upIndexes.reduce((r, i) => r + (this.viewItems[i].minimumSize - sizes[i]), 0);
 				const maxDeltaUp = upIndexes.reduce((r, i) => r + (this.viewItems[i].viewMaximumSize - sizes[i]), 0);
 				const maxDeltaDown = downIndexes.length === 0 ? Number.POSITIVE_INFINITY : downIndexes.reduce((r, i) => r + (sizes[i] - this.viewItems[i].minimumSize), 0);
@@ -1247,8 +1248,11 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
 			return 0;
 		}
 
-		const upIndexes = range(index, -1);
-		const downIndexes = range(index + 1, this.viewItems.length);
+		// When dragging a sash, only the two views immediately adjacent to the
+		// sash should be resized.  This prevents non-adjacent views (e.g. the
+		// third group in a 3-group row) from being pulled along.
+		const upIndexes = [index];
+		const downIndexes = index + 1 < this.viewItems.length ? [index + 1] : [];
 
 		if (highPriorityIndexes) {
 			for (const index of highPriorityIndexes) {
