@@ -291,6 +291,90 @@
 
 ---
 
+## 17. 视图拖入编辑器区后，View 菜单打开应聚焦已有编辑器 tab（2026-08-05）
+
+**需求 / 现象**：将视图（如 Terminal）从 Panel 拖到编辑器区域成为 editor tab（位置 2）后，通过 View 菜单再次打开该视图时，不应在 Panel 新建一个重复的 Terminal（位置 1），而应聚焦编辑器区中已有的那个 tab。
+
+**根因**：`viewsService.openView` 的“Behavior B”逻辑在视图当前位于 `ViewContainerLocation.Editor` 时，会无条件把视图移回其默认容器（Panel/Sidebar），再打开它——结果是 Panel 多出一个重复的视图实例，而编辑器里的 tab 未被聚焦。
+
+**修复**：
+
+### 17.1 改动文件
+`src/vs/workbench/services/views/browser/viewsService.ts`
+- `openView(id, focus)`：若视图位于 `ViewContainerLocation.Editor`，先按 `vscode-view:///<id>` 这个 resource URI 用 `editorService.findEditors` 查找是否已存在打开的编辑器 tab：
+  - 有 → 直接 `editorService.openEditor(editor, { preserveFocus: !focus }, groupId)` 聚焦该 tab，不再创建 Panel 实例；
+  - 没有 → 保持原回退逻辑，用 `moveViewsToContainer` 把视图移回其真正的默认容器（而非旧 `moveViewToLocation` 那样生成一个新的 stray 容器），再打开。
+
+`src/vs/workbench/browser/parts/views/viewPaneContainer.ts`
+- `openView()`：把重复的 Editor 位置处理逻辑删掉，统一委托给 `viewsService.openView`，避免两处行为不一致。
+
+`src/vs/workbench/services/views/browser/viewDescriptorService.ts`
+- 新增 `recoverStrayViews()`：在初始化阶段（`whenExtensionsRegistered`）仅执行一次，检测“不在默认容器中、且并非合法位于编辑器区”的视图，把它们移回默认容器；过程中生成的空 generated 容器会被 `cleanUpGeneratedViewContainer` 清理；并保留视图原来的显隐状态（避免误把原本隐藏的视图弹出）。用于清理旧 `moveViewToLocation` 路径遗留的 stray 容器。
+- 该清理只在初始化时运行一次，不会在每次 storage 变化（如每次从 View 菜单打开视图）时重复触发，从而避免误打开无关视图（例如 Problems）。
+
+### 17.2 验证
+1. 编译通过（`watch-client` 0 errors），提交通过 pre-commit hygiene 检查。
+2. 将 Terminal 从 Panel 拖到编辑器区域（位置 2），tab 保持存在。
+3. 通过 View → Terminal 打开，确认聚焦位置 2 的编辑器 tab，**不再**在 Panel（位置 1）新建 Terminal。
+4. 关闭编辑器区的 Terminal tab 后，再从 View 菜单打开，确认视图回到其默认 Panel 容器并正常显示。
+5. 重启开发实例，确认旧 stray 生成容器已被清理、不再作为额外 Panel 页签残留。
+
+---
+
+## 18. 隐藏拖入编辑器区的视图 Tab 标签文字（2026-08-05）
+
+**需求**：从 Panel/Auxiliary bar 拖拽视图（如 OUTPUT、TERMINAL）到编辑器区域后，tab 上不再显示 "OUTPUT"、"TERMINAL" 等文字标签，只保留图标，使界面更简洁。
+
+### 18.1 改动文件
+`src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts`
+- `getName()` 方法：原返回 `descriptor?.name.value ?? this.viewId`（如 "OUTPUT"、"TERMINAL"），现改为返回空字符串 `''`。
+- 效果：编辑器 tab 上只显示图标，不显示文字标签。
+
+### 18.2 验证
+1. 编译通过（无 lint 错误）。
+2. 将 OUTPUT 或 TERMINAL 从 Panel 拖到编辑器区域，确认 tab 只显示图标、不显示文字。
+3. 其他类型编辑器（如代码文件）的 tab 标签不受影响。
+
+---
+
+## 19. 拖空 Panel 后自动隐藏面板（2026-08-05）
+
+**需求**：当 Panel（底部面板）中所有的视图都被移走（拖到编辑器区 / 侧边栏 / 辅助栏 / 其他容器，或通过关闭按钮隐藏最后一个视图）时，Panel 整个面板应自动隐藏，而不是残留一个空面板。
+
+### 19.1 背景与根因
+
+- Panel 的默认视图容器（如 Terminal、Problems）是**非生成（non-generated）**容器，即使其最后一个视图被移走，容器本身仍被注册为"空壳"，因此 `PaneCompositePart` 中"容器注销即自动隐藏"的逻辑（`registry.onDidDeregister`）不会触发，空 Panel 会一直残留。
+- 对比：辅助栏（Auxiliary Bar）的容器是**生成**容器，拖空后会被 `cleanUpGeneratedViewContainer` 清理并触发注销 → 自动隐藏。Panel 没有这层机制，需要显式处理。
+
+### 19.2 改动文件
+
+`src/vs/workbench/services/views/browser/viewsService.ts`
+- 新增 `isPanelEmpty()`：遍历 Panel 位置的所有容器（排除 `workbench.view.debug` 等内置常驻容器），若没有任何容器持有 `activeViewDescriptors` 则视为空。
+- 新增 `updatePanelVisibility()`：**只隐藏、不主动显示** Panel（即仅在 `isPanelEmpty() && Panel 可见` 时调用 `layoutService.setPartHidden(true, Parts.PANEL_PART)`）。延迟一个微任务执行，避免拖拽过程中瞬态空状态误隐藏；并在 `withViewMoving` 守卫释放后再做一次检查，确保"真正拖空"时才隐藏。
+- 在构造器中注册触发源：`onDidChangeContainer`、`onDidChangeLocation`、`onDidChangeActiveViewDescriptors`，以及 Panel 的 `ViewPaneContainer` 的 `onDidAddViews` / `onDidRemoveViews`。
+- 新增 `withViewMoving()` 守卫接口（并在 `IViewsService` 暴露、测试桩实现），拖拽移动视图时包一层，防止移动瞬态期间误隐藏。
+
+`src/vs/workbench/browser/parts/paneCompositePart.ts`
+- `doOpenPaneComposite()`：当 Panel 不可见且已无任何活动视图容器时，**不再**强制 `setPartHidden(false, ...)` 把空面板拉回显示。
+- `registerListeners()`（仅 Panel 位置）：新增**直接同步**的自动隐藏钩子——监听 `onDidChangeContainerLocation`（视图离开 Panel）、各 Panel 容器的 `onDidChangeActiveViewDescriptors`（最后一个视图被移走/隐藏）、以及 `onDidChangeViewContainers`（新增 Panel 容器时补挂监听）。任一触发后调用新增的 `updatePanelVisibility()`：当 `!hasActiveViewContainers() && Panel 可见` 时立即 `setPartHidden(true, Parts.PANEL_PART)`。该路径比 `ViewsService` 的延迟定时器更可靠地覆盖"拖出最后一个视图"的场景。
+
+`src/vs/workbench/browser/parts/editor/editorPart.ts`
+- 将"视图拖入编辑器区"的 `moveViewToLocation` + `openEditor` 包在 `viewsService.withViewMoving(...)` 中，避免拖拽瞬态期间 `updatePanelVisibility` 误判空而提前隐藏。
+
+`src/vs/workbench/browser/parts/views/viewPaneContainer.ts`
+- `onDrop`（拖入 Panel 的落点）：将 `moveViewsToContainer` 包在 `this.viewsService.withViewMoving(...)` 中，作用同上。
+
+### 19.3 验证
+
+1. 编译通过（`watch-client` 0 errors，无 lint 错误）。
+2. 将 Panel 中最后一个视图（如 Terminal）拖到编辑器区域，确认整个底部 Panel 自动隐藏、编辑器区相应扩大。
+3. 将 Panel 中最后一个视图拖到侧边栏 / 辅助栏，确认 Panel 自动隐藏。
+4. 通过视图标题栏关闭按钮隐藏 Panel 中最后一个视图，确认 Panel 自动隐藏。
+5. 重新打开任意 Panel 视图（View 菜单），确认 Panel 能正常重新显示，且未出现"隐藏后又被自动拉起"的闪烁。
+6. 重启开发实例，确认状态持久化正常、空 Panel 不再残留。
+
+---
+
 ## 16. 编辑器分组拖拽只影响相邻组（修复 SplitView.resize 核心算法）（2026-08-04）
 
 **需求**：同 #15。上一次修复在 `editorPart.ts` 设置 `proportionalLayout: false` 后问题仍然存在——拖拽某个编辑器组的分隔线时，同一行/列中非紧邻的其他组仍被连带缩放。

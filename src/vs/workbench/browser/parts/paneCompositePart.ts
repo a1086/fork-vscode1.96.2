@@ -220,6 +220,52 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		this._register(this.extensionService.onDidRegisterExtensions(() => {
 			this.layoutCompositeBar();
 		}));
+
+		// When the last view is dragged out of the Panel (into the editor area,
+		// sidebar, auxiliary bar or another container), the Panel part becomes
+		// empty. Its default container is *not* generated, so the
+		// `onDidDeregister` auto-hide path above never runs. Hide the part here
+		// directly so an empty Panel never lingers on screen. Mirrors the
+		// `ViewsService.updatePanelVisibility` behaviour but fires synchronously
+		// from this part, which is the most reliable trigger for the drag-out case.
+		if (this.location === ViewContainerLocation.Panel) {
+			// Hide the Panel when its last active view is dragged out (to the
+			// editor area, sidebar, auxiliary bar or another container). The default
+			// Panel container is not generated, so the `onDidDeregister` auto-hide
+			// path above never runs for it - hide here directly instead.
+			this._register(this.viewDescriptorService.onDidChangeContainerLocation(({ from }) => {
+				if (from === ViewContainerLocation.Panel) {
+					this.updatePanelVisibility();
+				}
+			}));
+			const containers = this.viewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
+			for (const container of containers) {
+				const model = this.viewDescriptorService.getViewContainerModel(container);
+				this._register(model.onDidChangeActiveViewDescriptors(() => this.updatePanelVisibility()));
+			}
+			this._register(this.viewDescriptorService.onDidChangeViewContainers(({ added }) => {
+				for (const { container, location } of added) {
+					if (location === ViewContainerLocation.Panel) {
+						const model = this.viewDescriptorService.getViewContainerModel(container);
+						this._register(model.onDidChangeActiveViewDescriptors(() => this.updatePanelVisibility()));
+					}
+				}
+			}));
+		}
+	}
+
+	/**
+	 * Hides the Panel part once it no longer hosts any active view, just like
+	 * invoking "Hide Panel". Never re-shows the Panel, so an explicit user hide
+	 * is not overridden. Only acts on the Panel location.
+	 */
+	private updatePanelVisibility(): void {
+		if (this.location !== ViewContainerLocation.Panel) {
+			return;
+		}
+		if (!this.hasActiveViewContainers() && this.layoutService.isVisible(this.partId)) {
+			this.layoutService.setPartHidden(true, this.partId);
+		}
 	}
 
 	private onDidOpen(composite: IComposite): void {
