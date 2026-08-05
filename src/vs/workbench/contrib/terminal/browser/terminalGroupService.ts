@@ -11,7 +11,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IShellLaunchConfig } from '../../../../platform/terminal/common/terminal.js';
-import { IViewDescriptorService } from '../../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { ITerminalGroup, ITerminalGroupService, ITerminalInstance } from './terminal.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
@@ -178,6 +178,18 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	}
 
 	async showPanel(focus?: boolean): Promise<void> {
+		const location = this._viewDescriptorService.getViewLocationById(TERMINAL_VIEW_ID);
+		if (location === ViewContainerLocation.Editor) {
+			// When the terminal view is hosted inside the editor area, there is no
+			// panel to show. Just focus the active instance in place and fire the
+			// show event so consumers (e.g. the tabs list) refresh correctly.
+			if (focus) {
+				await this.activeInstance?.focusWhenReady();
+			}
+			this._onDidShow.fire();
+			return;
+		}
+
 		const pane = this._viewsService.getActiveViewWithId(TERMINAL_VIEW_ID)
 			?? await this._viewsService.openView(TERMINAL_VIEW_ID, focus);
 		pane?.setExpanded(true);
@@ -500,7 +512,15 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	 * 3. Change instances in active group
 	 */
 	updateVisibility() {
-		const visible = this._viewsService.isViewVisible(TERMINAL_VIEW_ID);
+		const location = this._viewDescriptorService.getViewLocationById(TERMINAL_VIEW_ID);
+		let visible: boolean;
+		if (location === ViewContainerLocation.Editor) {
+			// In the editor area, visibility is driven by the editor pane rather
+			// than the views service (which cannot resolve editor-hosted views).
+			visible = true;
+		} else {
+			visible = this._viewsService.isViewVisible(TERMINAL_VIEW_ID);
+		}
 		this.groups.forEach((g, i) => g.setVisible(visible && i === this.activeGroupIndex));
 	}
 }

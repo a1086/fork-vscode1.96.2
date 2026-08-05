@@ -19,7 +19,7 @@ import { ICreateTerminalOptions, ITerminalConfigurationService, ITerminalGroupSe
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { IViewDescriptorService } from '../../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMenu, IMenuService, MenuId, MenuItemAction } from '../../../../platform/actions/common/actions.js';
 import { ITerminalProfileResolverService, ITerminalProfileService, TerminalCommandId } from '../common/terminal.js';
@@ -323,11 +323,7 @@ export class TerminalViewPane extends ViewPane {
 	override focus() {
 		super.focus();
 		if (this._terminalService.connectionState === TerminalConnectionState.Connected) {
-			if (this._terminalGroupService.instances.length === 0 && !this._isTerminalBeingCreated) {
-				this._isTerminalBeingCreated = true;
-				this._terminalService.createTerminal({ location: TerminalLocation.Panel }).finally(() => this._isTerminalBeingCreated = false);
-			}
-			this._terminalGroupService.showPanel(true);
+		this._focusActiveInstance();
 			return;
 		}
 
@@ -340,9 +336,21 @@ export class TerminalViewPane extends ViewPane {
 				// Only focus the terminal if the activeElement has not changed since focus() was called
 				// TODO: Hack
 				if (previousActiveElement && dom.isActiveElement(previousActiveElement)) {
-					this._terminalGroupService.showPanel(true);
+					this._focusActiveInstance();
 				}
 			}));
+		}
+	}
+
+	private _focusActiveInstance(): void {
+		const location = this.viewDescriptorService.getViewLocationById(this.id);
+		if (location === ViewContainerLocation.Editor) {
+			// When hosted in the editor area, calling showPanel would try to relocate
+			// the view back to its original panel/sidebar container and race with tab
+			// switching, leaving focus on the wrong terminal.
+			this._terminalGroupService.activeInstance?.focusWhenReady();
+		} else {
+			this._terminalGroupService.showPanel(true);
 		}
 	}
 
