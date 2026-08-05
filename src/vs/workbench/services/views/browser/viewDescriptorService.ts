@@ -215,6 +215,12 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 			this.registerViewsVisibilityActions(key, value);
 		}
 		this.canRegisterViewsVisibilityActions = true;
+
+		// Recover views stranded outside their default container (e.g. in a generated
+		// panel container or another real panel container due to the old moveViewToLocation
+		// bug). This runs exactly once during initialization so it does not re-open unrelated
+		// views (e.g. Problems) every time the user opens any view from the View menu.
+		this.recoverStrayViews();
 	}
 
 	private onDidRegisterViews(views: { views: IViewDescriptor[]; viewContainer: ViewContainer }[]): void {
@@ -595,6 +601,63 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 
 		this.viewContainersCustomLocations = newViewContainerCustomizations;
 		this.viewDescriptorsCustomLocations = newViewDescriptorCustomizations;
+
+		// NOTE: Stray views (stranded outside their default container by the old
+		// moveViewToLocation bug) are recovered only once during initialization
+		// (see whenExtensionsRegistered), *not* here. Running recoverStrayViews on every
+		// storage change would re-open unrelated views (e.g. Problems) every time the user
+		// opens any view from the View menu, because moveViewsToContainer persists the
+		// change and re-enters this code path.
+	}
+
+	/**
+	 * Detects views that are not in their default container and not legitimately in the
+	 * editor area, and moves them back to their default container. Generated containers
+	 * that become empty in the process are cleaned up. This repairs customizations left
+	 * behind by the moveViewToLocation bug without affecting views intentionally placed in
+	 * the editor area.
+	 */
+	private recoverStrayViews(): void {
+		for (const viewContainer of [...this.viewContainers]) {
+			const location = this.getViewContainerLocation(viewContainer);
+			if (location === ViewContainerLocation.Editor) {
+				continue;
+			}
+
+			const model = this.getViewContainerModel(viewContainer);
+			if (!model) {
+				continue;
+			}
+
+			const strayViews: IViewDescriptor[] = [];
+			for (const viewDescriptor of model.allViewDescriptors) {
+				const defaultContainer = this.getDefaultContainerById(viewDescriptor.id);
+				if (defaultContainer && defaultContainer.id !== viewContainer.id) {
+					strayViews.push(viewDescriptor);
+				}
+			}
+
+			if (strayViews.length === 0) {
+				continue;
+			}
+
+			for (const viewDescriptor of strayViews) {
+				const defaultContainer = this.getDefaultContainerById(viewDescriptor.id)!;
+				// Preserve the view's current visibility so recovering it does not force a
+				// previously-hidden view (e.g. Problems, whose canToggleVisibility is false) to
+				// pop open when the user merely opens a *different* view from the View menu.
+				const wasVisible = model.isVisible(viewDescriptor.id);
+				this.moveViewsWithoutSaving([viewDescriptor], viewContainer, defaultContainer, ViewVisibilityState.Default);
+				this.viewDescriptorsCustomLocations.delete(viewDescriptor.id);
+				if (!wasVisible && this.getViewContainerModel(defaultContainer).isVisible(viewDescriptor.id)) {
+					this.getViewContainerModel(defaultContainer).setVisible(viewDescriptor.id, false);
+				}
+			}
+
+			if (this.isGeneratedContainerId(viewContainer.id)) {
+				this.cleanUpGeneratedViewContainer(viewContainer.id);
+			}
+		}
 	}
 
 	// Generated Container Id Format

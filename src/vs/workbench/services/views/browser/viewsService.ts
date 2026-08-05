@@ -5,7 +5,7 @@
 
 import { Disposable, IDisposable, toDisposable, DisposableStore, DisposableMap, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
-import { IViewDescriptorService, ViewContainer, IViewDescriptor, IView, ViewContainerLocation, IViewPaneContainer } from '../../../common/views.js';
+import { IViewDescriptorService, ViewContainer, IViewDescriptor, IView, ViewContainerLocation, IViewPaneContainer, ViewVisibilityState } from '../../../common/views.js';
 import { FocusedViewContext, getVisbileViewContextKey } from '../../../common/contextkeys.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
@@ -412,28 +412,40 @@ export class ViewsService extends Disposable implements IViewsService {
 			return null;
 		}
 
-		let viewContainer = this.viewDescriptorService.getViewContainerByViewId(id);
+		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(id);
 		if (!viewContainer) {
 			return null;
 		}
 
-		// Behavior B: if the view is currently hidden in the editor area (its editor tab was closed),
-		// move it back to its default/original container so the View menu can show it there.
-		const location = this.viewDescriptorService.getViewContainerLocation(viewContainer);
-		if (location === ViewContainerLocation.Editor) {
-			const defaultContainer = this.viewDescriptorService.getDefaultContainerById(id);
-			if (defaultContainer) {
-				const defaultLocation = this.viewDescriptorService.getViewContainerLocation(defaultContainer);
-				if (defaultLocation !== null) {
-					this.viewDescriptorService.moveViewToLocation(viewDescriptor, defaultLocation, 'view-menu-restore');
-					// If this container is the original one, fall through to show/focus the view here.
-					// Otherwise, delegate to the views service to open it in its original container.
-					if (!defaultContainer || defaultContainer.id !== viewContainer.id) {
-						await this.openView(id, focus);
-						return null;
-					}
-					viewContainer = defaultContainer;
+		// Behavior B: a view opened from the View menu should always be shown in its
+		// default/original container. If it is currently hosted elsewhere (e.g. in the
+		// editor area or, due to the old moveViewToLocation bug, in another panel
+		// container), move it back before opening it.
+		const defaultContainer = this.viewDescriptorService.getDefaultContainerById(id);
+		if (defaultContainer && viewContainer.id !== defaultContainer.id) {
+			const location = this.viewDescriptorService.getViewContainerLocation(viewContainer);
+
+			// If the view is in the editor area and still has an open editor tab, just focus it.
+			if (location === ViewContainerLocation.Editor) {
+				const resource = URI.from({ scheme: 'vscode-view', path: `/${id}` });
+				const editors = this.editorService.findEditors(resource);
+				if (editors.length > 0) {
+					const { groupId, editor } = editors[0];
+					await this.editorService.openEditor(editor, { preserveFocus: !focus }, groupId);
+					return null;
 				}
+			}
+
+			const defaultLocation = this.viewDescriptorService.getViewContainerLocation(defaultContainer);
+			if (defaultLocation !== null) {
+				// Move the view back into its actual default container (e.g. 'output',
+				// 'workbench.panel.markers', 'terminal') rather than creating a brand-new
+				// generated panel container via moveViewToLocation. Otherwise each restore
+				// spawns a stray container that shows up as an extra Panel tab.
+				this.viewDescriptorService.moveViewsToContainer([viewDescriptor], defaultContainer, ViewVisibilityState.Default, 'view-menu-restore');
+				// Recurse so the view is opened in its now-correct container.
+				await this.openView(id, focus);
+				return null;
 			}
 		}
 

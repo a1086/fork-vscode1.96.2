@@ -773,17 +773,10 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			const container = this.viewDescriptorService.getViewContainerByViewId(id);
 			const location = container ? this.viewDescriptorService.getViewContainerLocation(container) : null;
 			if (location === ViewContainerLocation.Editor) {
-				const defaultContainer = this.viewDescriptorService.getDefaultContainerById(id);
-				const defaultLocation = defaultContainer ? this.viewDescriptorService.getViewContainerLocation(defaultContainer) : null;
-				if (defaultLocation !== null) {
-					this.viewDescriptorService.moveViewToLocation(descriptor, defaultLocation, 'view-menu-restore');
-					// If this container is the original one, fall through to show/focus the view here.
-					// Otherwise, delegate to the views service to open it in its original container.
-					if (!defaultContainer || defaultContainer.id !== this.viewContainer.id) {
-						this.instantiationService.invokeFunction(accessor => accessor.get(IViewsService).openView(id, focus));
-						return undefined;
-					}
-				}
+				// The view is hosted in the editor area. Delegate to the views service so it
+				// can focus an existing editor tab or restore the view to its default container.
+				this.instantiationService.invokeFunction(accessor => accessor.get(IViewsService).openView(id, focus));
+				return undefined;
 			}
 		}
 
