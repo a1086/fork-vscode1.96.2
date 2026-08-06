@@ -18,6 +18,7 @@ import { IViewDescriptorService, IViewDescriptor, ViewContainerLocation } from '
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
 import { ViewEditorInput } from './viewEditorInput.js';
+import './media/viewEditorPane.css';
 
 export class ViewEditorPane extends EditorPane {
 	static readonly ID = 'workbench.editor.view';
