@@ -273,6 +273,11 @@ export class ViewsService extends Disposable implements IViewsService {
 	 * container is generated and therefore cleaned up by `cleanUpGeneratedViewContainer`.
 	 * The Panel's default container is *not* generated, so it survives as an empty
 	 * container and that handler never runs - hence this explicit check.
+	 *
+	 * To handle the race condition where other code re-shows the Panel after we schedule
+	 * a hide (e.g. during drag-and-drop drop handling), we use multiple deferred checks:
+	 * - First check at setTimeout(0) catches the common case
+	 * - Second check at setTimeout(50ms) as a safety net for late-arriving show operations
 	 */
 	private updatePanelVisibility(): void {
 		// While a view move is in progress the descriptor model can be transiently
@@ -286,14 +291,24 @@ export class ViewsService extends Disposable implements IViewsService {
 			return;
 		}
 
-		// Defer the hide to the end of the current task so it runs after the drop
-		// handling (including the `openEditor` of the dragged view) has fully settled:
-		// `PaneCompositePart.doOpenPaneComposite` calls `setPartHidden(false, ...)`, so
-		// any composite opened while the drop is still being processed would immediately
-		// undo a synchronous hide.
-		this.pendingPanelVisibilityUpdate.value = disposableTimeout(() => {
+		// Schedule the hide with multiple deferred checks to handle race conditions.
+		// Some operations (e.g. editor open, layout updates) may re-show the Panel
+		// after we decide to hide it. The second check acts as a safety net.
+		const tryHidePanel = () => {
 			if (this.isPanelEmpty() && this.layoutService.isVisible(Parts.PANEL_PART)) {
 				this.layoutService.setPartHidden(true, Parts.PANEL_PART);
+			}
+		};
+
+		// First attempt: defer to end of current task (handles most cases)
+		this.pendingPanelVisibilityUpdate.value = disposableTimeout(() => {
+			tryHidePanel();
+			// Safety net: if Panel was re-shown between our check and now, try again
+			// after a short delay to catch late-arriving show operations
+			if (this.isPanelEmpty() && this.layoutService.isVisible(Parts.PANEL_PART)) {
+				this.pendingPanelVisibilityUpdate.value = disposableTimeout(() => {
+					tryHidePanel();
+				}, 50);
 			}
 		}, 0);
 	}

@@ -1615,6 +1615,20 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			this.workbenchGrid.layout(this._mainContainerDimension.width, this._mainContainerDimension.height);
 			this.initialized = true;
 
+			// Enforce a sensible default panel height on first layout so that
+			// a previously persisted (too small) panel size does not stick.
+			if (!this._panelHeightInitialized && this.isVisible(Parts.PANEL_PART, mainWindow) && !this.isPanelMaximized()) {
+				this._panelHeightInitialized = true;
+				const panelPosition = this.getPanelPosition();
+				const isPanelHorizontal = isHorizontal(panelPosition);
+				const preferredSize = Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
+				const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
+				this.workbenchGrid.resizeView(this.panelPartView, {
+					width: isPanelHorizontal ? currentSize.width : preferredSize,
+					height: isPanelHorizontal ? preferredSize : currentSize.height
+				});
+			}
+
 			// Emit as event
 			this.handleContainerDidLayout(this.mainContainer, this._mainContainerDimension);
 		}
@@ -1670,7 +1684,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		const panelPosition = this.getPanelPosition();
 		const isPanelHorizontal = isHorizontal(panelPosition);
-		const defaultSize = Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 3 : this._mainContainerDimension.width / 4);
+		const defaultSize = Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
 		const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
 
 		this.workbenchGrid.resizeView(this.panelPartView, {
@@ -2701,7 +2715,7 @@ class LayoutStateModel extends Disposable {
 		LayoutStateKeys.GRID_SIZE.defaultValue = { height: workbenchDimensions.height, width: workbenchDimensions.width };
 		LayoutStateKeys.SIDEBAR_SIZE.defaultValue = Math.min(300, workbenchDimensions.width / 4);
 		LayoutStateKeys.AUXILIARYBAR_SIZE.defaultValue = Math.min(300, workbenchDimensions.width / 4);
-		LayoutStateKeys.PANEL_SIZE.defaultValue = (this.stateCache.get(LayoutStateKeys.PANEL_POSITION.name) ?? isHorizontal(LayoutStateKeys.PANEL_POSITION.defaultValue)) ? workbenchDimensions.height / 3 : workbenchDimensions.width / 4;
+		LayoutStateKeys.PANEL_SIZE.defaultValue = (this.stateCache.get(LayoutStateKeys.PANEL_POSITION.name) ?? isHorizontal(LayoutStateKeys.PANEL_POSITION.defaultValue)) ? workbenchDimensions.height / 2 : workbenchDimensions.width / 4;
 		LayoutStateKeys.SIDEBAR_HIDDEN.defaultValue = this.contextService.getWorkbenchState() === WorkbenchState.EMPTY;
 
 		// Apply all defaults
