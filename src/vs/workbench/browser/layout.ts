@@ -1615,22 +1615,33 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			this.workbenchGrid.layout(this._mainContainerDimension.width, this._mainContainerDimension.height);
 			this.initialized = true;
 
-			// Enforce a sensible default panel height on first layout so that
-			// a previously persisted (too small) panel size does not stick.
-			if (!this._panelHeightInitialized && this.isVisible(Parts.PANEL_PART, mainWindow) && !this.isPanelMaximized()) {
-				this._panelHeightInitialized = true;
-				const panelPosition = this.getPanelPosition();
-				const isPanelHorizontal = isHorizontal(panelPosition);
-				const preferredSize = Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
-				const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
-				this.workbenchGrid.resizeView(this.panelPartView, {
-					width: isPanelHorizontal ? currentSize.width : preferredSize,
-					height: isPanelHorizontal ? preferredSize : currentSize.height
-				});
-			}
+			this.initializePanelSize();
 
 			// Emit as event
 			this.handleContainerDidLayout(this.mainContainer, this._mainContainerDimension);
+		}
+	}
+
+	private initializePanelSize(): void {
+		if (!this.isVisible(Parts.PANEL_PART, mainWindow) || this.isPanelMaximized()) {
+			return;
+		}
+
+		const panelPosition = this.getPanelPosition();
+		const isPanelHorizontal = isHorizontal(panelPosition);
+		const preferred = isPanelHorizontal ? this.panelPartView.preferredHeight : this.panelPartView.preferredWidth;
+		const preferredSize = typeof preferred === 'number' ? preferred : Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
+		const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
+		const currentPanelSize = isPanelHorizontal ? currentSize.height : currentSize.width;
+
+		// Only re-size the panel when its current size is extremely small
+		// (less than a quarter of the preferred size). This repairs a persisted
+		// too-small size on startup while still preserving a user-defined size.
+		if (currentPanelSize < preferredSize * 0.25) {
+			this.workbenchGrid.resizeView(this.panelPartView, {
+				width: isPanelHorizontal ? currentSize.width : preferredSize,
+				height: isPanelHorizontal ? preferredSize : currentSize.height
+			});
 		}
 	}
 
@@ -1979,6 +1990,13 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		// Propagate layout changes to grid
 		this.workbenchGrid.setViewVisible(this.panelPartView, !hidden);
 
+		// When the panel is shown (from hidden), force it to a sensible size
+		// so that a previously persisted (too small) size does not stick, e.g.
+		// after a view was dragged out and the Panel re-shown via the View menu.
+		if (!hidden && this.initialized) {
+			this.ensurePanelSize();
+		}
+
 		// If in process of showing, toggle whether or not panel is maximized
 		if (!hidden) {
 			// Reset the last maximized state to ensure panel opens at default height
@@ -2091,6 +2109,22 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			case Parts.PANEL_PART:
 				return this.setPanelHidden(hidden);
 		}
+	}
+
+	ensurePanelSize(): void {
+		if (!this.isVisible(Parts.PANEL_PART, mainWindow) || this.isPanelMaximized()) {
+			return;
+		}
+
+		const panelPosition = this.getPanelPosition();
+		const isPanelHorizontal = isHorizontal(panelPosition);
+		const preferred = isPanelHorizontal ? this.panelPartView.preferredHeight : this.panelPartView.preferredWidth;
+		const preferredSize = typeof preferred === 'number' ? preferred : Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
+		const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
+		this.workbenchGrid.resizeView(this.panelPartView, {
+			width: isPanelHorizontal ? currentSize.width : preferredSize,
+			height: isPanelHorizontal ? preferredSize : currentSize.height
+		});
 	}
 
 	hasMainWindowBorder(): boolean {

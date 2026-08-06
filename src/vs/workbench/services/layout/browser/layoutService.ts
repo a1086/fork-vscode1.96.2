@@ -222,6 +222,14 @@ export interface IWorkbenchLayoutService extends ILayoutService {
 	setPartHidden(hidden: boolean, part: Exclude<Parts, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>, targetWindow: Window): void;
 
 	/**
+	 * When the panel is visible, makes sure its size is sensible so that a
+	 * previously persisted (too small) size does not stick, e.g. after a view
+	 * was dragged out and the Panel is later re-opened via the View menu while
+	 * it was already visible.
+	 */
+	ensurePanelSize(): void;
+
+	/**
 	 * Maximizes the panel height if the panel is not already maximized.
 	 * Shrinks the panel to the default starting size if the panel is maximized.
 	 */
