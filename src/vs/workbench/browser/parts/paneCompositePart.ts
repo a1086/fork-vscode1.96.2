@@ -220,6 +220,8 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 		this._register(this.extensionService.onDidRegisterExtensions(() => {
 			this.layoutCompositeBar();
+			this._extensionsRegistered = true;
+			this.updatePanelVisibility();
 		}));
 
 		// When the last view is dragged out of the Panel (into the editor area,
@@ -255,6 +257,8 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		}
 	}
 
+	private _extensionsRegistered: boolean = false;
+
 	/**
 	 * Hides the Panel part once it no longer hosts any active view, just like
 	 * invoking "Hide Panel". Never re-shows the Panel, so an explicit user hide
@@ -262,6 +266,9 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	 */
 	private updatePanelVisibility(): void {
 		if (this.location !== ViewContainerLocation.Panel) {
+			return;
+		}
+		if (!this._extensionsRegistered) {
 			return;
 		}
 		if (!this.hasActiveViewContainers() && this.layoutService.isVisible(this.partId)) {
@@ -619,10 +626,15 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 			}
 		}
 
+		// Repair an abnormally small panel size when (re)opening a view, e.g.
+		// when the panel was already visible but persisted a too-small size.
+		if (this.location === ViewContainerLocation.Panel && this.layoutService.isVisible(this.partId)) {
+			this.layoutService.ensurePanelSize();
+		}
+
 		try {
 			const result = this.openComposite(id, focus) as PaneComposite | undefined;
 			blockOpening?.complete(result);
-
 			return result;
 		} catch (error) {
 			blockOpening?.error(error);
