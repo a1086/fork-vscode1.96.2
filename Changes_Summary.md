@@ -373,6 +373,36 @@
 5. 重新打开任意 Panel 视图（View 菜单），确认 Panel 能正常重新显示，且未出现"隐藏后又被自动拉起"的闪烁。
 6. 重启开发实例，确认状态持久化正常、空 Panel 不再残留。
 
+### 19.4 加固：延迟双检查（2026-08-06）
+
+**问题**：在部分拖拽场景下，`updatePanelVisibility` 决定隐藏 Panel 后，落点处理（如 `PaneCompositePart.doOpenPaneComposite` 在打开编辑器 tab 时调用 `setPartHidden(false, ...)` 拉起 Panel）或其他布局更新会把 Panel 重新 show 出来，导致"刚刚自动隐藏的空 Panel 又闪现回来"。
+
+**修复**：`src/vs/workbench/services/views/browser/viewsService.ts` 的 `updatePanelVisibility()`
+- 抽出 `tryHidePanel()` 封装隐藏判定（`isPanelEmpty() && Panel 可见` 才真正 `setPartHidden(true, Parts.PANEL_PART)`）。
+- 第一次 `disposableTimeout(..., 0)`：于当前任务末尾执行第一次隐藏（覆盖最常见的落点后回弹）。
+- 安全网：若第一次检查后 Panel 仍空且可见，再 `disposableTimeout(..., 50)` 做第二次隐藏，兜住延迟到达的 show 操作。
+
+`withViewMoving()` 守卫逻辑不变：拖拽移动视图期间 `_isMovingViews = true`，`updatePanelVisibility` 整体跳过；`finally` 中释放守卫后做一次正式检查，确保"真正拖空"时才隐藏。
+
+**验证**：编译通过；将 Panel 最后一个视图拖到编辑器区 / 侧边栏 / 辅助栏后，Panel 稳定隐藏、无回弹闪烁。
+
+---
+
+## 20. Panel 默认高度调整为 1/2 + 首次布局强制合理高度（2026-08-06）
+
+**需求**：避免 Panel 以过小（被持久化记住）的高度启动，并使默认 Panel 高度更符合使用习惯。
+
+### 20.1 改动文件
+`src/vs/workbench/browser/layout.ts`
+- `initLayout`（`layout()` 内首次布局完成处）：新增 `_panelHeightInitialized` 守卫，首次布局且 Panel 可见且未最大化时，按面板方向计算合理高度（水平面板 `height = 主容器高度 / 2`，垂直面板 `width = 主容器宽度 / 4`），通过 `workbenchGrid.resizeView(panelPartView, ...)` 强制设置，避免历史持久化的过小尺寸粘连。
+- `toggleMaximizedPanel` 路径的默认尺寸：`defaultSize` 由 `主容器高度 / 3` 改为 `主容器高度 / 2`（水平面板），垂直面板保持 `主容器宽度 / 4`。
+- `LayoutStateModel` 的 `PANEL_SIZE.defaultValue` 同步由 `高度 / 3` 改为 `高度 / 2`（垂直面板仍为 `宽度 / 4`），使全新工作区首次打开 Panel 即采用新默认高度。
+
+### 20.2 验证
+1. 编译通过。
+2. 全新工作区首次打开 Panel，确认其高度约为编辑区高度的 1/2（水平位置）或宽度的 1/4（垂直位置）。
+3. 将 Panel 高度拖到很小并重启，确认首次布局被强制拉回合理高度，不再以过小尺寸启动；最大化 / 还原行为不受影响。
+
 ---
 
 ## 16. 编辑器分组拖拽只影响相邻组（修复 SplitView.resize 核心算法）（2026-08-04）
