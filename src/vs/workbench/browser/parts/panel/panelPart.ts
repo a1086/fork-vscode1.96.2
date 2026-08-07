@@ -38,13 +38,27 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 	readonly minimumWidth: number = 300;
 	readonly maximumWidth: number = Number.POSITIVE_INFINITY;
-	readonly minimumHeight: number = 77;
+	/**
+	 * Effective minimum height of the Panel used by the layout engine.
+	 *
+	 * We deliberately keep this value *mutable* instead of a constant `77`,
+	 * because the workbench splitview's `relayout` pass silently clamps the
+	 * Panel back to its minimum when the sibling views (e.g. status bar) are
+	 * already sitting at their own minimums. During the "ensure panel size"
+	 * flow (`layout.ts#ensurePanelSize`) we temporarily raise this to the
+	 * desired `preferredHeight` so the resize is honoured, then lower it back
+	 * to `77` so the user can still drag the Panel sash down to a small size.
+	 */
+	minimumHeight: number = 77;
 	readonly maximumHeight: number = Number.POSITIVE_INFINITY;
 
 	get preferredHeight(): number | undefined {
 		// Don't worry about titlebar or statusbar visibility
-		// The difference is minimal and keeps this function clean
-		return this.layoutService.mainContainerDimension.height * 0.4;
+		// The difference is minimal and keeps this function clean.
+		// Use ~40% of the available height with a 350 floor so that opening
+		// any Panel view via the View menu (which calls `ensurePanelSize` ->
+		// `preferredHeight`) reveals a usable Panel without being too tall.
+		return Math.max(Math.round(this.layoutService.mainContainerDimension.height * 0.4), 350);
 	}
 
 	get preferredWidth(): number | undefined {
