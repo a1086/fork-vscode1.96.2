@@ -68,21 +68,25 @@ export class ViewEditorPane extends EditorPane {
 		}
 
 		const paneTitle = descriptor.name?.value ?? descriptor.id;
-		const pane = this.instantiationService.createInstance(descriptor.ctorDescriptor.ctor, {
-			...descriptor,
-			id: descriptor.id,
-			// `ViewPane` reads its header title from `options.title` (not `options.name`).
-			// `descriptor.name` is an `ILocalizedString`; forwarding it directly would put
-			// the object into `Pane._title` and the header `<h3>` would render the string
-			// `"UNDEFINED"` (or `"[object Object]"`). Pass the localized value, and fall
-			// back to the view id so the header never shows `UNDEFINED`.
-			title: paneTitle,
-			container: viewContainer,
-			viewContainerLocation: ViewContainerLocation.Editor,
-			canToggleVisibility: false,
-			overrideAriaLabel: paneTitle,
-			overrideAriaDescription: paneTitle,
-		}) as ViewPane;
+		const pane = this.instantiationService.createInstance(
+			descriptor.ctorDescriptor.ctor,
+			...(descriptor.ctorDescriptor.staticArguments || []),
+			{
+				...descriptor,
+				id: descriptor.id,
+				// `ViewPane` reads its header title from `options.title` (not `options.name`).
+				// `descriptor.name` is an `ILocalizedString`; forwarding it directly would put
+				// the object into `Pane._title` and the header `<h3>` would render the string
+				// `"UNDEFINED"` (or `"[object Object]"`). Pass the localized value, and fall
+				// back to the view id so the header never shows `UNDEFINED`.
+				title: paneTitle,
+				container: viewContainer,
+				viewContainerLocation: ViewContainerLocation.Editor,
+				canToggleVisibility: false,
+				overrideAriaLabel: paneTitle,
+				overrideAriaDescription: paneTitle,
+			}
+		) as ViewPane;
 
 		// Panel views default to HORIZONTAL orientation; force vertical in the editor area.
 		pane.orientation = Orientation.VERTICAL;
