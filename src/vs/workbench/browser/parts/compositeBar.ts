@@ -147,6 +147,8 @@ export interface ICompositeBarOptions {
 	readonly dndHandler: ICompositeDragAndDrop;
 	readonly activityHoverOptions: IActivityHoverOptions;
 	readonly preventLoopNavigation?: boolean;
+	readonly showCloseButton?: boolean;
+	readonly closeActiveComposite?: () => void;
 
 	readonly getActivityAction: (compositeId: string) => CompositeBarAction;
 	readonly getCompositePinnedAction: (compositeId: string) => IAction;
@@ -291,10 +293,10 @@ export class CompositeBar extends Widget implements ICompositeBar {
 					return this.compositeOverflowActionViewItem;
 				}
 				const item = this.model.findItem(action.id);
-			return item && this.instantiationService.createInstance(
-				CompositeActionViewItem,
-				{ ...options, draggable: this.options.isCompositeDraggable ? this.options.isCompositeDraggable(action.id) : true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact },
-				action as CompositeBarAction,
+				return item && this.instantiationService.createInstance(
+					CompositeActionViewItem,
+					{ ...options, draggable: this.options.isCompositeDraggable ? this.options.isCompositeDraggable(action.id) : true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact, showCloseButton: this.options.showCloseButton, closeActiveComposite: this.options.closeActiveComposite },
+					action as CompositeBarAction,
 					item.pinnedAction,
 					item.toggleBadgeAction,
 					compositeId => this.options.getContextMenuActionsForComposite(compositeId),
@@ -368,11 +370,15 @@ export class CompositeBar extends Widget implements ICompositeBar {
 		}
 	}
 
-	hideComposite(id: string): void {
+	hideCompositeInternal(id: string): void {
 		if (this.model.hide(id)) {
 			this.resetActiveComposite(id);
 			this.updateCompositeSwitcher();
 		}
+	}
+
+	hideComposite(compositeId: string): void {
+		this.hideCompositeInternal(compositeId);
 	}
 
 	activateComposite(id: string): void {

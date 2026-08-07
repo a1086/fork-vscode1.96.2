@@ -317,6 +317,49 @@
 	outline: var(--vscode-contrastActiveBorder, unset) dashed 1px !important;
 }
 
+/* composite tab close button */
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin-left: 4px;
+	margin-right: -6px;
+	align-self: center;
+	border-radius: 5px;
+	cursor: pointer;
+	z-index: 2;
+	font-size: 13px;
+	color: inherit;
+	background: none !important;
+}
+
+/* The close button shows on every panel tab and is always visible. */
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action {
+	visibility: visible;
+}
+
+/* The close button is hidden when its composite cannot be unpinned (e.g. it is not currently pinned). */
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action.disabled {
+	display: none;
+}
+
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action:hover {
+	background-color: var(--vscode-toolbar-hoverBackground) !important;
+}
+
+/* The active item indicator would otherwise swallow the clicks on the close button */
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action::before {
+	display: block;
+	width: auto;
+	height: auto;
+	position: static;
+	opacity: 1;
+	background-color: transparent;
+}
+
 /** Empty Pane Message **/
 
 .monaco-workbench .pane-composite-part .empty-pane-message-area {

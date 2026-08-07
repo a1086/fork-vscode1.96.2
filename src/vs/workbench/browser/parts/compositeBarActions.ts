@@ -39,6 +39,13 @@ export interface ICompositeBar {
 	unpin(compositeId: string): void;
 
 	/**
+	 * Hides (closes) a composite from the composite bar. Unlike `unpin`, this
+	 * also works for composites that were opened without being pinned (e.g. via
+	 * the View menu) - it removes the tab and deactivates the composite.
+	 */
+	hideComposite(compositeId: string): void;
+
+	/**
 	 * Pin a composite inside the composite bar.
 	 */
 	pin(compositeId: string): void;
@@ -154,6 +161,19 @@ export interface ICompositeBarActionViewItemOptions extends IActionViewItemOptio
 	readonly hoverOptions: IActivityHoverOptions;
 	readonly hasPopup?: boolean;
 	readonly compact?: boolean;
+
+	/**
+	 * Renders a close (x) button inside the composite tab that hides the
+	 * composite when clicked (same as unchecking it from the context menu).
+	 */
+	readonly showCloseButton?: boolean;
+
+	/**
+	 * Callback to close the currently active composite content in the part.
+	 * Used when hiding an unpinned composite (e.g. opened via View menu) so
+	 * that both the tab and the content are removed, not just the tab.
+	 */
+	readonly closeActiveComposite?: () => void;
 }
 
 export class CompositeBarActionViewItem extends BaseActionViewItem {
@@ -173,7 +193,7 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 		options: ICompositeBarActionViewItemOptions,
 		private readonly badgesEnabled: (compositeId: string) => boolean,
 		@IThemeService protected readonly themeService: IThemeService,
-		@IHoverService private readonly hoverService: IHoverService,
+		@IHoverService protected readonly hoverService: IHoverService,
 		@IConfigurationService protected readonly configurationService: IConfigurationService,
 		@IKeybindingService protected readonly keybindingService: IKeybindingService,
 	) {
@@ -516,6 +536,8 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 
 	private static manageExtensionAction: ManageExtensionAction;
 
+	private closeButton: HTMLElement | undefined;
+
 	constructor(
 		options: ICompositeBarActionViewItemOptions,
 		private readonly compositeActivityAction: CompositeBarAction,
@@ -602,7 +624,81 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 			}
 		})));
 
+		// Close button
+		if (this.options.showCloseButton) {
+			this.renderCloseButton(container);
+		}
+
 		this.updateStyles();
+	}
+
+	/**
+	 * Renders a close (x) button inside the composite tab. Clicking it hides the
+	 * composite, which is exactly what unchecking it from the context menu does
+	 * (see `ToggleCompositePinnedAction`).
+	 */
+	private renderCloseButton(container: HTMLElement): void {
+		const closeButton = this.closeButton = append(container, $('a.composite-close-action', {
+			role: 'button',
+			tabIndex: -1
+		}));
+		closeButton.classList.add(...ThemeIcon.asClassNameArray(Codicon.close));
+
+		this._register(this.hoverService.setupDelayedHover(closeButton, () => ({
+			content: localize('closeComposite', "Hide '{0}'", this.compositeBarActionItem.name),
+			position: { hoverPosition: this.options.hoverOptions.position() },
+			persistence: { hideOnKeyDown: true },
+			appearance: { showPointer: true, compact: true }
+		}), { groupId: 'composite-bar-actions' }));
+
+		// Do not let the tab's own click/drag handling kick in
+		this._register(addDisposableListener(closeButton, EventType.MOUSE_DOWN, e => EventHelper.stop(e, true)));
+		this._register(addDisposableListener(closeButton, EventType.CLICK, e => {
+			EventHelper.stop(e, true);
+			this.hideComposite();
+		}));
+
+		this.updateCloseButton();
+	}
+
+	private hideComposite(): void {
+		const id = this.compositeBarActionItem.id;
+
+		// A composite opened without being pinned (e.g. via the View menu) is
+		// not in the pinned set. For those we close both the bar tab and the
+		// actual composite content.
+		if (!this.compositeBar.isPinned(id)) {
+			this.compositeBar.hideComposite(id);
+			this.options.closeActiveComposite?.();
+			return;
+		}
+
+		const wasLastPinned = this.compositeBar.getPinnedCompositeIds().length <= 1;
+
+		// Unpin this composite. This is exactly what the context menu
+		// "Hide 'X'" does.
+		this.compositeBar.unpin(id);
+
+		// When this was the last remaining pinned composite, hide the entire
+		// panel. Otherwise resetActiveComposite() would just switch to another
+		// (non-pinned but still visible) composite, leaving the panel open -
+		// which is not what the user expects when clicking the close button on
+		// the only tab they see.
+		if (wasLastPinned) {
+			this.commandService.executeCommand('workbench.action.togglePanel');
+		}
+	}
+
+	private updateCloseButton(): void {
+		if (!this.closeButton) {
+			return;
+		}
+
+		// The close button is available for every composite shown in the bar,
+		// whether it is pinned or was opened without being pinned (e.g. via the
+		// View menu). In both cases clicking it removes/hides the composite.
+		this.closeButton.classList.remove('disabled');
+		this.closeButton.setAttribute('aria-label', localize('closeComposite', "Hide '{0}'", this.compositeBarActionItem.name));
 	}
 
 	/**
@@ -739,7 +835,14 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 			this.container.setAttribute('aria-selected', 'false');
 		}
 
+		this.updateCloseButton();
 		this.updateStyles();
+	}
+
+	protected override update(): void {
+		super.update();
+
+		this.updateCloseButton();
 	}
 
 	protected override updateEnabled(): void {
@@ -758,6 +861,7 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 		super.dispose();
 
 		this.label.remove();
+		this.closeButton?.remove();
 	}
 }
 

@@ -81,6 +81,8 @@ export interface IPaneCompositeBarOptions {
 	readonly compositeSize: number;
 	readonly overflowActionSize: number;
 	readonly preventLoopNavigation?: boolean;
+	readonly showCloseButton?: boolean;
+	readonly closeActiveComposite?: () => void;
 	readonly activityHoverOptions: IActivityHoverOptions;
 	readonly fillExtraContextMenuActions: (actions: IAction[], e?: MouseEvent | GestureEvent) => void;
 	readonly colors: (theme: IColorTheme) => ICompositeBarColors;
@@ -155,6 +157,8 @@ export class PaneCompositeBar extends Disposable {
 			orientation: this.options.orientation,
 			activityHoverOptions: this.options.activityHoverOptions,
 			preventLoopNavigation: this.options.preventLoopNavigation,
+			showCloseButton: this.options.showCloseButton,
+			closeActiveComposite: this.options.closeActiveComposite,
 			openComposite: async (compositeId, preserveFocus) => {
 				return (await this.paneCompositePart.openPaneComposite(compositeId, !preserveFocus)) ?? null;
 			},
