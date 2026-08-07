@@ -1990,13 +1990,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		// Propagate layout changes to grid
 		this.workbenchGrid.setViewVisible(this.panelPartView, !hidden);
 
-		// When the panel is shown (from hidden), force it to a sensible size
-		// so that a previously persisted (too small) size does not stick, e.g.
-		// after a view was dragged out and the Panel re-shown via the View menu.
-		if (!hidden && this.initialized) {
-			this.ensurePanelSize();
-		}
-
 		// If in process of showing, toggle whether or not panel is maximized
 		if (!hidden) {
 			// Reset the last maximized state to ensure panel opens at default height
@@ -2005,6 +1998,22 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			const panelOpensMaximizedNow = this.panelOpensMaximized();
 			if (!skipLayout && isPanelMaximized !== panelOpensMaximizedNow) {
 				this.toggleMaximizedPanel();
+			}
+
+			// When the panel is shown (from hidden), force it to a sensible size
+			// so that a previously persisted (too small) size does not stick, e.g.
+			// after a view was dragged out and the Panel re-shown via the View menu.
+			//
+			// This MUST run AFTER `toggleMaximizedPanel()` above: when the Panel
+			// was previously maximized, `ensurePanelSize()` early-returns while
+			// `isPanelMaximized()` is still true, and `toggleMaximizedPanel()`
+			// then resizes the Panel back to `PANEL_LAST_NON_MAXIMIZED_HEIGHT`
+			// (default 300, or a previously persisted/stale small value) instead
+			// of the desired `preferredHeight`. Re-running `ensurePanelSize()`
+			// after the un-maximize guarantees the Panel settles on the right
+			// height regardless of the path taken.
+			if (this.initialized) {
+				this.ensurePanelSize();
 			}
 		} else {
 			// If in process of hiding, remember whether the panel is maximized or not
@@ -2112,7 +2121,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 	}
 
 	ensurePanelSize(): void {
-		if (!this.isVisible(Parts.PANEL_PART, mainWindow) || this.isPanelMaximized()) {
+		if (!this.isVisible(Parts.PANEL_PART, mainWindow)) {
 			return;
 		}
 
@@ -2121,10 +2130,34 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		const preferred = isPanelHorizontal ? this.panelPartView.preferredHeight : this.panelPartView.preferredWidth;
 		const preferredSize = typeof preferred === 'number' ? preferred : Math.round(isPanelHorizontal ? this._mainContainerDimension.height / 2 : this._mainContainerDimension.width / 4);
 		const currentSize = this.workbenchGrid.getViewSize(this.panelPartView);
-		this.workbenchGrid.resizeView(this.panelPartView, {
-			width: isPanelHorizontal ? currentSize.width : preferredSize,
-			height: isPanelHorizontal ? preferredSize : currentSize.height
-		});
+		const currentPanelSize = isPanelHorizontal ? currentSize.height : currentSize.width;
+
+		if (currentPanelSize >= preferredSize) {
+			return;
+		}
+
+		// The workbench splitview's `relayout` pass silently clamps the Panel
+		// back to its minimum when the sibling views (e.g. status bar) are
+		// already sitting at their own minimums, so a plain `resizeView` to
+		// `preferredSize` does nothing. To make the resize stick we temporarily
+		// raise the Panel's effective minimum height to `preferredSize` for the
+		// duration of the resize, then lower it back to `77` afterwards.
+		//
+		// Lowering it back is important: it keeps the Panel sash draggable down
+		// to a small size afterwards (a permanently-raised minimum would lock
+		// the sash). We guard against re-entrancy / layout thrash by only doing
+		// this when the size actually needs to grow.
+		const panel = this.panelPartView as PanelPart;
+		const previousMinimumHeight = panel.minimumHeight;
+		try {
+			panel.minimumHeight = preferredSize;
+			this.workbenchGrid.resizeView(this.panelPartView, {
+				width: isPanelHorizontal ? currentSize.width : preferredSize,
+				height: isPanelHorizontal ? preferredSize : currentSize.height
+			});
+		} finally {
+			panel.minimumHeight = previousMinimumHeight;
+		}
 	}
 
 	hasMainWindowBorder(): boolean {
