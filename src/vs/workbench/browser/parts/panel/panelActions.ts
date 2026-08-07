@@ -8,7 +8,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { MenuId, MenuRegistry, registerAction2, Action2, IAction2Options } from '../../../../platform/actions/common/actions.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
-import { ActivityBarPosition, isHorizontal, IWorkbenchLayoutService, LayoutSettings, PanelAlignment, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
+import { isHorizontal, IWorkbenchLayoutService, PanelAlignment, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
 import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelMaximizedContext, PanelPositionContext, PanelVisibleContext } from '../../../common/contextkeys.js';
 import { ContextKeyExpr, ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import { Codicon } from '../../../../base/common/codicons.js';
@@ -316,15 +316,15 @@ registerAction2(class extends Action2 {
 			id: 'workbench.action.closeAuxiliaryBar',
 			title: localize2('closeSecondarySideBar', 'Hide Secondary Side Bar'),
 			category: Categories.View,
+			f1: true,
 			icon: closeIcon,
 			menu: [{
 				id: MenuId.CommandPalette,
 				when: AuxiliaryBarVisibleContext,
 			}, {
-				id: MenuId.AuxiliaryBarTitle,
+				id: MenuId.AuxiliaryBarHeader,
 				group: 'navigation',
-				order: 2,
-				when: ContextKeyExpr.equals(`config.${LayoutSettings.ACTIVITY_BAR_LOCATION}`, ActivityBarPosition.DEFAULT)
+				order: 1
 			}]
 		});
 	}

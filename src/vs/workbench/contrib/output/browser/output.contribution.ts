@@ -76,7 +76,18 @@ Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews
 	ctorDescriptor: new SyncDescriptor(OutputViewPane),
 	openCommandActionDescriptor: {
 		id: 'workbench.action.output.toggleOutput',
-		mnemonicTitle: nls.localize({ key: 'miToggleOutput', comment: ['&& denotes a mnemonic'] }, "&&Output"),
+		// Intentionally no `mnemonicTitle` so the Output entry does NOT appear in the View menu.
+		//
+		// Reason: the View menu entries registered via `openCommandActionDescriptor.mnemonicTitle`
+		// eagerly reveal their associated Panel/Sidebar/AuxiliaryBar container when clicked.
+		// For the Output view this means the Panel is created/shown and the OutputViewPane is
+		// instantiated (along with its log model and viewers) the moment the user opens the menu,
+		// which is noticeably slow on first invocation.
+		//
+		// Dropping `mnemonicTitle` keeps the `workbench.action.output.toggleOutput` command itself
+		// registered (so it remains reachable from the Command Palette via Ctrl+Shift+P, and the
+		// Ctrl+Shift+U keybinding still works), but the menu entry is no longer auto-generated,
+		// so Panel rendering is deferred until the user actually runs the command.
 		keybindings: {
 			primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyU,
 			linux: {
