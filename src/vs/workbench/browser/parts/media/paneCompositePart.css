@@ -336,8 +336,15 @@
 	background: none !important;
 }
 
-/* The close button shows on every panel tab and is always visible. */
+/* The close button is hidden by default and shows on hover. */
 .monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item > .composite-close-action {
+	visibility: hidden;
+}
+
+/* Show the close button when hovering over the action item (tab), when focused, or when the tab is active/checked */
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item:hover > .composite-close-action,
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item:focus-within > .composite-close-action,
+.monaco-workbench .pane-composite-part .composite-bar-container .monaco-action-bar .action-item.checked > .composite-close-action {
 	visibility: visible;
 }
 
