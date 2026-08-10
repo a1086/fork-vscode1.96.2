@@ -709,16 +709,21 @@ class BranchNode implements ISplitView<ILayoutContext>, IDisposable {
 			secondChild.linkedWidthNode = otherFirstChild.linkedHeightNode = otherSecondChild;
 		}
 
-		const mySash = this.splitview.sashes[0];
-		const otherSash = other.splitview.sashes[0];
-		mySash.linkedSash = otherSash;
-		otherSash.linkedSash = mySash;
+		// NOTE: Intentionally *not* linking the two inner sashes here.
+		//
+		// Upstream links `mySash.linkedSash = otherSash` so that a 2x2 grid
+		// behaves as a single matrix with a "corner sash": dragging the inner
+		// sash of one column also drags the inner sash of the other column.
+		//
+		// We want each column to be resizable independently, so dragging the
+		// horizontal sash of one column must not move the other column's rows.
+		// The linked width/height nodes above are kept because they only
+		// constrain min/max sizes, they do not couple the drag itself.
 
 		this._onDidChange.fire(undefined);
 		other._onDidChange.fire(undefined);
 
 		return toDisposable(() => {
-			mySash.linkedSash = otherSash.linkedSash = undefined;
 			firstChild.linkedHeightNode = firstChild.linkedWidthNode = undefined;
 			secondChild.linkedHeightNode = secondChild.linkedWidthNode = undefined;
 			otherFirstChild.linkedHeightNode = otherFirstChild.linkedWidthNode = undefined;
