@@ -174,6 +174,20 @@ export interface ICompositeBarActionViewItemOptions extends IActionViewItemOptio
 	 * that both the tab and the content are removed, not just the tab.
 	 */
 	readonly closeActiveComposite?: () => void;
+
+	/**
+	 * When true (default), clicking the close button on the last remaining
+	 * pinned composite hides the entire part. Set to false for sub-parts where
+	 * only the sub-part should be cleared.
+	 */
+	readonly hidePartOnLastPinnedClose?: boolean;
+
+	/**
+	 * When provided, clicking the close button hides the entire sub-part (e.g.
+	 * one side of the dual-panel layout) instead of just unpinning the active
+	 * composite. Takes precedence over `hidePartOnLastPinnedClose`.
+	 */
+	readonly hideSide?: () => void;
 }
 
 export class CompositeBarActionViewItem extends BaseActionViewItem {
@@ -675,15 +689,44 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 
 		const wasLastPinned = this.compositeBar.getPinnedCompositeIds().length <= 1;
 
+		// In dual-panel sub-parts, closing the last remaining pinned composite
+		// collapses the entire side so the other side fills the Panel. Always
+		// unpin the tab first so the closed view does not reappear when the side
+		// is reshown. For non-last composites fall through to the normal unpin
+		// logic below.
+		if (this.options.hideSide && wasLastPinned) {
+			this.compositeBar.unpin(id);
+			this.options.hideSide();
+			return;
+		}
+
+		// In dual-panel sub-parts (e.g. one side of the split Panel) closing a
+		// composite must only clear that sub-part - never the whole parent Panel.
+		// Unpin the composite and delegate the follow-up to `resetActiveComposite`
+		// (inside `unpin`): it now switches to another visible composite on the
+		// same side when one exists, or - when this was the only visible one -
+		// clears the sub-part via `onDidCloseActiveComposite`. We must NOT call
+		// `closeActiveComposite()` here: doing so would re-run `clearActivePaneComposite`
+		// after `unpin` has already switched the active composite to a sibling,
+		// wrongly closing that sibling and - via the owning part's deferred
+		// "side became empty" fallback - re-open yet another view, which is
+		// exactly the "Panel flashes once" flicker reported when clicking a
+		// close (x) button. We also must NOT fall through to the `togglePanel`
+		// branch below.
+		if (this.options.hidePartOnLastPinnedClose === false) {
+			this.compositeBar.unpin(id);
+			return;
+		}
+
 		// Unpin this composite. This is exactly what the context menu
 		// "Hide 'X'" does.
 		this.compositeBar.unpin(id);
 
 		// When this was the last remaining pinned composite, hide the entire
-		// panel. Otherwise resetActiveComposite() would just switch to another
-		// (non-pinned but still visible) composite, leaving the panel open -
-		// which is not what the user expects when clicking the close button on
-		// the only tab they see.
+		// panel by default. Otherwise resetActiveComposite() would just switch
+		// to another (non-pinned but still visible) composite, leaving the panel
+		// open - which is not what the user expects when clicking the close
+		// button on the only tab they see.
 		if (wasLastPinned) {
 			this.commandService.executeCommand('workbench.action.togglePanel');
 		}

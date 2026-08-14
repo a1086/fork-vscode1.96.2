@@ -278,8 +278,25 @@ export abstract class CompositePart<T extends Composite> extends Part {
 			}
 		});
 
-		// Indicate to composite that it is now visible
-		composite.setVisible(true);
+		// Indicate to composite that it is now visible.
+		//
+		// IMPORTANT: a composite's `setVisible(true)` can throw asynchronously
+		// surfaced synchronously (e.g. the Debug Console / REPL fires
+		// `onDidChangeBodyVisibility`, whose listener schedules / triggers a
+		// `tree.updateChildren` that throws `Tree input not set` when the tree
+		// has no input yet because `selectSession()` is still pending). In the
+		// dual-panel layout the view container is resolved through an extra
+		// round-trip, surfacing this race more often. If we let that exception
+		// propagate, the lines below -- which lay the composite out -- never
+		// run, leaving the body rendered but zero-sized and therefore
+		// non-functional ("title works, body doesn't"). Swallow the error so
+		// the layout (and boundary sashes) after it always execute; the view
+		// itself is still visible and the scheduled refresh will recover it.
+		try {
+			composite.setVisible(true);
+		} catch (error) {
+			console.error('CompositePart.showComposite: setVisible threw; continuing to layout', error);
+		}
 
 		// Make sure that the user meanwhile did not open another composite or closed the part containing the composite
 		if (!this.activeComposite || composite.getId() !== this.activeComposite.getId()) {

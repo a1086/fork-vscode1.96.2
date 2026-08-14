@@ -291,11 +291,19 @@ export class ViewsService extends Disposable implements IViewsService {
 			return;
 		}
 
+		// The dual-panel layout keeps an empty Panel visible as a drop target
+		// (an empty side is collapsed, the other side stays usable). In that
+		// case `PanelPart` opts out of auto-hide, so we must NOT `setPartHidden`
+		// the whole Panel - doing so would remove the other, still-wanted side.
+		if (!this.paneCompositeService.shouldAutoHidePanelWhenEmpty()) {
+			return;
+		}
+
 		// Schedule the hide with multiple deferred checks to handle race conditions.
 		// Some operations (e.g. editor open, layout updates) may re-show the Panel
 		// after we decide to hide it. The second check acts as a safety net.
 		const tryHidePanel = () => {
-			if (this.isPanelEmpty() && this.layoutService.isVisible(Parts.PANEL_PART)) {
+			if (this.isPanelEmpty() && this.layoutService.isVisible(Parts.PANEL_PART) && this.paneCompositeService.shouldAutoHidePanelWhenEmpty()) {
 				this.layoutService.setPartHidden(true, Parts.PANEL_PART);
 			}
 		};
@@ -378,8 +386,11 @@ export class ViewsService extends Disposable implements IViewsService {
 		if (viewContainer) {
 			const viewContainerLocation = this.viewDescriptorService.getViewContainerLocation(viewContainer);
 			const isActive = viewContainerLocation !== null && this.paneCompositeService.getActivePaneComposite(viewContainerLocation);
-			if (viewContainerLocation !== null) {
-				return isActive ? this.layoutService.setPartHidden(true, getPartByLocation(viewContainerLocation)) : undefined;
+			if (viewContainerLocation !== null && isActive) {
+				// Collapse only the side that hosts this container (dual-panel
+				// layout) instead of hiding the whole Panel, which would also
+				// remove the other, still-wanted side.
+				this.paneCompositeService.hidePaneComposite(id, viewContainerLocation);
 			}
 		}
 	}
@@ -522,6 +533,16 @@ export class ViewsService extends Disposable implements IViewsService {
 			return activePaneComposite.getViewPaneContainer() || null;
 		}
 
+		// The dual-panel layout backs a single `Panel` location with two side
+		// parts that can each host an active view container at once. The focused
+		// side is enough for most queries, but a view shown on the non-focused
+		// side would otherwise be reported as inactive and become non-functional.
+		// Resolve the container directly so the correct ViewPaneContainer is found.
+		const containerComposite = this.paneCompositeService.getActivePaneCompositeForContainer(viewContainer.id, location);
+		if (containerComposite) {
+			return containerComposite.getViewPaneContainer() || null;
+		}
+
 		return null;
 	}
 
@@ -630,21 +651,59 @@ export class ViewsService extends Disposable implements IViewsService {
 
 	private registerOpenViewAction(viewDescriptor: IViewDescriptor): IDisposable {
 		const disposables = new DisposableStore();
-		const title = viewDescriptor.openCommandActionDescriptor?.title ?? viewDescriptor.name;
-		const commandId = viewDescriptor.openCommandActionDescriptor?.id ?? `${viewDescriptor.id}.open`;
-		const that = this;
-		disposables.add(registerAction2(class OpenViewAction extends Action2 {
-			constructor() {
-				super({
-					id: commandId,
-					get title(): ICommandActionTitle {
-						const viewContainerLocation = that.viewDescriptorService.getViewLocationById(viewDescriptor.id);
-						const localizedTitle = typeof title === 'string' ? title : title.value;
-						const originalTitle = typeof title === 'string' ? title : title.original;
-						if (viewContainerLocation === ViewContainerLocation.Sidebar) {
-							return { value: localize('show view', "Show {0}", localizedTitle), original: `Show ${originalTitle}` };
-						} else {
-							return { value: localize('toggle view', "Toggle {0}", localizedTitle), original: `Toggle ${originalTitle}` };
+		if (viewDescriptor.openCommandActionDescriptor) {
+			const title = viewDescriptor.openCommandActionDescriptor.title ?? viewDescriptor.name;
+			const commandId = viewDescriptor.openCommandActionDescriptor.id;
+			const that = this;
+			disposables.add(registerAction2(class OpenViewAction extends Action2 {
+				constructor() {
+					super({
+						id: commandId,
+						get title(): ICommandActionTitle {
+							const viewContainerLocation = that.viewDescriptorService.getViewLocationById(viewDescriptor.id);
+							const localizedTitle = typeof title === 'string' ? title : title.value;
+							const originalTitle = typeof title === 'string' ? title : title.original;
+							if (viewContainerLocation === ViewContainerLocation.Sidebar) {
+								return { value: localize('show view', "Show {0}", localizedTitle), original: `Show ${originalTitle}` };
+							} else {
+								return { value: localize('toggle view', "Toggle {0}", localizedTitle), original: `Toggle ${originalTitle}` };
+							}
+						},
+						category: Categories.View,
+						precondition: ContextKeyExpr.has(`${viewDescriptor.id}.active`),
+						keybinding: viewDescriptor.openCommandActionDescriptor!.keybindings ? { ...viewDescriptor.openCommandActionDescriptor!.keybindings, weight: KeybindingWeight.WorkbenchContrib } : undefined,
+						f1: true
+					});
+				}
+				public async run(serviceAccessor: ServicesAccessor): Promise<any> {
+					const editorGroupService = serviceAccessor.get(IEditorGroupsService);
+					const viewDescriptorService = serviceAccessor.get(IViewDescriptorService);
+					const layoutService = serviceAccessor.get(IWorkbenchLayoutService);
+					const viewsService = serviceAccessor.get(IViewsService);
+					const contextKeyService = serviceAccessor.get(IContextKeyService);
+					const paneCompositeService = serviceAccessor.get(IPaneCompositePartService);
+
+					const focusedViewId = FocusedViewContext.getValue(contextKeyService);
+					if (focusedViewId === viewDescriptor.id) {
+
+						const viewLocation = viewDescriptorService.getViewLocationById(viewDescriptor.id);
+						if (viewLocation === ViewContainerLocation.Sidebar) {
+							// focus the editor if the view is focused and in the side bar
+							editorGroupService.activeGroup.focus();
+						} else if (viewLocation === ViewContainerLocation.Panel) {
+							// In the dual-panel layout the Panel part backs two sides.
+							// Hiding the whole `Parts.PANEL_PART` would also remove the
+							// other (still-wanted) side, so collapse only the side that
+							// actually hosts this view. The part then keeps the other
+							// side usable and stays visible as a drop target.
+							if (!paneCompositeService.shouldAutoHidePanelWhenEmpty()) {
+								paneCompositeService.hidePaneComposite(viewDescriptor.id, ViewContainerLocation.Panel);
+							} else {
+								layoutService.setPartHidden(true, getPartByLocation(viewLocation));
+							}
+						} else if (viewLocation !== null) {
+							// otherwise hide the part where the view lives if focused
+							layoutService.setPartHidden(true, getPartByLocation(viewLocation));
 						}
 					},
 					category: Categories.View,

@@ -168,7 +168,7 @@ export class SidebarPart extends AbstractPaneCompositePart {
 	}
 
 	protected override createCompositeBar(): ActivityBarCompositeBar {
-		return this.instantiationService.createInstance(ActivityBarCompositeBar, this.getCompositeBarOptions(), this.partId, this, false);
+		return this.instantiationService.createInstance(ActivityBarCompositeBar, this.getCompositeBarOptions(), this.partId as Parts, this, false);
 	}
 
 	protected getCompositeBarOptions(): IPaneCompositeBarOptions {

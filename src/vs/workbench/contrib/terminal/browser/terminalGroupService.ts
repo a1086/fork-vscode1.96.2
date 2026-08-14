@@ -123,6 +123,14 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	setContainer(container: HTMLElement) {
 		this._container = container;
 		this.groups.forEach(group => group.attachToElement(container));
+		// Re-evaluate visibility after the DOM has been (re)attached. Without
+		// this, a group that was set `display: none` before its container
+		// element existed (the common case during the very first
+		// `setContainer` call after a fresh `TerminalTabbedView` mount) stays
+		// hidden even though it now has a real, laid-out host. The first
+		// PowerShell shell then renders nothing because its group element is
+		// still `display: none`.
+		this.updateVisibility();
 	}
 
 	async focusTabs(): Promise<void> {

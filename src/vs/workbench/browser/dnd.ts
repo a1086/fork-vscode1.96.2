@@ -451,13 +451,15 @@ export class CompositeDragAndDropObserver extends Disposable {
 
 	private readonly transferData = LocalSelectionTransfer.getInstance<DraggedCompositeIdentifier | DraggedViewIdentifier>();
 
-	private readonly onDragStart = this._register(new Emitter<IDraggedCompositeData>());
-	private readonly onDragEnd = this._register(new Emitter<IDraggedCompositeData>());
+	private readonly _onDragStart = this._register(new Emitter<IDraggedCompositeData>());
+	readonly onDragStart = this._onDragStart.event;
+	private readonly _onDragEnd = this._register(new Emitter<IDraggedCompositeData>());
+	readonly onDragEnd = this._onDragEnd.event;
 
 	private constructor() {
 		super();
 
-		this._register(this.onDragEnd.event(e => {
+		this._register(this._onDragEnd.event(e => {
 			const id = e.dragAndDropData.getData().id;
 			const type = e.dragAndDropData.getData().type;
 			const data = this.readDragData(type);
@@ -525,7 +527,7 @@ export class CompositeDragAndDropObserver extends Disposable {
 					callbacks.onDrop({ eventData: e, dragAndDropData: data });
 
 					// Fire drag event in case drop handler destroys the dragged element
-					this.onDragEnd.fire({ eventData: e, dragAndDropData: data });
+					this._onDragEnd.fire({ eventData: e, dragAndDropData: data });
 				}
 			},
 			onDragOver: e => {
@@ -543,13 +545,13 @@ export class CompositeDragAndDropObserver extends Disposable {
 		}));
 
 		if (callbacks.onDragStart) {
-			this.onDragStart.event(e => {
+			this.onDragStart(e => {
 				callbacks.onDragStart!(e);
 			}, this, disposableStore);
 		}
 
 		if (callbacks.onDragEnd) {
-			this.onDragEnd.event(e => {
+			this.onDragEnd(e => {
 				callbacks.onDragEnd!(e);
 			}, this, disposableStore);
 		}
@@ -577,7 +579,7 @@ export class CompositeDragAndDropObserver extends Disposable {
 
 				e.dataTransfer?.setDragImage(element, 0, 0);
 
-				this.onDragStart.fire({ eventData: e, dragAndDropData: this.readDragData(type)! });
+				this._onDragStart.fire({ eventData: e, dragAndDropData: this.readDragData(type)! });
 			},
 			onDragEnd: e => {
 				const { type } = draggedItemProvider();
@@ -586,7 +588,7 @@ export class CompositeDragAndDropObserver extends Disposable {
 					return;
 				}
 
-				this.onDragEnd.fire({ eventData: e, dragAndDropData: data });
+				this._onDragEnd.fire({ eventData: e, dragAndDropData: data });
 			},
 			onDragEnter: e => {
 				if (callbacks.onDragEnter) {
@@ -618,7 +620,7 @@ export class CompositeDragAndDropObserver extends Disposable {
 					callbacks.onDrop({ eventData: e, dragAndDropData: data });
 
 					// Fire drag event in case drop handler destroys the dragged element
-					this.onDragEnd.fire({ eventData: e, dragAndDropData: data });
+					this._onDragEnd.fire({ eventData: e, dragAndDropData: data });
 				}
 			},
 			onDragOver: e => {
@@ -634,13 +636,13 @@ export class CompositeDragAndDropObserver extends Disposable {
 		}));
 
 		if (callbacks.onDragStart) {
-			this.onDragStart.event(e => {
+			this.onDragStart(e => {
 				callbacks.onDragStart!(e);
 			}, this, disposableStore);
 		}
 
 		if (callbacks.onDragEnd) {
-			this.onDragEnd.event(e => {
+			this.onDragEnd(e => {
 				callbacks.onDragEnd!(e);
 			}, this, disposableStore);
 		}

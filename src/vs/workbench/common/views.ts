@@ -887,6 +887,14 @@ export interface IViewPaneContainer {
 	getActionsContext(): unknown;
 	getView(viewId: string): IView | undefined;
 	toggleViewVisibility(viewId: string): void;
+
+	/**
+	 * Fired by single-pane containers (e.g. a Panel sub-part) when a view or
+	 * composite is dropped onto them. The argument is the id of the container
+	 * that should be opened as the part's content. Optional because not every
+	 * IViewPaneContainer implementation supports single-pane drop switching.
+	 */
+	readonly onRequestOpenCompositeForView?: Event<string>;
 }
 
 export interface IViewBadge {
