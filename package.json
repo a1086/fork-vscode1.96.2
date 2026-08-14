@@ -1,9 +1,9 @@
 {
-  "name": "code-oss-dev",
+  "name": "accotest",
   "version": "1.100.0",
   "distro": "d816c925ee695768ef33998a28d20477316e4c25",
   "author": {
-    "name": "Microsoft Corporation"
+    "name": "AccoTest"
   },
   "license": "MIT",
   "main": "./out/main.js",
