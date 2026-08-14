@@ -211,7 +211,18 @@ export class Repl extends FilterViewPane implements IHistoryNavigationWidget {
 				this.refreshReplElements(true);
 				if (this.styleChangedWhenInvisible) {
 					this.styleChangedWhenInvisible = false;
-					this.tree?.updateChildren(undefined, true, false);
+					// `tree.updateChildren` throws `Tree input not set` when the
+					// root has no element yet, which happens when Repl becomes
+					// visible *before* the first `tree.setInput(...)` call from
+					// `selectSession()` has resolved. The dual-panel layout can
+					// surface Repl earlier than the original single-panel layout
+					// because the view container has to be resolved through a
+					// round-trip to the right side. Skip the refresh until an
+					// input actually exists; the scheduled refresh below will
+					// pick it up.
+					if (this.tree && this.tree.getInput()) {
+						this.tree.updateChildren(undefined, true, false);
+					}
 					this.onDidStyleChange();
 				}
 			}

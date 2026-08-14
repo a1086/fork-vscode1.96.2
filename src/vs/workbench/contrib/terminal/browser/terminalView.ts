@@ -56,7 +56,15 @@ export class TerminalViewPane extends ViewPane {
 	private _parentDomElement: HTMLElement | undefined;
 	private _terminalTabbedView?: TerminalTabbedView;
 	get terminalTabbedView(): TerminalTabbedView | undefined { return this._terminalTabbedView; }
-	private _isInitialized: boolean = false;
+	/**
+	 * Guard flag to prevent duplicate terminal creation when _initializeTerminal is
+	 * called multiple times in quick succession (e.g. from the dual-panel layout's
+	 * ensureFirstViewWorking -> openView -> onDidChangeBodyVisibility chain).
+	 * Without this guard, a second call before createTerminal's async instance
+	 * registration completes would create a duplicate terminal, showing two identical
+	 * entries (e.g. "powershell", "powershell") in the SwitchTerminal dropdown.
+	 */
+	private _isCreatingTerminal: boolean = false;
 	private readonly _newDropdown: MutableDisposable<DropdownWithPrimaryActionViewItem> = this._register(new MutableDisposable());
 	private readonly _dropdownMenu: IMenu;
 	private readonly _singleTabMenu: IMenu;
@@ -103,9 +111,26 @@ export class TerminalViewPane extends ViewPane {
 				this._createTabsView();
 			}
 			// If we just opened our first terminal, layout
-			if (this._terminalGroupService.instances.length === 1) {
-				this.layoutBody(this._parentDomElement.offsetHeight, this._parentDomElement.offsetWidth);
+		if (this._terminalGroupService.instances.length === 1) {
+			const width = this._parentDomElement.offsetWidth;
+			const height = this._parentDomElement.offsetHeight;
+			if (width > 0 && height > 0) {
+				this.layoutBody(height, width);
+			} else {
+				// The container may not be laid out yet when a terminal is created
+				// asynchronously (e.g. dropped into the editor area, or opened in the
+				// dual-panel layout). Laying out with a zero-sized container makes
+				// xterm skip rendering entirely (TerminalInstance.layout returns early
+				// on width/height <= 0), leaving a blank pane until the user clicks it.
+				// Defer one frame so the DOM has its real dimensions, then re-layout.
+				const container = this._parentDomElement;
+				requestAnimationFrame(() => {
+					if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+						this.layoutBody(container.offsetHeight, container.offsetWidth);
+					}
+				});
 			}
+		}
 		}));
 		this._dropdownMenu = this._register(this._menuService.createMenu(MenuId.TerminalNewDropdownContext, this._contextKeyService));
 		this._singleTabMenu = this._register(this._menuService.createMenu(MenuId.TerminalTabContext, this._contextKeyService));
@@ -141,17 +166,19 @@ export class TerminalViewPane extends ViewPane {
 
 	private _initializeTerminal(checkRestoredTerminals: boolean) {
 		if (this.isBodyVisible() && this._terminalService.isProcessSupportRegistered && this._terminalService.connectionState === TerminalConnectionState.Connected) {
-			const wasInitialized = this._isInitialized;
-			this._isInitialized = true;
-
 			let hideOnStartup: 'never' | 'whenEmpty' | 'always' = 'never';
-			if (!wasInitialized) {
-				hideOnStartup = this._configurationService.getValue(TerminalSettingId.HideOnStartup);
-				if (hideOnStartup === 'always') {
-					this._terminalGroupService.hidePanel();
-				}
+			hideOnStartup = this._configurationService.getValue(TerminalSettingId.HideOnStartup);
+			if (hideOnStartup === 'always') {
+				this._terminalGroupService.hidePanel();
 			}
 
+			// SINGLE source of truth for whether a terminal must be created: only when there
+			// is no existing group AND (when checking restored terminals) nothing is currently
+			// being restored. This guards against the dual-panel layout's ensureFirstViewWorking
+			// repeatedly toggling body visibility (openView -> onDidChangeBodyVisibility ->
+			// _initializeTerminal), which previously re-ran an unconditional createTerminal in
+			// the `wasInitialized` branch and spawned duplicate "powershell" entries in the
+			// SwitchTerminal dropdown every time the body became visible again.
 			let shouldCreate = this._terminalGroupService.groups.length === 0;
 			// When triggered just after reconnection, also check there are no groups that could be
 			// getting restored currently
@@ -161,21 +188,22 @@ export class TerminalViewPane extends ViewPane {
 			if (!shouldCreate) {
 				return;
 			}
-			if (!wasInitialized) {
-				switch (hideOnStartup) {
-					case 'never':
-						this._terminalService.createTerminal({ location: TerminalLocation.Panel });
-						break;
-					case 'whenEmpty':
-						if (this._terminalService.restoredGroupCount === 0) {
-							this._terminalGroupService.hidePanel();
-						}
-						break;
-				}
+			// Guard against duplicate terminal creation when _initializeTerminal is called
+			// multiple times in quick succession (e.g. from ensureFirstViewWorking -> openView
+			// -> onDidChangeBodyVisibility chain in the dual-panel layout). createTerminal
+			// synchronously adds the instance to groups, but we keep this flag as a belt-and-
+			// suspenders re-entrancy guard so a re-entrant call cannot slip through between the
+			// groups check and the actual creation.
+			if (this._isCreatingTerminal) {
+				return;
+			}
+			if (hideOnStartup === 'whenEmpty' && this._terminalService.restoredGroupCount === 0) {
+				this._terminalGroupService.hidePanel();
 				return;
 			}
 
-			this._terminalService.createTerminal({ location: TerminalLocation.Panel });
+			this._isCreatingTerminal = true;
+			this._terminalService.createTerminal({ location: TerminalLocation.Panel }).finally(() => { this._isCreatingTerminal = false; });
 		}
 	}
 
@@ -213,6 +241,14 @@ export class TerminalViewPane extends ViewPane {
 					this._onDidChangeViewWelcomeState.fire();
 				}
 				this._initializeTerminal(false);
+				// Re-layout with the container's real dimensions. When the body first
+				// becomes visible (e.g. terminal dropped into the editor area, or shown
+				// in the dual-panel layout), the container may have just been laid out
+				// with a zero size during async instance creation, which made xterm skip
+				// rendering. Re-laying out now guarantees the terminal paints.
+				if (this._parentDomElement && this._parentDomElement.offsetWidth > 0 && this._parentDomElement.offsetHeight > 0) {
+					this.layoutBody(this._parentDomElement.offsetHeight, this._parentDomElement.offsetWidth);
+				}
 				// we don't know here whether or not it should be focused, so
 				// defer focusing the panel to the focus() call
 				// to prevent overriding preserveFocus for extensions

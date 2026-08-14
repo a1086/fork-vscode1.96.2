@@ -11,6 +11,7 @@ import { IInstantiationService } from '../../../platform/instantiation/common/in
 import { IDisposable, DisposableStore, Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
 import { IColorTheme } from '../../../platform/theme/common/themeService.js';
 import { CompositeBar, ICompositeBarItem, CompositeDragAndDrop } from './compositeBar.js';
+import { Before2D, ICompositeDragAndDrop } from '../dnd.js';
 import { Dimension, isMouseEvent } from '../../../base/browser/dom.js';
 import { createCSSRule } from '../../../base/browser/domStylesheets.js';
 import { asCSSUrl } from '../../../base/browser/cssValue.js';
@@ -23,7 +24,7 @@ import { IContextKeyService, ContextKeyExpr } from '../../../platform/contextkey
 import { isString } from '../../../base/common/types.js';
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { isNative } from '../../../base/common/platform.js';
-import { Before2D, ICompositeDragAndDrop } from '../dnd.js';
+
 import { ThemeIcon } from '../../../base/common/themables.js';
 import { IAction, Separator, SubmenuAction, toAction } from '../../../base/common/actions.js';
 import { StringSHA1 } from '../../../base/common/hash.js';
@@ -68,6 +69,10 @@ interface ICachedViewContainer {
 	views?: { when?: string }[];
 }
 
+export interface IPaneCompositeBarDndFactory {
+	create(defaultHandler: ICompositeDragAndDrop): ICompositeDragAndDrop;
+}
+
 export interface IPaneCompositeBarOptions {
 	readonly partContainerClass: string;
 	readonly pinnedViewContainersKey: string;
@@ -83,10 +88,47 @@ export interface IPaneCompositeBarOptions {
 	readonly preventLoopNavigation?: boolean;
 	readonly showCloseButton?: boolean;
 	readonly closeActiveComposite?: () => void;
+	/**
+	 * When true (default), clicking the close button on the last remaining
+	 * pinned composite hides the entire part. Set to false for sub-parts where
+	 * only the sub-part should be cleared.
+	 */
+	readonly hidePartOnLastPinnedClose?: boolean;
+	/**
+	 * When provided, clicking the close button hides the entire sub-part (e.g.
+	 * one side of the dual-panel layout) instead of just unpinning the active
+	 * composite. Takes precedence over `hidePartOnLastPinnedClose`.
+	 */
+	readonly hideSide?: () => void;
 	readonly activityHoverOptions: IActivityHoverOptions;
 	readonly fillExtraContextMenuActions: (actions: IAction[], e?: MouseEvent | GestureEvent) => void;
 	readonly colors: (theme: IColorTheme) => ICompositeBarColors;
 	readonly extraCompositeItems?: { id: string; name: string; order?: number; icon: ThemeIcon; targetViewContainerId?: string }[];
+	readonly dndHandlerFactory?: IPaneCompositeBarDndFactory;
+	/**
+	 * Optional predicate to determine whether a composite tab should be enabled.
+	 * Used by dual-panel layouts to disable composites that are already active
+	 * in the other side.
+	 */
+	readonly isCompositeEnabled?: (compositeId: string) => boolean;
+	/**
+	 * When set to true, the overflow action ("...") will not be shown and
+	 * all composites will be displayed in the bar regardless of available space.
+	 */
+	readonly disableOverflow?: boolean;
+	/**
+	 * When set to false, composites that move to this bar's view container
+	 * location will not be automatically registered. The caller is responsible
+	 * for registering them when they are explicitly opened. Used by dual-panel
+	 * layouts where both sides share the same view container location.
+	 */
+	readonly autoRegisterOnLocationChange?: boolean;
+	/**
+	 * When set to false, newly registered composites will not be pinned by
+	 * default. Used by dual-panel layouts so that a composite dropped on one
+	 * side is not automatically pinned to the other side as well.
+	 */
+	readonly pinNewCompositesOnRegister?: boolean;
 }
 
 export class PaneCompositeBar extends Disposable {
@@ -115,15 +157,7 @@ export class PaneCompositeBar extends Disposable {
 		@IWorkbenchLayoutService protected readonly layoutService: IWorkbenchLayoutService,
 	) {
 		super();
-		this.location = paneCompositePart.partId === Parts.PANEL_PART
-			? ViewContainerLocation.Panel : paneCompositePart.partId === Parts.AUXILIARYBAR_PART
-				? ViewContainerLocation.AuxiliaryBar : ViewContainerLocation.Sidebar;
-
-		this.dndHandler = new CompositeDragAndDrop(this.viewDescriptorService, this.location, this.options.orientation,
-			async (id: string, focus?: boolean) => { return await this.paneCompositePart.openPaneComposite(id, focus) ?? null; },
-			(from: string, to: string, before?: Before2D) => this.compositeBar.move(from, to, this.options.orientation === ActionsOrientation.VERTICAL ? before?.verticallyBefore : before?.horizontallyBefore),
-			() => this.compositeBar.getCompositeBarItems(),
-		);
+		this.location = paneCompositePart.getViewContainerLocation();
 
 		const cachedItems = this.cachedViewContainers
 			.map(container => ({
@@ -133,10 +167,25 @@ export class PaneCompositeBar extends Disposable {
 				order: container.order,
 				pinned: container.pinned,
 			}));
+		// The drag-and-drop handler must be created before the composite bar,
+		// because `createCompositeBar` passes `this.dndHandler` into the
+		// `CompositeBar` options. If the handler were still undefined here, the
+		// bar's drop target would call `onDragOver` on `undefined` and throw.
+		this.dndHandler = this.createDragAndDropHandler();
 		this.compositeBar = this.createCompositeBar(cachedItems);
 		this.onDidRegisterViewContainers(this.getViewContainers());
 		this.addExtraCompositeItems();
 		this.registerListeners();
+	}
+
+	private createDragAndDropHandler(): ICompositeDragAndDrop {
+		const defaultHandler = new CompositeDragAndDrop(this.viewDescriptorService, this.location, this.options.orientation,
+			async (id: string, focus?: boolean) => { return await this.paneCompositePart.openPaneComposite(id, focus) ?? null; },
+			(from: string, to: string, before?: Before2D) => this.compositeBar.move(from, to, this.options.orientation === ActionsOrientation.VERTICAL ? before?.verticallyBefore : before?.horizontallyBefore),
+			() => this.compositeBar.getCompositeBarItems(),
+		);
+
+		return this.options.dndHandlerFactory?.create(defaultHandler) ?? defaultHandler;
 	}
 
 	private addExtraCompositeItems(): void {
@@ -159,13 +208,30 @@ export class PaneCompositeBar extends Disposable {
 			preventLoopNavigation: this.options.preventLoopNavigation,
 			showCloseButton: this.options.showCloseButton,
 			closeActiveComposite: this.options.closeActiveComposite,
+			hidePartOnLastPinnedClose: this.options.hidePartOnLastPinnedClose,
+			hideSide: this.options.hideSide,
+			onDidCloseActiveComposite: () => {
+				// The bar lost its active tab (e.g. the user closed the last
+				// pinned view on this side) and has no replacement to auto-open.
+				// Clear the part's own active composite content so the title-actions
+				// toolbar does not keep rendering for the closed tab. The bar never
+				// hides the part by itself - the part decides that on its own.
+				this.paneCompositePart.clearActivePaneComposite();
+			},
+			disableOverflow: this.options.disableOverflow,
 			openComposite: async (compositeId, preserveFocus) => {
 				return (await this.paneCompositePart.openPaneComposite(compositeId, !preserveFocus)) ?? null;
 			},
 			getActivityAction: compositeId => this.getCompositeActions(compositeId).activityAction,
 			getCompositePinnedAction: compositeId => this.getCompositeActions(compositeId).pinnedAction,
 			getCompositeBadgeAction: compositeId => this.getCompositeActions(compositeId).badgeAction,
-			getOnCompositeClickAction: compositeId => this.getCompositeActions(compositeId).activityAction,
+			getOnCompositeClickAction: compositeId => {
+				const actions = this.getCompositeActions(compositeId);
+				if (this.options.isCompositeEnabled) {
+					actions.activityAction.enabled = this.options.isCompositeEnabled(compositeId);
+				}
+				return actions.activityAction;
+			},
 			fillExtraContextMenuActions: (actions, e) => this.options.fillExtraContextMenuActions(actions, e),
 			getContextMenuActionsForComposite: compositeId => this.getContextMenuActionsForComposite(compositeId),
 			getDefaultCompositeId: () => this.viewDescriptorService.getDefaultViewContainer(this.location)?.id,
@@ -275,7 +341,7 @@ export class PaneCompositeBar extends Disposable {
 			this.onDidDeregisterViewContainer(container);
 		}
 
-		if (to === this.location) {
+		if (to === this.location && this.options.autoRegisterOnLocationChange !== false) {
 			this.onDidRegisterViewContainers([container]);
 		}
 	}
@@ -322,6 +388,7 @@ export class PaneCompositeBar extends Disposable {
 
 			// Update the composite bar by adding
 			this.addComposite(viewContainer);
+			this.compositeBar.pin(viewContainer.id);
 			this.compositeBar.activateComposite(viewContainer.id);
 
 			if (this.shouldBeHidden(viewContainer)) {
@@ -336,6 +403,29 @@ export class PaneCompositeBar extends Disposable {
 
 	create(parent: HTMLElement): HTMLElement {
 		return this.compositeBar.create(parent);
+	}
+
+	/**
+	 * Refresh the enabled state of every composite action based on the
+	 * `isCompositeEnabled` option. Call this when the predicate result may have
+	 * changed (e.g. a view became active in the other side of a dual panel).
+	 */
+	updateCompositeEnabledStates(): void {
+		if (!this.options.isCompositeEnabled) {
+			return;
+		}
+
+		for (const [compositeId, actions] of this.compositeActions) {
+			actions.activityAction.enabled = this.options.isCompositeEnabled(compositeId);
+		}
+	}
+
+	pin(compositeId: string): Promise<void> {
+		return this.compositeBar.pin(compositeId);
+	}
+
+	unpin(compositeId: string): void {
+		this.compositeBar.unpin(compositeId);
 	}
 
 	private getCompositeActions(compositeId: string): { activityAction: CompositeBarAction; pinnedAction: ToggleCompositePinnedAction; badgeAction: ToggleCompositeBadgeAction } {
@@ -382,7 +472,11 @@ export class PaneCompositeBar extends Disposable {
 			// Pin it by default if it is new
 			const cachedViewContainer = this.cachedViewContainers.filter(({ id }) => id === viewContainer.id)[0];
 			if (!cachedViewContainer) {
-				this.compositeBar.pin(viewContainer.id);
+				if (this.options.pinNewCompositesOnRegister !== false) {
+					this.compositeBar.pin(viewContainer.id);
+				} else {
+					this.compositeBar.unpin(viewContainer.id);
+				}
 			}
 
 			// Active

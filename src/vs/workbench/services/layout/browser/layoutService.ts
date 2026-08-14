@@ -220,6 +220,14 @@ export interface IWorkbenchLayoutService extends ILayoutService {
 	setPartHidden(hidden: boolean, part: Exclude<SINGLE_WINDOW_PARTS, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>): void;
 	setPartHidden(hidden: boolean, part: Exclude<MULTI_WINDOW_PARTS, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>, targetWindow: Window): void;
 	setPartHidden(hidden: boolean, part: Exclude<Parts, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>, targetWindow: Window): void;
+	/**
+	 * Like `setPartHidden`, but `skipLayout` suppresses the panel's automatic
+	 * maximize-on-show behavior (driven by `workbench.panel.opensMaximized`).
+	 * Used when a view is opened as a *side effect of a drag-and-drop* gesture so
+	 * that dropping a view onto the panel never unexpectedly blows the panel up to
+	 * its maximized width/height.
+	 */
+	setPartHidden(hidden: boolean, part: Parts, targetWindow: Window, skipLayout?: boolean): void;
 
 	/**
 	 * When the panel is visible, makes sure its size is sensible so that a

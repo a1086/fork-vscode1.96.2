@@ -167,18 +167,29 @@ class ViewPaneDropOverlay extends Themable {
 			}
 		}));
 
-		this._register(addDisposableListener(this.container, EventType.MOUSE_OVER, () => {
-			// Under some circumstances we have seen reports where the drop overlay is not being
-			// cleaned up and as such the editor area remains under the overlay so that you cannot
-			// type into the editor anymore. This seems related to using VMs and DND via host and
-			// guest OS, though some users also saw it without VMs.
-			// To protect against this issue we always destroy the overlay as soon as we detect a
-			// mouse event over it. The delay is used to guarantee we are not interfering with the
-			// actual DROP event that can also trigger a mouse over event.
-			if (!this.cleanupOverlayScheduler.isScheduled()) {
-				this.cleanupOverlayScheduler.schedule();
-			}
-		}));
+		// In single-view mode (Panel / Auxiliary Bar area) the overlay covers the
+		// *entire* pane (constructed with `orientation === undefined`) and acts as a
+		// plain "drop here to switch the whole view" highlight. If we let the
+		// MOUSE_OVER safety net schedule a 300ms dispose, the overlay is destroyed
+		// while the pointer is still over the pane; the resulting `dragenter` then
+		// recreates it, which re-fires MOUSE_OVER, which schedules another dispose —
+		// an endless create/destroy loop that makes the drop highlight (and the
+		// content it covers) flicker until the drop ends. Single-view overlays are
+		// already cleaned up by dragleave/drop/dragend, so skip the safety net here.
+		if (this.orientation !== undefined) {
+			this._register(addDisposableListener(this.container, EventType.MOUSE_OVER, () => {
+				// Under some circumstances we have seen reports where the drop overlay is not being
+				// cleaned up and as such the editor area remains under the overlay so that you cannot
+				// type into the editor anymore. This seems related to using VMs and DND via host and
+				// guest OS, though some users also saw it without VMs.
+				// To protect against this issue we always destroy the overlay as soon as we detect a
+				// mouse event over it. The delay is used to guarantee we are not interfering with the
+				// actual DROP event that can also trigger a mouse over event.
+				if (!this.cleanupOverlayScheduler.isScheduled()) {
+					this.cleanupOverlayScheduler.schedule();
+				}
+			}));
+		}
 	}
 
 	private positionOverlay(mousePosX: number, mousePosY: number): void {
@@ -346,6 +357,22 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	private readonly _onDidBlurView = this._register(new Emitter<IView>());
 	readonly onDidBlurView = this._onDidBlurView.event;
 
+	/**
+	 * 单视图模式（Panel 分区）下，把一个 view 拖入本容器时触发：请求外层把
+	 * 该 view 所属的 container 作为当前分区的显示视图（而非塞进当前 container）。
+	 * 参数即为目标 container 的 id。
+	 */
+	private readonly _onRequestOpenCompositeForView = this._register(new Emitter<string>());
+	readonly onRequestOpenCompositeForView = this._onRequestOpenCompositeForView.event;
+
+	/**
+	 * 单视图模式（Panel 分区）下，分区内部不接受 "把视图混入当前容器" 的 drop
+	 * 热区。拖入一个 view/composite 时只应整体切换为单视图，因此拖拽进入时不创建
+	 * 误导性的 drop overlay；这里记录最近一次 "可整体切换" 的拖入数据，供 onDrop
+	 * 直接触发切换（无需依赖 overlay 标记）。
+	 */
+	private pendingSinglePaneDrop?: { type: 'view' | 'composite'; id: string };
+
 	get onDidSashChange(): Event<number> {
 		return assertIsDefined(this.paneview).onDidSashChange;
 	}
@@ -444,6 +471,38 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					overlay = undefined;
 				}
 
+				if (this.isSinglePaneContainer) {
+					// 单视图模式（Panel / AuxiliaryBar 分区）：分区内恒定只显示一个视图，
+					// 拖入一个可移动的 view / composite 时只应整体切换为单视图（而非混入
+					// 当前容器）。这里在整块内容区显示一个无方向提示的 drop 热区，让拖拽
+					// 有可见反馈；真正的切换在 onDrop 里基于 pendingSinglePaneDrop 触发。
+					const dropData = e.dragAndDropData.getData();
+					let pending: { type: 'view' | 'composite'; id: string } | undefined;
+					if (dropData.type === 'view') {
+						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
+						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
+						if (oldViewContainer && oldViewContainer !== this.viewContainer && viewDescriptor && viewDescriptor.canMoveView) {
+							pending = { type: 'view', id: dropData.id };
+						}
+					} else if (dropData.type === 'composite' && dropData.id !== this.viewContainer.id) {
+						const container = this.viewDescriptorService.getViewContainerById(dropData.id)!;
+						const viewsToMove = this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors;
+						if (!viewsToMove.some(v => !v.canMoveView) && viewsToMove.length > 0) {
+							pending = { type: 'composite', id: dropData.id };
+						}
+					}
+					this.pendingSinglePaneDrop = pending;
+					if (pending) {
+						if (!overlay || overlay.disposed) {
+							overlay = new ViewPaneDropOverlay(parent, undefined, undefined, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, this.themeService);
+						}
+					} else {
+						overlay?.dispose();
+						overlay = undefined;
+					}
+					return;
+				}
+
 				if (!overlay && inBounds(bounds, e.eventData)) {
 					const dropData = e.dragAndDropData.getData();
 					if (dropData.type === 'view') {
@@ -469,6 +528,16 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 				}
 			},
 			onDragOver: (e) => {
+				if (this.isSinglePaneContainer) {
+					// 单视图模式：整块内容区即热区，允许 drop 发生（onDrop 基于
+					// pendingSinglePaneDrop 触发整体切换）。保持 overlay 存活。
+					if (overlay && overlay.disposed) {
+						overlay = undefined;
+					}
+					toggleDropEffect(e.eventData.dataTransfer, 'move', this.pendingSinglePaneDrop !== undefined);
+					return;
+				}
+
 				if (overlay && overlay.disposed) {
 					overlay = undefined;
 				}
@@ -483,27 +552,73 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 				}
 			},
 			onDragLeave: (e) => {
+				if (this.isSinglePaneContainer) {
+					this.pendingSinglePaneDrop = undefined;
+					overlay?.dispose();
+					overlay = undefined;
+					return;
+				}
 				overlay?.dispose();
 				overlay = undefined;
 			},
 			onDrop: (e) => {
+				if (this.isSinglePaneContainer) {
+					// 单视图模式：基于拖入时记录的 pendingSinglePaneDrop 触发整体切换，
+					// 分区内恒定只显示一个视图。整块内容区即热区（overlay 仅作视觉提示）。
+					const pending = this.pendingSinglePaneDrop;
+					this.pendingSinglePaneDrop = undefined;
+					overlay?.dispose();
+					overlay = undefined;
+					if (pending) {
+						if (pending.type === 'composite') {
+							const container = this.viewDescriptorService.getViewContainerById(pending.id)!;
+							const sameLocation = this.viewDescriptorService.getViewContainerLocation(container) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
+							if (!sameLocation) {
+								this.viewDescriptorService.moveViewContainerToLocation(container, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, undefined, 'dnd');
+							}
+							this._onRequestOpenCompositeForView.fire(pending.id);
+					} else {
+						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(pending.id);
+						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(pending.id);
+						if (oldViewContainer && viewDescriptor) {
+							const sameLocation = this.viewDescriptorService.getViewContainerLocation(oldViewContainer) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
+							if (!sameLocation) {
+								this.viewDescriptorService.moveViewToLocation(viewDescriptor, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, 'dnd');
+							}
+							// 跨 location 移动后，该 view 已不在 oldViewContainer 中，
+							// 必须重新查询其所在的（目标）容器 id 才能正确打开它。
+							const targetContainer = !sameLocation
+								? this.viewDescriptorService.getViewContainerByViewId(pending.id)
+								: oldViewContainer;
+							if (targetContainer) {
+								this._onRequestOpenCompositeForView.fire(targetContainer.id);
+							}
+						}
+					}
+					}
+					return;
+				}
+
 				if (overlay) {
 					const dropData = e.dragAndDropData.getData();
 					const viewsToMove: IViewDescriptor[] = [];
 
-					if (dropData.type === 'composite' && dropData.id !== this.viewContainer.id) {
-						const container = this.viewDescriptorService.getViewContainerById(dropData.id)!;
-						const allViews = this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors;
-						if (!allViews.some(v => !v.canMoveView)) {
-							viewsToMove.push(...allViews);
-						}
-					} else if (dropData.type === 'view') {
-						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
-						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
-						if (oldViewContainer !== this.viewContainer && viewDescriptor && viewDescriptor.canMoveView) {
-							this.viewDescriptorService.moveViewsToContainer([viewDescriptor], this.viewContainer, undefined, 'dnd');
-						}
+				if (dropData.type === 'composite' && dropData.id !== this.viewContainer.id) {
+					const container = this.viewDescriptorService.getViewContainerById(dropData.id)!;
+					const allViews = this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors;
+				if (!allViews.some(v => !v.canMoveView)) {
+					viewsToMove.push(...allViews);
+				}
+			} else if (dropData.type === 'view') {
+				const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
+				const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
+				const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
+				if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
+					if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
+						viewsToMove.push(viewDescriptor);
 					}
+				}
+			}
 
 					const paneCount = this.panes.length;
 
@@ -636,6 +751,18 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 		}
 
 		return Orientation.VERTICAL;
+	}
+
+	/**
+	 * 单视图模式：容器内部只允许存在一个 ViewPane，拒绝通过拖拽把其它 view 加入本容器。
+	 * 仅双分区 Panel 的每个子分区（左/右）恒定展示一个视图，故位于 Panel 位置的容器
+	 * 返回 true。AuxiliaryBar 不再是单视图模式——支持多 pane 垂直堆叠与方向性拖放热区，
+	 * 与 Sidebar 行为一致。
+	 * 注意这不影响面板分区之间（composite 级别）的拖拽，那条路径走的是 CompositeBar 的 dndHandler。
+	 */
+	protected get isSinglePaneContainer(): boolean {
+		const location = this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
+		return location === ViewContainerLocation.Panel;
 	}
 
 	layout(dimension: Dimension): void {
@@ -901,6 +1028,13 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 
 		store.add(CompositeDragAndDropObserver.INSTANCE.registerTarget(pane.dropTargetElement, {
 			onDragEnter: (e) => {
+				if (this.isSinglePaneContainer) {
+					// 单视图模式（Panel / AuxiliaryBar 分区）：拖拽整体由外层 parent 级
+					// target 处理（显示整块内容区热区并触发整体切换），pane 级不再重复处理，
+					// 避免重复创建 overlay / 重复 fire onRequestOpenCompositeForView。
+					return;
+				}
+
 				if (!overlay) {
 					const dropData = e.dragAndDropData.getData();
 					if (dropData.type === 'view' && dropData.id !== pane.id) {
@@ -926,13 +1060,25 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 				}
 			},
 			onDragOver: (e) => {
+				if (this.isSinglePaneContainer) {
+					// 单视图模式：热区与整体切换由 parent 级 target 处理，这里直接放行。
+					return;
+				}
 				toggleDropEffect(e.eventData.dataTransfer, 'move', overlay !== undefined);
 			},
 			onDragLeave: (e) => {
+				if (this.isSinglePaneContainer) {
+					return;
+				}
 				overlay?.dispose();
 				overlay = undefined;
 			},
 			onDrop: (e) => {
+				if (this.isSinglePaneContainer) {
+					// 单视图模式：整体切换交由 parent 级 target 处理，避免重复 fire。
+					return;
+				}
+
 				if (overlay) {
 					const dropData = e.dragAndDropData.getData();
 					const viewsToMove: IViewDescriptor[] = [];
@@ -946,23 +1092,23 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 							viewsToMove.push(...allViews);
 							anchorView = allViews[0];
 						}
-					} else if (dropData.type === 'view') {
-						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
-						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
-						const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
+				} else if (dropData.type === 'view') {
+					const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
+					const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
+					const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
 
-						if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
-							if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
-								viewsToMove.push(viewDescriptor);
-							}
-						}
-
-						if (viewDescriptor) {
-							anchorView = viewDescriptor;
+					if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
+						if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
+							viewsToMove.push(viewDescriptor);
 						}
 					}
 
-					if (viewsToMove) {
+					if (viewDescriptor) {
+						anchorView = viewDescriptor;
+					}
+				}
+
+					if (viewsToMove.length > 0) {
 						this.viewDescriptorService.moveViewsToContainer(viewsToMove, this.viewContainer, undefined, 'dnd');
 					}
 

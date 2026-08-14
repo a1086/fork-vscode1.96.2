@@ -58,12 +58,16 @@
 }
 
 .monaco-workbench .part.panel > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked:not(:focus) .active-item-indicator:before,
-.monaco-workbench .part.panel > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before {
+.monaco-workbench .part.panel > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before,
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked:not(:focus) .active-item-indicator:before,
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before {
 	border-top-color: var(--vscode-panelTitle-activeBorder) !important;
 }
 
 .monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus .action-label,
-.monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label {
+.monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label,
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus .action-label,
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label {
 	color: var(--vscode-panelTitle-activeForeground) !important;
 }
 
@@ -82,7 +86,8 @@
 	border-color: var(--vscode-panelInput-border, transparent) !important;
 }
 
-.monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus {
+.monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus,
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus {
 	outline: none;
 }
 
@@ -109,3 +114,110 @@
 	display: inline-block;
 	transform: rotate(180deg);
 }
+
+/* ----- Dual-panel (split) layout ----- */
+
+.monaco-workbench .part.panel .panel-split {
+	width: 100%;
+	height: 100%;
+}
+
+/* Each side fills its SplitView slot and stacks its own title + content */
+.monaco-workbench .part.panel .panel-side {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	background-color: var(--vscode-panel-background);
+}
+
+/* Each side keeps the original Panel title style: title label, composite bar,
+   global actions and title actions are all visible.
+
+   The sub-panel title element carries the `.composite.title` class and is a
+   descendant of `.part.panel`, so it inherits the global 4px top border. Keep
+   that top border but colour it with the panel border variable so it matches the
+   4px vertical divider drawn by the sash between the two sides.
+
+   When a side has no active view its title bar would otherwise collapse to
+   just the 4px borders; keep a default height so it matches a side that is
+   showing views. */
+.monaco-workbench .part.panel .panel-side > .title {
+	flex: 0 0 auto;
+	min-height: 35px;
+	border-top: 4px solid var(--vscode-panel-border, transparent);
+}
+
+.monaco-workbench .part.panel .panel-side > .content {
+	flex: 1 1 auto;
+	min-height: 0;
+	position: relative;
+	/* A side part's content area is itself a flex column so the composite
+	   container (the actual view body) fills the remaining height after the
+	   title row. Without this the body collapses to the height of its content,
+	   which for lazily-laid-out trees is 0, making every Panel view render its
+	   title but stay non-functional. */
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* The view body (composite) must fill the side's content area. The generic
+   rule `.part > .content > .composite { height: 100% }` does not match because
+   the side part sits two levels deeper (`.panel-split > .panel-side`), so we
+   replicate it here. This is what gives the functional body its height. */
+.monaco-workbench .part.panel .panel-side > .content > .composite {
+	height: 100%;
+}
+
+/* Mirror the generic `.part > .composite.title { display: flex }` rule for the
+   side part's title so the label, composite bar and actions lay out in a row.
+   Use overflow:hidden to prevent the composite close button (which uses
+   margin-right:-6px) from overflowing into the adjacent panel side when the
+   panel is resized to be very narrow. */
+.monaco-workbench .part.panel .panel-side > .composite.title {
+	display: flex;
+	overflow: hidden;
+}
+
+.monaco-workbench .part.panel .panel-side > .composite.title > .title-actions {
+	flex: 1;
+	padding-left: 5px;
+}
+
+/* Disable composites that are active in the other side of a dual panel. */
+.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.disabled {
+	opacity: 0.4;
+	pointer-events: none;
+}
+
+/* Divider between the two panel sides: a single 4px line coloured like the
+   panel border. VS Code's sash only draws its `:before` line while hovered,
+   so we force it to be visible at all times for this divider while keeping
+   the 4px draggable width. */
+.monaco-workbench .part.panel .panel-split {
+	--vscode-sash-size: 4px;
+	--vscode-sash-hover-size: 4px;
+}
+
+.monaco-workbench .part.panel .panel-split .monaco-sash.vertical:before {
+	width: 4px;
+	left: calc(50% - 2px);
+	background: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.monaco-workbench .part.panel .panel-split .monaco-sash.vertical:hover:before,
+.monaco-workbench .part.panel .panel-split .monaco-sash.vertical.active:before {
+	background: var(--vscode-sash-hoverBorder, var(--vscode-panel-border, rgba(128, 128, 128, 0.55)));
+}
+
+/* Drop-target preview: when a Panel view is dragged onto the empty right half
+   of a single-area Panel, the right area is temporarily revealed. Highlight it
+   with a dashed drop border so the user knows the drop will split the Panel. */
+.monaco-workbench .part.panel .panel-split.panel-split-preview .panel-side-right {
+	border-left: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
+}
+
+
+

@@ -708,6 +708,9 @@ export class TestPaneCompositeService extends Disposable implements IPaneComposi
 	getActivePaneComposite(viewContainerLocation: ViewContainerLocation): IPaneComposite | undefined {
 		return this.getPartByLocation(viewContainerLocation).getActivePaneComposite();
 	}
+	getActivePaneCompositeForContainer(_id: string, viewContainerLocation: ViewContainerLocation): IPaneComposite | undefined {
+		return this.getPartByLocation(viewContainerLocation).getActivePaneComposite();
+	}
 	getPaneComposite(id: string, viewContainerLocation: ViewContainerLocation): PaneCompositeDescriptor | undefined {
 		return this.getPartByLocation(viewContainerLocation).getPaneComposite(id);
 	}
@@ -720,8 +723,22 @@ export class TestPaneCompositeService extends Disposable implements IPaneComposi
 	hideActivePaneComposite(viewContainerLocation: ViewContainerLocation): void {
 		this.getPartByLocation(viewContainerLocation).hideActivePaneComposite();
 	}
+	hidePaneComposite(id: string, viewContainerLocation: ViewContainerLocation): void {
+		const part = this.getPartByLocation(viewContainerLocation) as IPaneCompositePart & { hidePaneComposite?: (id: string) => void };
+		if (typeof part.hidePaneComposite === 'function') {
+			part.hidePaneComposite(id);
+		}
+	}
+	hideActivePaneCompositeSide(_viewContainerLocation: ViewContainerLocation): boolean {
+		return false;
+	}
 	getLastActivePaneCompositeId(viewContainerLocation: ViewContainerLocation): string {
 		return this.getPartByLocation(viewContainerLocation).getLastActivePaneCompositeId();
+	}
+
+	shouldAutoHidePanelWhenEmpty(): boolean {
+		const panelPart = this.getPartByLocation(ViewContainerLocation.Panel) as IPaneCompositePart & { shouldAutoHidePanelWhenEmpty?: () => boolean };
+		return panelPart?.shouldAutoHidePanelWhenEmpty?.() ?? true;
 	}
 
 	getPinnedPaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[] {
@@ -739,6 +756,21 @@ export class TestPaneCompositeService extends Disposable implements IPaneComposi
 	getPartByLocation(viewContainerLocation: ViewContainerLocation): IPaneCompositePart {
 		return assertIsDefined(this.parts.get(viewContainerLocation));
 	}
+
+	toggleSideMaximized(side: 'left' | 'right'): void {
+		const panelPart = this.getPartByLocation(ViewContainerLocation.Panel) as IPaneCompositePart & { toggleSideMaximized?: (side: 'left' | 'right') => void };
+		panelPart?.toggleSideMaximized?.(side);
+	}
+
+	isSideMaximized(side: 'left' | 'right'): boolean {
+		const panelPart = this.getPartByLocation(ViewContainerLocation.Panel) as IPaneCompositePart & { isSideMaximized?: (side: 'left' | 'right') => boolean };
+		return panelPart?.isSideMaximized?.(side) ?? false;
+	}
+
+	isDualLayout(): boolean {
+		const panelPart = this.getPartByLocation(ViewContainerLocation.Panel) as IPaneCompositePart & { isDualLayout?: () => boolean };
+		return panelPart?.isDualLayout?.() ?? false;
+	}
 }
 
 export class TestSideBarPart implements IPaneCompositePart {
@@ -751,6 +783,7 @@ export class TestSideBarPart implements IPaneCompositePart {
 
 	readonly partId = Parts.SIDEBAR_PART;
 	element: HTMLElement = undefined!;
+	getViewContainerLocation(): ViewContainerLocation { return ViewContainerLocation.Sidebar; }
 	minimumWidth = 0;
 	maximumWidth = 0;
 	minimumHeight = 0;
@@ -767,12 +800,14 @@ export class TestSideBarPart implements IPaneCompositePart {
 	getPaneComposite(id: string): PaneCompositeDescriptor | undefined { return undefined; }
 	getProgressIndicator(id: string) { return undefined; }
 	hideActivePaneComposite(): void { }
+	clearActivePaneComposite(): void { }
 	getLastActivePaneCompositeId(): string { return undefined!; }
 	dispose() { }
 	getPinnedPaneCompositeIds() { return []; }
 	getVisiblePaneCompositeIds() { return []; }
 	getPaneCompositeIds() { return []; }
 	layout(width: number, height: number, top: number, left: number): void { }
+	shouldAutoHidePanelWhenEmpty(): boolean { return true; }
 }
 
 export class TestPanelPart implements IPaneCompositePart {
@@ -787,6 +822,7 @@ export class TestPanelPart implements IPaneCompositePart {
 	onDidPaneCompositeOpen = new Emitter<IPaneComposite>().event;
 	onDidPaneCompositeClose = new Emitter<IPaneComposite>().event;
 	readonly partId = Parts.AUXILIARYBAR_PART;
+	getViewContainerLocation(): ViewContainerLocation { return ViewContainerLocation.Panel; }
 
 	async openPaneComposite(id?: string, focus?: boolean): Promise<undefined> { return undefined; }
 	getPaneComposite(id: string): any { return activeViewlet; }
@@ -799,8 +835,10 @@ export class TestPanelPart implements IPaneCompositePart {
 	dispose() { }
 	getProgressIndicator(id: string) { return null!; }
 	hideActivePaneComposite(): void { }
+	clearActivePaneComposite(): void { }
 	getLastActivePaneCompositeId(): string { return undefined!; }
 	layout(width: number, height: number, top: number, left: number): void { }
+	shouldAutoHidePanelWhenEmpty(): boolean { return false; }
 }
 
 export class TestViewsService implements IViewsService {

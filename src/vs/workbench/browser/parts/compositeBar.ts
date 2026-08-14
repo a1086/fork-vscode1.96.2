@@ -149,6 +149,36 @@ export interface ICompositeBarOptions {
 	readonly preventLoopNavigation?: boolean;
 	readonly showCloseButton?: boolean;
 	readonly closeActiveComposite?: () => void;
+	/**
+	 * Fired when the bar loses its active composite (e.g. after unpinning the
+	 * active tab) and finds no replacement to auto-open (no default composite is
+	 * pinned, no other visible composite exists). The owning part can use this
+	 * to also clear its own active composite content - otherwise, in the
+	 * dual-panel layout, the side's title-actions would keep rendering the
+	 * closed tab's toolbar (e.g. the Terminal profile dropdown) with no tab in
+	 * the bar to back it.
+	 */
+	readonly onDidCloseActiveComposite?: () => void;
+	/**
+	 * When true (default), clicking the close button on the last remaining
+	 * pinned composite hides the entire part via `workbench.action.togglePanel`.
+	 * Set to false for sub-parts (e.g. one side of the dual-panel layout) where
+	 * closing the last composite should only clear that sub-part and let the
+	 * owning layout collapse it.
+	 */
+	readonly hidePartOnLastPinnedClose?: boolean;
+	/**
+	 * When provided, clicking the close button hides the entire sub-part (e.g.
+	 * one side of the dual-panel layout) instead of just unpinning the active
+	 * composite. The owning layout then collapses that sub-part so the other
+	 * side fills the area. Takes precedence over `hidePartOnLastPinnedClose`.
+	 */
+	readonly hideSide?: () => void;
+	/**
+	 * When set to true, the overflow action ("...") will not be shown and
+	 * all composites will be displayed in the bar regardless of available space.
+	 */
+	readonly disableOverflow?: boolean;
 
 	readonly getActivityAction: (compositeId: string) => CompositeBarAction;
 	readonly getCompositePinnedAction: (compositeId: string) => IAction;
@@ -295,7 +325,7 @@ export class CompositeBar extends Widget implements ICompositeBar {
 				const item = this.model.findItem(action.id);
 				return item && this.instantiationService.createInstance(
 					CompositeActionViewItem,
-					{ ...options, draggable: this.options.isCompositeDraggable ? this.options.isCompositeDraggable(action.id) : true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact, showCloseButton: this.options.showCloseButton, closeActiveComposite: this.options.closeActiveComposite },
+					{ ...options, draggable: this.options.isCompositeDraggable ? this.options.isCompositeDraggable(action.id) : true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact, showCloseButton: this.options.showCloseButton, closeActiveComposite: this.options.closeActiveComposite, hidePartOnLastPinnedClose: this.options.hidePartOnLastPinnedClose, hideSide: this.options.hideSide },
 					action as CompositeBarAction,
 					item.pinnedAction,
 					item.toggleBadgeAction,
@@ -393,11 +423,22 @@ export class CompositeBar extends Widget implements ICompositeBar {
 	}
 
 	deactivateComposite(id: string): void {
-		const previousActiveItem = this.model.activeItem;
 		if (this.model.deactivate()) {
-			if (previousActiveItem && !previousActiveItem.pinned) {
-				this.updateCompositeSwitcher();
-			}
+			// Always refresh the switcher when the active composite is cleared.
+			//
+			// `model.deactivate()` unconditionally clears `activeItem` and calls
+			// `activityAction.deactivate()` (which flips the `checked` *flag*), but
+			// the rendered tab's `.checked` CSS class is only updated inside
+			// `updateCompositeSwitcher()`. The previous guard
+			// (!previousActiveItem.pinned) skipped that refresh for *pinned*
+			// composites, so a closed pinned tab kept its highlighted "selected"
+			// look even though the owning part had already cleared its active
+			// composite. In the dual-panel layout this surfaces as the exact
+			// "tab is selected but the body shows 'Drag a view here to display'"
+			// bug: the side's `getActiveComposite()` is `undefined` (placeholder
+			// visible) while the (pinned) Problems tab stays visually checked.
+			// Refresh unconditionally to keep the tab and the content in sync.
+			this.updateCompositeSwitcher();
 		}
 	}
 
@@ -416,6 +457,14 @@ export class CompositeBar extends Widget implements ICompositeBar {
 		if (this.model.setPinned(compositeId, false)) {
 
 			this.updateCompositeSwitcher();
+
+			// The bar may not have been laid out yet (e.g. it was just created
+			// while its parent part is still hidden), in which case
+			// `updateCompositeSwitcher` bails out early and the tab stays in the
+			// DOM even though the model no longer pins it. Re-run on the next
+			// tick so that once layout settles the stale tab is guaranteed to
+			// be removed. This mirrors the deferred refresh used by `move`.
+			setTimeout(() => this.updateCompositeSwitcher(), 0);
 
 			this.resetActiveComposite(compositeId);
 		}
@@ -448,6 +497,31 @@ export class CompositeBar extends Widget implements ICompositeBar {
 		// Deactivate itself
 		this.deactivateComposite(compositeId);
 
+		// For sub-parts (e.g. one side of the dual-panel layout) closing the
+		// last composite must clear the sub-part rather than auto-open the
+		// *default* (the parent part's default) composite, which would
+		// re-populate the side we just closed.
+		//
+		// However, when the side still has OTHER visible composites we must
+		// switch to one of them instead of leaving the side empty: otherwise the
+		// owning part's deferred "side became empty" fallback scheduler would
+		// fire on the next tick and re-open a (possibly different) container,
+		// producing the brief "flash" where the closed view's body is replaced
+		// and then the side is re-populated. Switching here keeps the previously
+		// shown sibling view active (no empty frame, no flicker). Only when there
+		// is genuinely no other visible composite do we clear the sub-part and
+		// let the owner collapse it (the side's own close button has already
+		// marked the side hidden via `hideSide`, so the fallback is suppressed).
+		if (this.options.hidePartOnLastPinnedClose === false) {
+			const otherVisible = this.visibleComposites.find(cid => cid !== compositeId);
+			if (otherVisible) {
+				this.options.openComposite(otherVisible);
+			} else if (!this.model.activeItem) {
+				this.options.onDidCloseActiveComposite?.();
+			}
+			return;
+		}
+
 		// Case: composite is not the default composite and default composite is still showing
 		// Solv: we open the default composite
 		if (defaultCompositeId && defaultCompositeId !== compositeId && this.isPinned(defaultCompositeId)) {
@@ -461,6 +535,15 @@ export class CompositeBar extends Widget implements ICompositeBar {
 			if (visibleComposite) {
 				this.options.openComposite(visibleComposite);
 			}
+		}
+
+		// If the bar still has no active composite after the attempts above, the
+		// owning part's active composite content (toolbar, body) would otherwise
+		// stay rendered even though no tab backs it. Notify the owner so it can
+		// clear its own active composite. The owner is the only one who knows
+		// whether to also hide the whole part - the bar never should.
+		if (!this.model.activeItem) {
+			this.options.onDidCloseActiveComposite?.();
 		}
 	}
 
@@ -534,6 +617,55 @@ export class CompositeBar extends Widget implements ICompositeBar {
 			item.pinned
 			|| (this.model.activeItem && this.model.activeItem.id === item.id) /* Show the active composite even if it is not pinned */
 		).map(item => item.id);
+
+		// When overflow is disabled, show all composites without size constraints
+		if (this.options.disableOverflow) {
+			// Remove any existing overflow action
+			if (this.compositeOverflowAction) {
+				const overflowIndex = this.visibleComposites.indexOf(this.compositeOverflowAction.id);
+				if (overflowIndex !== -1) {
+					compositeSwitcherBar.pull(overflowIndex);
+					this.visibleComposites.splice(overflowIndex, 1);
+				}
+
+				this.compositeOverflowAction.dispose();
+				this.compositeOverflowAction = undefined;
+
+				this.compositeOverflowActionViewItem?.dispose();
+				this.compositeOverflowActionViewItem = undefined;
+			}
+
+			// Pull out composites that got hidden
+			const compositesToRemove: number[] = [];
+			this.visibleComposites.forEach((compositeId, index) => {
+				if (!compositesToShow.includes(compositeId)) {
+					compositesToRemove.push(index);
+				}
+			});
+			compositesToRemove.reverse().forEach(index => {
+				compositeSwitcherBar.pull(index);
+				this.visibleComposites.splice(index, 1);
+			});
+
+			// Update the positions of the composites - show all of them
+			compositesToShow.forEach((compositeId, newIndex) => {
+				const currentIndex = this.visibleComposites.indexOf(compositeId);
+				if (newIndex !== currentIndex) {
+					if (currentIndex !== -1) {
+						compositeSwitcherBar.pull(currentIndex);
+						this.visibleComposites.splice(currentIndex, 1);
+					}
+
+					compositeSwitcherBar.push(this.model.findItem(compositeId).activityAction, { label: true, icon: this.options.icon, index: newIndex });
+					this.visibleComposites.splice(newIndex, 0, compositeId);
+				}
+			});
+
+			if (!donotTrigger) {
+				this._onDidChange.fire();
+			}
+			return;
+		}
 
 		// Ensure we are not showing more composites than we have height for
 		let maxVisible = compositesToShow.length;

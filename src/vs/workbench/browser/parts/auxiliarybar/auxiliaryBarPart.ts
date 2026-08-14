@@ -36,6 +36,8 @@ import { HiddenItemStrategy, WorkbenchToolBar } from '../../../../platform/actio
 import { ActionViewItem, IActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
 import { CompositeMenuActions } from '../../actions.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
+import { PaneComposite } from '../../panecomposite.js';
 
 export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 
@@ -121,6 +123,13 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 				this.onDidChangeActivityBarLocation();
 			}
 		}));
+
+		// Subscribe the active composite's ViewPaneContainer on every open (not only
+		// via `openPaneComposite`) so the very first open - which goes through the
+		// internal `doOpenPaneComposite` path (e.g. clicking the Debug icon) - also
+		// subscribes. Without this, dropping a view onto an AuxiliaryBar that already
+		// shows a view does nothing because nobody listens to `onRequestOpenCompositeForView`.
+		this._register(this.onDidPaneCompositeOpen(() => this.subscribeViewPaneContainer()));
 	}
 
 	private onDidChangeActivityBarLocation(): void {
@@ -252,6 +261,35 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 		}
 
 		return undefined;
+	}
+
+	/**
+	 * Wire up the currently active composite's ViewPaneContainer to react to
+	 * "drop a view here" requests: instead of merging the dropped view into the
+	 * current container (which would wipe the current view's content), switch this
+	 * part's whole content to the dropped view's owning container.
+	 *
+	 * Registered on every composite open (not only via `openPaneComposite`) so that
+	 * the very first open - which goes through the internal `doOpenPaneComposite`
+	 * path (e.g. clicking the Debug icon) - also subscribes. Without this, dropping
+	 * a view onto an AuxiliaryBar that already shows a view does nothing because
+	 * nobody is listening to `onRequestOpenCompositeForView`.
+	 */
+	private activeViewPaneContainerSubscriptions = this._register(new DisposableStore());
+
+	private subscribeViewPaneContainer(): void {
+		this.activeViewPaneContainerSubscriptions.clear();
+
+		const viewPaneContainer = (this.getActivePaneComposite() as PaneComposite | undefined)?.getViewPaneContainer();
+		if (!viewPaneContainer) {
+			return;
+		}
+
+		this.activeViewPaneContainerSubscriptions.add(
+			viewPaneContainer.onRequestOpenCompositeForView((containerId: string) => {
+				this.openPaneComposite(containerId, true);
+			})
+		);
 	}
 
 	override toJSON(): object {

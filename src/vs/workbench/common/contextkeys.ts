@@ -146,10 +146,23 @@ export const AuxiliaryBarVisibleContext = new RawContextKey<boolean>('auxiliaryB
 
 export const ActivePanelContext = new RawContextKey<string>('activePanel', '', localize('activePanel', "The identifier of the active panel"));
 export const PanelFocusContext = new RawContextKey<boolean>('panelFocus', false, localize('panelFocus', "Whether the panel has keyboard focus"));
+
+/**
+ * Side-specific context keys for the dual-panel layout. Each side of the panel
+ * keeps its own `activePanel`/`panelFocus` value so the two sides do not
+ * overwrite each other (the shared `activePanel`/`panelFocus` keys only reflect
+ * the most recently active side for backward compatibility).
+ */
+export const ActivePanelLeftContext = new RawContextKey<string>('activePanelLeft', '', localize('activePanelLeft', "The identifier of the active left panel"));
+export const ActivePanelRightContext = new RawContextKey<string>('activePanelRight', '', localize('activePanelRight', "The identifier of the active right panel"));
+export const PanelLeftFocusContext = new RawContextKey<boolean>('panelLeftFocus', false, localize('panelLeftFocus', "Whether the left panel has keyboard focus"));
+export const PanelRightFocusContext = new RawContextKey<boolean>('panelRightFocus', false, localize('panelRightFocus', "Whether the right panel has keyboard focus"));
 export const PanelPositionContext = new RawContextKey<string>('panelPosition', 'bottom', localize('panelPosition', "The position of the panel, always 'bottom'"));
 export const PanelAlignmentContext = new RawContextKey<string>('panelAlignment', 'center', localize('panelAlignment', "The alignment of the panel, either 'center', 'left', 'right' or 'justify'"));
 export const PanelVisibleContext = new RawContextKey<boolean>('panelVisible', false, localize('panelVisible', "Whether the panel is visible"));
 export const PanelMaximizedContext = new RawContextKey<boolean>('panelMaximized', false, localize('panelMaximized', "Whether the panel is maximized"));
+export const PanelLeftMaximizedContext = new RawContextKey<boolean>('panelLeftMaximized', false, localize('panelLeftMaximized', "Whether the left panel side is maximized"));
+export const PanelRightMaximizedContext = new RawContextKey<boolean>('panelRightMaximized', false, localize('panelRightMaximized', "Whether the right panel side is maximized"));
 
 //#endregion
 

@@ -199,6 +199,8 @@ export class MenuId {
 	static readonly AccountsContext = new MenuId('AccountsContext');
 	static readonly SidebarTitle = new MenuId('SidebarTitle');
 	static readonly PanelTitle = new MenuId('PanelTitle');
+	static readonly PanelTitleLeft = new MenuId('PanelTitleLeft');
+	static readonly PanelTitleRight = new MenuId('PanelTitleRight');
 	static readonly AuxiliaryBarTitle = new MenuId('AuxiliaryBarTitle');
 	static readonly AuxiliaryBarHeader = new MenuId('AuxiliaryBarHeader');
 	static readonly TerminalInstanceContext = new MenuId('TerminalInstanceContext');

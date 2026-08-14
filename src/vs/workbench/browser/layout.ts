@@ -1952,6 +1952,17 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			this.mainContainer.classList.remove(LayoutClasses.PANEL_HIDDEN);
 		}
 
+		// If panel part becomes hidden, snapshot its dual-panel layout *before*
+		// we mutate it below. `hideActivePaneComposite` collapses a side and
+		// (for the right side) removes it from the SplitView, so capturing after
+		// that would record the wrong number of visible panels and the next
+		// "Toggle Panel" re-show would collapse two areas into one (or vice
+		// versa). The `PanelPart` restores this snapshot when the Panel re-shows.
+		if (hidden) {
+			const panelPart = this.panelPartView as { captureLayoutBeforeHide?: () => void } | undefined;
+			panelPart?.captureLayoutBeforeHide?.();
+		}
+
 		// If panel part becomes hidden, also hide the current active panel if any
 		let focusEditor = false;
 		if (hidden && this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Panel)) {
@@ -2103,7 +2114,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 	setPartHidden(hidden: boolean, part: Exclude<SINGLE_WINDOW_PARTS, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>): void;
 	setPartHidden(hidden: boolean, part: Exclude<MULTI_WINDOW_PARTS, Parts.STATUSBAR_PART | Parts.TITLEBAR_PART>, targetWindow: Window): void;
-	setPartHidden(hidden: boolean, part: Parts, targetWindow: Window = mainWindow): void {
+	setPartHidden(hidden: boolean, part: Parts, targetWindow: Window = mainWindow, skipLayout?: boolean): void {
 		switch (part) {
 			case Parts.ACTIVITYBAR_PART:
 				return this.setActivityBarHidden(hidden);
@@ -2116,7 +2127,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			case Parts.AUXILIARYBAR_PART:
 				return this.setAuxiliaryBarHidden(hidden);
 			case Parts.PANEL_PART:
-				return this.setPanelHidden(hidden);
+				return this.setPanelHidden(hidden, skipLayout);
 		}
 	}
 

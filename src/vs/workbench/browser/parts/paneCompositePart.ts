@@ -9,10 +9,10 @@ import { IInstantiationService } from '../../../platform/instantiation/common/in
 import { IProgressIndicator } from '../../../platform/progress/common/progress.js';
 import { Extensions, PaneComposite, PaneCompositeDescriptor, PaneCompositeRegistry } from '../panecomposite.js';
 import { IPaneComposite } from '../../common/panecomposite.js';
-import { IViewDescriptorService, ViewContainer, ViewContainerLocation } from '../../common/views.js';
+import { IViewDescriptorService, IViewPaneContainer, ViewContainer, ViewContainerLocation } from '../../common/views.js';
 import { DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { IView } from '../../../base/browser/ui/grid/grid.js';
-import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
+import { IWorkbenchLayoutService, Parts, SINGLE_WINDOW_PARTS } from '../../services/layout/browser/layoutService.js';
 import { CompositePart, ICompositeTitleLabel } from './compositePart.js';
 import { IPaneCompositeBarOptions, PaneCompositeBar } from './paneCompositeBar.js';
 import { Dimension, EventHelper, trackFocus, $, addDisposableListener, EventType, prepend, getWindow } from '../../../base/browser/dom.js';
@@ -49,7 +49,7 @@ export enum CompositeBarPosition {
 
 export interface IPaneCompositePart extends IView {
 
-	readonly partId: Parts.PANEL_PART | Parts.AUXILIARYBAR_PART | Parts.SIDEBAR_PART;
+	readonly partId: Parts | string;
 
 	readonly onDidPaneCompositeOpen: Event<IPaneComposite>;
 	readonly onDidPaneCompositeClose: Event<IPaneComposite>;
@@ -85,9 +85,31 @@ export interface IPaneCompositePart extends IView {
 	hideActivePaneComposite(): void;
 
 	/**
+	 * Clears the active composite's content and toolbar without hiding the
+	 * surrounding part. Used when the composite bar loses its active item
+	 * (e.g. the user closes the last tab on a side of the dual-panel layout)
+	 * but the owning part stays visible. Fires the close event so listeners
+	 * can react to the now-empty content area.
+	 */
+	clearActivePaneComposite(): void;
+
+	/**
+	 * Whether the whole Panel should be auto-hidden when it becomes empty.
+	 * Defaults to `true`; the dual-panel `PanelPart` overrides this to `false`
+	 * so an empty side is collapsed to a visible drop target instead of
+	 * removing the other (still wanted) side (see `ViewsService`).
+	 */
+	shouldAutoHidePanelWhenEmpty(): boolean;
+
+	/**
 	 * Return the last active viewlet id.
 	 */
 	getLastActivePaneCompositeId(): string;
+
+	/**
+	 * Returns the view container location of this pane composite part.
+	 */
+	getViewContainerLocation(): ViewContainerLocation;
 
 	/**
 	 * Returns id of pinned view containers following the visual order.
@@ -112,29 +134,44 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	get snap(): boolean {
 		// Always allow snapping closed
 		// Only allow dragging open if the panel contains view containers
-		return this.layoutService.isVisible(this.partId) || !!this.paneCompositeBar.value?.getVisiblePaneCompositeIds().length;
+		return this.layoutService.isVisible(this.getGridPartId()) || !!this.paneCompositeBar.value?.getVisiblePaneCompositeIds().length;
 	}
 
 	get onDidPaneCompositeOpen(): Event<IPaneComposite> { return Event.map(this.onDidCompositeOpen.event, compositeEvent => <IPaneComposite>compositeEvent.composite); }
 	readonly onDidPaneCompositeClose = this.onDidCompositeClose.event as Event<IPaneComposite>;
 
-	private readonly location: ViewContainerLocation;
+	protected readonly location: ViewContainerLocation;
 	private titleContainer: HTMLElement | undefined;
 	private headerFooterCompositeBarContainer: HTMLElement | undefined;
 	protected readonly headerFooterCompositeBarDispoables = this._register(new DisposableStore());
 	private paneCompositeBarContainer: HTMLElement | undefined;
-	private readonly paneCompositeBar = this._register(new MutableDisposable<PaneCompositeBar>());
+	protected readonly paneCompositeBar = this._register(new MutableDisposable<PaneCompositeBar>());
 	private compositeBarPosition: CompositeBarPosition | undefined = undefined;
 	private emptyPaneMessageElement: HTMLElement | undefined;
 
 	private globalToolBar: WorkbenchToolBar | undefined;
 	private readonly globalActions: CompositeMenuActions;
 
+	/**
+	 * The menu id rendered into the title bar's global action toolbar. Subclasses
+	 * (e.g. the dual-panel `PanelSidePart`) override this to scope the actions to
+	 * a specific side so each side's "Maximize Panel Size" button only affects
+	 * its own side.
+	 */
+	protected globalActionsMenuId: MenuId;
+
+	/**
+	 * Tracks ViewPaneContainer instances whose `onRequestOpenCompositeForView`
+	 * event we have already wired up, so single-pane drop switching is handled
+	 * exactly once per container (the instances are reused across opens).
+	 */
+	private readonly registeredViewPaneContainers = new Set<IViewPaneContainer>();
+
 	private blockOpening = false;
 	protected contentDimension: Dimension | undefined;
 
 	constructor(
-		readonly partId: Parts.PANEL_PART | Parts.AUXILIARYBAR_PART | Parts.SIDEBAR_PART,
+		readonly partId: Parts | string,
 		partOptions: IPartOptions,
 		activePaneCompositeSettingsKey: string,
 		private readonly activePaneContextKey: IContextKey<string>,
@@ -151,23 +188,30 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		@IHoverService hoverService: IHoverService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IThemeService themeService: IThemeService,
-		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
+		@IViewDescriptorService protected readonly viewDescriptorService: IViewDescriptorService,
 		@IContextKeyService protected readonly contextKeyService: IContextKeyService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IMenuService protected readonly menuService: IMenuService,
 	) {
-		let location = ViewContainerLocation.Sidebar;
-		let registryId = Extensions.Viewlets;
-		let globalActionsMenuId = MenuId.SidebarTitle;
-		if (partId === Parts.PANEL_PART) {
-			location = ViewContainerLocation.Panel;
-			registryId = Extensions.Panels;
-			globalActionsMenuId = MenuId.PanelTitle;
-		} else if (partId === Parts.AUXILIARYBAR_PART) {
-			location = ViewContainerLocation.AuxiliaryBar;
-			registryId = Extensions.Auxiliary;
-			globalActionsMenuId = MenuId.AuxiliaryBarTitle;
-		}
+	let location = ViewContainerLocation.Sidebar;
+	let registryId = Extensions.Viewlets;
+	let globalActionsMenuId = MenuId.SidebarTitle;
+	if (partId === Parts.PANEL_PART) {
+		location = ViewContainerLocation.Panel;
+		registryId = Extensions.Panels;
+		globalActionsMenuId = MenuId.PanelTitle;
+	} else if (typeof partId === 'string' && partId.startsWith('workbench.panel.')) {
+		// Dual-panel layout: each side (workbench.panel.left / .right) gets its
+		// own title-bar action menu so the per-side "Maximize Panel Size" button
+		// only controls its own side.
+		location = ViewContainerLocation.Panel;
+		registryId = Extensions.Panels;
+		globalActionsMenuId = partId.endsWith('.left') ? MenuId.PanelTitleLeft : MenuId.PanelTitleRight;
+	} else if (partId === Parts.AUXILIARYBAR_PART) {
+		location = ViewContainerLocation.AuxiliaryBar;
+		registryId = Extensions.Auxiliary;
+		globalActionsMenuId = MenuId.AuxiliaryBarTitle;
+	}
 		super(
 			notificationService,
 			storageService,
@@ -189,9 +233,23 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		);
 
 		this.location = location;
-		this.globalActions = this._register(this.instantiationService.createInstance(CompositeMenuActions, globalActionsMenuId, undefined, undefined));
+		this.globalActionsMenuId = globalActionsMenuId;
+		this.globalActions = this._register(this.instantiationService.createInstance(CompositeMenuActions, this.globalActionsMenuId, undefined, undefined));
 
 		this.registerListeners();
+	}
+
+	getViewContainerLocation(): ViewContainerLocation {
+		return this.location;
+	}
+
+	/**
+	 * The part id that participates in the workbench grid layout. Sub-parts
+	 * (e.g. the left/right sides of the dual-panel layout) are not grid parts
+	 * themselves; their grid part is the parent panel part.
+	 */
+	protected getGridPartId(): SINGLE_WINDOW_PARTS {
+		return this.partId as SINGLE_WINDOW_PARTS;
 	}
 
 	private registerListeners(): void {
@@ -210,8 +268,12 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 					const containerToOpen = activeContainers.filter(c => c.id === defaultViewletId)[0] || activeContainers[0];
 					this.doOpenPaneComposite(containerToOpen.id);
 				}
-			} else {
-				this.layoutService.setPartHidden(true, this.partId);
+			} else if (this.shouldAutoHidePartWhenEmpty()) {
+				// A sub-part (e.g. one side of the dual-panel layout) must NOT
+				// hide the whole parent Panel when its last container is
+				// deregistered - doing so would take the OTHER (still wanted)
+				// side down with it. Only the standalone part hides itself here.
+				this.layoutService.setPartHidden(true, this.getGridPartId());
 			}
 
 			this.removeComposite(viewletDescriptor.id);
@@ -259,19 +321,30 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	private _extensionsRegistered: boolean = false;
 
 	/**
+	 * Hook for split-panel sub-parts. A sub-part emptying out must not hide the
+	 * whole parent panel. Defaults to true.
+	 */
+	protected shouldAutoHidePartWhenEmpty(): boolean {
+		return true;
+	}
+
+	/**
 	 * Hides the Panel part once it no longer hosts any active view, just like
 	 * invoking "Hide Panel". Never re-shows the Panel, so an explicit user hide
 	 * is not overridden. Only acts on the Panel location.
 	 */
-	private updatePanelVisibility(): void {
+	protected updatePanelVisibility(): void {
 		if (this.location !== ViewContainerLocation.Panel) {
 			return;
 		}
 		if (!this._extensionsRegistered) {
 			return;
 		}
-		if (!this.hasActiveViewContainers() && this.layoutService.isVisible(this.partId)) {
-			this.layoutService.setPartHidden(true, this.partId);
+		if (!this.shouldAutoHidePartWhenEmpty()) {
+			return;
+		}
+		if (!this.hasActiveViewContainers() && this.layoutService.isVisible(this.getGridPartId())) {
+			this.layoutService.setPartHidden(true, this.getGridPartId());
 		}
 	}
 
@@ -330,6 +403,14 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerTarget(this.element, {
 			onDragOver: (e) => {
+				// When this part already hosts an active composite (single-view mode in the
+				// AuxiliaryBar / Panel), the drop is fully handled by that composite's
+				// ViewPaneContainer (which switches the whole content to the dropped view's
+				// container). Leave the event alone so it reaches the ViewPaneContainer's own
+				// target (registered on a descendant) instead of being intercepted here.
+				if (this.getActiveComposite()) {
+					return;
+				}
 				EventHelper.stop(e.eventData, true);
 				if (this.paneCompositeBar.value) {
 					const validDropTarget = this.paneCompositeBar.value.dndHandler.onDragEnter(e.dragAndDropData, undefined, e.eventData);
@@ -337,6 +418,9 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 				}
 			},
 			onDragEnter: (e) => {
+				if (this.getActiveComposite()) {
+					return;
+				}
 				EventHelper.stop(e.eventData, true);
 				if (this.paneCompositeBar.value) {
 					const validDropTarget = this.paneCompositeBar.value.dndHandler.onDragEnter(e.dragAndDropData, undefined, e.eventData);
@@ -352,6 +436,12 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 				this.emptyPaneMessageElement!.style.backgroundColor = '';
 			},
 			onDrop: (e) => {
+				// Same guard as onDragOver: when the part already shows a composite, the
+				// ViewPaneContainer handles the drop (single-pane switch). Do not double-handle
+				// here - the two handlers would race and cancel each other out.
+				if (this.getActiveComposite()) {
+					return;
+				}
 				EventHelper.stop(e.eventData, true);
 				this.emptyPaneMessageElement!.style.backgroundColor = '';
 				if (this.paneCompositeBar.value) {
@@ -540,7 +630,10 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	}
 
 	protected createCompositeBar(): PaneCompositeBar {
-		return this.instantiationService.createInstance(PaneCompositeBar, this.getCompositeBarOptions(), this.partId, this);
+		const part = this.location === ViewContainerLocation.Panel ? Parts.PANEL_PART
+			: this.location === ViewContainerLocation.AuxiliaryBar ? Parts.AUXILIARYBAR_PART
+				: Parts.SIDEBAR_PART;
+		return this.instantiationService.createInstance(PaneCompositeBar, this.getCompositeBarOptions(), part, this);
 	}
 
 	protected override onTitleAreaUpdate(compositeId: string): void {
@@ -550,7 +643,7 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		this.layoutCompositeBar();
 	}
 
-	async openPaneComposite(id?: string, focus?: boolean): Promise<PaneComposite | undefined> {
+	async openPaneComposite(id?: string, focus?: boolean): Promise<IPaneComposite | undefined> {
 		if (typeof id === 'string' && this.getPaneComposite(id)) {
 			return this.doOpenPaneComposite(id, focus);
 		}
@@ -585,12 +678,21 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		return this.location === ViewContainerLocation.Panel && container.id === 'workbench.view.debug';
 	}
 
-	private doOpenPaneComposite(id: string, focus?: boolean): PaneComposite | undefined {
+	/**
+	 * Hook for split-panel sub-parts. When the pane composite part is hosted
+	 * inside another part (e.g. one half of the dual-panel layout), opening a
+	 * view must NOT toggle the visibility of the parent part. Defaults to true.
+	 */
+	protected shouldAutoRevealPart(): boolean {
+		return true;
+	}
+
+	private doOpenPaneComposite(id: string, focus?: boolean): IPaneComposite | undefined {
 		if (this.blockOpening) {
 			return undefined; // Workaround against a potential race condition
 		}
 
-		if (!this.layoutService.isVisible(this.partId)) {
+		if (this.shouldAutoRevealPart() && !this.layoutService.isVisible(this.getGridPartId())) {
 			const hasActive = this.hasActiveViewContainers();
 			// Do not force the part back into view when it no longer hosts any
 			// view. This happens when the last view was dragged out (e.g. into the
@@ -600,7 +702,7 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 			if (hasActive) {
 				try {
 					this.blockOpening = true;
-					this.layoutService.setPartHidden(false, this.partId);
+					this.layoutService.setPartHidden(false, this.getGridPartId());
 				} finally {
 					this.blockOpening = false;
 				}
@@ -609,11 +711,24 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 		// Repair an abnormally small panel size when (re)opening a view, e.g.
 		// when the panel was already visible but persisted a too-small size.
-		if (this.location === ViewContainerLocation.Panel && this.layoutService.isVisible(this.partId)) {
+		if (this.location === ViewContainerLocation.Panel && this.layoutService.isVisible(this.getGridPartId())) {
 			this.layoutService.ensurePanelSize();
 		}
 
-		return this.openComposite(id, focus) as PaneComposite;
+		const composite = this.openComposite(id, focus) as unknown as IPaneComposite | undefined;
+
+		// Single-pane mode (e.g. a Panel sub-part) reports the dropped view's
+		// container through `onRequestOpenCompositeForView` on its
+		// ViewPaneContainer. Wire that up once per ViewPaneContainer instance so a
+		// subsequent drop replaces the whole content with the dropped view's
+		// container instead of being silently ignored.
+		const viewPaneContainer = (composite as PaneComposite | undefined)?.getViewPaneContainer?.();
+		if (viewPaneContainer && !this.registeredViewPaneContainers.has(viewPaneContainer)) {
+			this.registeredViewPaneContainers.add(viewPaneContainer);
+			this._register(viewPaneContainer.onRequestOpenCompositeForView(id => this.openPaneComposite(id, true)));
+		}
+
+		return composite;
 	}
 
 	getPaneComposite(id: string): PaneCompositeDescriptor | undefined {
@@ -655,20 +770,56 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		return this.getLastActiveCompositeId();
 	}
 
+	/**
+	 * Hook for split-panel sub-parts. Closing the active view of a sub-part
+	 * should only clear that sub-part, not hide the whole parent panel.
+	 * Defaults to true.
+	 */
+	protected shouldHidePartOnClose(): boolean {
+		return true;
+	}
+
 	hideActivePaneComposite(): void {
-		if (this.layoutService.isVisible(this.partId)) {
-			this.layoutService.setPartHidden(true, this.partId);
+		if (this.shouldHidePartOnClose() && this.layoutService.isVisible(this.getGridPartId())) {
+			this.layoutService.setPartHidden(true, this.getGridPartId());
 		}
 
 		this.hideActiveComposite();
+	}
+
+	clearActivePaneComposite(): void {
+		// Hide the active composite's content and toolbar but keep the
+		// surrounding part visible. The bar lost its active tab (e.g. the user
+		// closed the only pinned view on this side of the dual-panel layout
+		// and no replacement was auto-opened), so the part should show an empty
+		// content area instead of an orphan toolbar.
+		// `hideActiveComposite()` already no-ops when there is no active
+		// composite, so the guard below is not required.
+		this.hideActiveComposite();
+	}
+
+	shouldAutoHidePanelWhenEmpty(): boolean {
+		// Default behaviour for every part except the dual-panel `PanelPart`,
+		// which overrides this to `false` so an empty side does not take the
+		// other side down with it.
+		return true;
 	}
 
 	protected focusCompositeBar(): void {
 		this.paneCompositeBar.value?.focus();
 	}
 
+	/**
+	 * Hook for split-panel sub-parts. A sub-part is laid out whenever its parent
+	 * part is visible, regardless of the sub-part's own (non-grid) part id.
+	 * Defaults to the standard check.
+	 */
+	protected isPartVisibleForLayout(): boolean {
+		return this.layoutService.isVisible(this.getGridPartId());
+	}
+
 	override layout(width: number, height: number, top: number, left: number): void {
-		if (!this.layoutService.isVisible(this.partId)) {
+		if (!this.isPartVisibleForLayout()) {
 			return;
 		}
 
@@ -693,6 +844,35 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 			this.paneCompositeBar.value.layout(availableWidth, this.dimension.height);
 		}
 	}
+
+	/**
+	 * Refresh the enabled state of every composite tab based on the options
+	 * supplied to the composite bar. Used by dual-panel sub-parts to disable
+	 * tabs that are already active in the other side.
+	 */
+	updateCompositeEnabledStates(): void {
+		this.paneCompositeBar.value?.updateCompositeEnabledStates();
+	}
+
+	pinPaneComposite(id: string): Promise<void> {
+		return this.paneCompositeBar.value?.pin(id) ?? Promise.resolve();
+	}
+
+	unpinPaneComposite(id: string): void {
+		this.paneCompositeBar.value?.unpin(id);
+	}
+
+	/**
+	 * Force a re-layout of the composite bar so its rendered tabs match the
+	 * model. Used after moving a composite off this part (see
+	 * `PanelPart.movePaneCompositeToSide`) to guarantee a stale tab is removed
+	 * even if an earlier `updateCompositeSwitcher` ran before the bar was laid
+	 * out and therefore bailed out early.
+	 */
+	refreshCompositeBar(): void {
+		this.layoutCompositeBar();
+	}
+
 
 	private layoutEmptyMessage(): void {
 		const visible = !this.getActiveComposite();

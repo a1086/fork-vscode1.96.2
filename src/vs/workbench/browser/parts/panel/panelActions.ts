@@ -302,11 +302,35 @@ registerAction2(class extends Action2 {
 				id: MenuId.PanelTitle,
 				group: 'navigation',
 				order: 2
+			}, {
+				// The dual-panel layout has no parent Panel title bar, so the
+				// "close the whole Panel" button must live on each side's title
+				// bar instead. Otherwise there is no way to hide the entire Panel
+				// from its (now per-side) title bars.
+				id: MenuId.PanelTitleLeft,
+				group: 'navigation',
+				order: 2
+			}, {
+				id: MenuId.PanelTitleRight,
+				group: 'navigation',
+				order: 2
 			}]
 		});
 	}
 	run(accessor: ServicesAccessor) {
-		accessor.get(IWorkbenchLayoutService).setPartHidden(true, Parts.PANEL_PART);
+		const layoutService = accessor.get(IWorkbenchLayoutService);
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
+		// In the dual-panel (split) layout, the "Hide Panel" button on a side's
+		// title bar must only collapse THAT side - the other side stays open and
+		// fills the Panel. Hiding the whole Panel (`setPartHidden(true,
+		// PANEL_PART)`) would take both sides down at once, which is the bug where
+		// one close button closed two panels. `closeActiveSide` collapses only the
+		// side the user last interacted with, and only hides the whole Panel when
+		// both sides have already been closed individually.
+		if (paneCompositeService.isDualLayout() && paneCompositeService.hideActivePaneCompositeSide(ViewContainerLocation.Panel)) {
+			return;
+		}
+		layoutService.setPartHidden(true, Parts.PANEL_PART);
 	}
 });
 
