@@ -21,3 +21,9 @@ vscode.db
 product.overrides.json
 *.snap.actual
 .vscode-test
+
+# Build / temp artifacts and diff backups (not for commit)
+tsc-out.log
+tsc_check.err
+tsc_check.log
+*.diff
