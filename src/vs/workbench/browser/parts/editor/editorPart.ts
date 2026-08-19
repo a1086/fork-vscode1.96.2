@@ -130,6 +130,7 @@ import { ViewEditorInput } from "../../../contrib/viewInEditor/browser/viewEdito
 import {
 	IViewDescriptorService,
 	ViewContainerLocation,
+	ViewContainer,
 } from "../../../common/views.js";
 import { IViewsService } from "../../../services/views/common/viewsService.js";
 import { IBoundarySashes } from "../../../../base/browser/ui/sash/sash.js";
@@ -1088,7 +1089,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 			GroupsOrder.MOST_RECENTLY_ACTIVE,
 		);
 
-		let lastActiveGroup: IEditorGroupView;
+		let lastActiveGroup: IEditorGroupView | undefined;
 		if (this._activeGroup === groupView) {
 			lastActiveGroup = mostRecentlyActiveGroups[1];
 		} else {
@@ -1097,14 +1098,22 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 		// Removing a group with editors should merge these editors into the
 		// last active group and then remove this group.
-		this.mergeGroup(groupView, lastActiveGroup);
+		// Guard: in some auxiliary-window merge paths the most-recently-active
+		// list can be shorter than expected, leaving no valid target. Fall back
+		// to merging into the current active group or skip if nothing is valid.
+		if (!lastActiveGroup) {
+			lastActiveGroup = this._activeGroup;
+		}
+		if (lastActiveGroup && lastActiveGroup !== groupView) {
+			this.mergeGroup(groupView, lastActiveGroup);
+		}
 	}
 
 	private doRemoveEmptyGroup(
 		groupView: IEditorGroupView,
 		preserveFocus?: boolean,
 	): void {
-		const restoreFocus =
+		let restoreFocus =
 			!preserveFocus && this.shouldRestoreFocus(this.container);
 
 		// Activate next group if the removed one was active
@@ -1113,7 +1122,15 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 				GroupsOrder.MOST_RECENTLY_ACTIVE,
 			);
 			const nextActiveGroup = mostRecentlyActiveGroups[1]; // [0] will be the current group we are about to dispose
-			this.doSetGroupActive(nextActiveGroup);
+			if (nextActiveGroup) {
+				this.doSetGroupActive(nextActiveGroup);
+			} else {
+				// No other group to activate (e.g. auxiliary window closing).
+				// Keep the reference valid until disposal below and skip focus
+				// restore because the group will be disposed.
+				this._activeGroup = groupView;
+				restoreFocus = false;
+			}
 		}
 
 		// Remove from grid widget & dispose
@@ -1658,31 +1675,37 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 							// single 'view' this is just that view; for a 'composite' (view
 							// container) we take every view currently hosted by that container
 							// so the source panel/container ends up empty.
-							let viewIds: string[];
-							if (dragData.type === "view") {
-								viewIds = [dragData.id];
-							} else {
-								const container = viewDescriptorService.getViewContainerById(
-									dragData.id,
-								);
-								viewIds = container
-									? viewDescriptorService
-										.getViewContainerModel(container)
-										.allViewDescriptors.map((v) => v.id)
-									: [];
-							}
+						let viewIds: string[];
+						let container: ViewContainer | null = null;
+						if (dragData.type === "view") {
+							viewIds = [dragData.id];
+						} else {
+							container = viewDescriptorService.getViewContainerById(
+								dragData.id,
+							);
+							viewIds = container
+								? viewDescriptorService
+									.getViewContainerModel(container)
+									.allViewDescriptors.map((v) => v.id)
+								: [];
+						}
 
 							// Run the move inside `withViewMoving` so that ViewsService does
 							// not auto-hide the Panel while the descriptor model is in a
 							// transient state (e.g. views removed from Panel but not yet added
 							// to the Editor container).
 							viewsService.withViewMoving(() => {
+								const containerModel = container ? viewDescriptorService.getViewContainerModel(container) : undefined;
 								for (const viewId of viewIds) {
 									const viewDescriptor =
 										viewDescriptorService.getViewDescriptorById(viewId);
 									const originalLocation =
 										viewDescriptorService.getViewLocationById(viewId) ??
 										undefined;
+									const originalContainerId = container?.id ?? undefined;
+									const originalIndex = viewDescriptor && containerModel
+										? containerModel.allViewDescriptors.indexOf(viewDescriptor)
+										: undefined;
 									if (viewDescriptor) {
 										viewDescriptorService.moveViewToLocation(
 											viewDescriptor,
@@ -1691,11 +1714,13 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 										);
 									}
 									editorService.openEditor(
-										this.instantiationService.createInstance(
-											ViewEditorInput,
-											viewId,
-											originalLocation,
-										),
+									this.instantiationService.createInstance(
+										ViewEditorInput,
+										viewId,
+										originalLocation,
+										originalContainerId,
+										originalIndex,
+									),
 									);
 								}
 							});

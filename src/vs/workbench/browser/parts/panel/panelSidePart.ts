@@ -7,7 +7,7 @@ import { localize } from '../../../../nls.js';
 import { IAction, Separator, SubmenuAction, toAction } from '../../../../base/common/actions.js';
 import { ActionsOrientation } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { ActivePanelContext, PanelFocusContext, ActivePanelLeftContext, ActivePanelRightContext, PanelLeftFocusContext, PanelRightFocusContext } from '../../../common/contextkeys.js';
-import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
 import { IWorkbenchLayoutService, Parts, Position, SINGLE_WINDOW_PARTS } from '../../../services/layout/browser/layoutService.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
@@ -28,7 +28,7 @@ import { getContextMenuActions } from '../../../../platform/actions/browser/menu
 import { IPaneCompositeBarOptions } from '../paneCompositeBar.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { ICompositeDragAndDrop, Before2D, CompositeDragAndDropData } from '../../dnd.js';
+import { CompositeDragAndDropObserver, ICompositeDragAndDrop, Before2D, CompositeDragAndDropData } from '../../dnd.js';
 import { Composite } from '../../composite.js';
 import { trackFocus, addDisposableListener, EventType, Dimension } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
@@ -66,6 +66,17 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	 * silently skips `composite.layout()` while `contentAreaSize` is undefined.
 	 */
 	private lastLayoutDimension: { width: number; height: number } | undefined;
+
+	/**
+	 * True while a composite/view drag is in progress (anywhere in the workbench,
+	 * not just this side). Used by `ensureFirstViewWorkingAfterRemoval` so that a
+	 * side does NOT immediately clear to the "Drag a view here" placeholder the
+	 * instant the last view starts being dragged out — the dragged view's content
+	 * is still in the DOM during the drag, so keeping it visible is correct (and
+	 * if the drag is cancelled it simply snaps back). The final empty state is
+	 * decided on `onDragEnd` instead.
+	 */
+	private isDragInProgress = false;
 
 	static readonly activePanelSettingsKeyFor = (side: PanelSide) => `workbench.panel.${side}.activepanelid`;
 
@@ -112,6 +123,29 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		);
 
 		this.side = side;
+
+		// Track workbench-wide drag start/end so `ensureFirstViewWorkingAfterRemoval`
+		// can defer clearing an emptied side until the drag actually finishes.
+		this._register(CompositeDragAndDropObserver.INSTANCE.onDragStart(() => {
+			this.isDragInProgress = true;
+		}));
+		this._register(CompositeDragAndDropObserver.INSTANCE.onDragEnd(() => {
+			this.isDragInProgress = false;
+			// The drag finished. If the side's container really is empty now
+			// (the view was dropped outside the Panel), fall back to the empty
+			// placeholder. If the drag was cancelled the view is back, so this
+			// is a no-op.
+			const composite = this.getActivePaneComposite() as PaneComposite | undefined;
+			const container = composite ? this.viewDescriptorService.getViewContainerById(composite.getId()) : undefined;
+			if (container) {
+				const model = this.viewDescriptorService.getViewContainerModel(container);
+				if (model.allViewDescriptors.length === 0) {
+					this.clearActivePaneComposite();
+					this.unpinPaneComposite(container.id);
+					this.refreshCompositeBar();
+				}
+			}
+		}));
 
 		// Mirror this side's active panel id and focus into the shared global
 		// context keys for backward compatibility (commands/extensions that
@@ -279,14 +313,47 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		}
 		const viewContainerModel = this.viewDescriptorService.getViewContainerModel(container);
 		const firstDescriptor = viewContainerModel.allViewDescriptors[0];
-		if (!firstDescriptor) {
-			return;
-		}
 
 		// Reset subscriptions so repeated calls (open / restore / relayoutSides /
 		// drag move) never stack listeners on top of each other. Each entry below
 		// is re-registered against this fresh store.
 		this.ensureFirstViewWorkingSubscriptions.clear();
+
+		if (!firstDescriptor) {
+			// The container exists but its view descriptor is not registered yet.
+			// This is the case for *dynamically registered* Panel views such as
+			// Ports (TUNNEL_VIEW_CONTAINER_ID): the `ForwardedPortsView` workbench
+			// contribution only registers the Ports view once the
+			// `forwardedPortsFeaturesEnabled` / `forwardedPortsViewEnabled` context
+			// keys are set, which happens asynchronously (it `await`s
+			// `getViewContainer()`). During `PanelPart.create` -> `restore()` the
+			// restore opens the container and `ensureFirstViewWorking` runs *before*
+			// that registration completes, so `allViewDescriptors` is empty here.
+			//
+			// Bailing out at this point (as the old code did) left the Panel side
+			// showing the "Drag a view here to display" placeholder forever after a
+			// reload: the view registered later, but nothing re-triggered
+			// `ensureFirstViewWorking` to expand it. Fix: subscribe (once) to the
+			// container model's descriptor-change event and re-run this method as
+			// soon as the first descriptor appears. The subscription lives in
+			// `ensureFirstViewWorkingSubscriptions`, so the next call (when the
+			// descriptor is present) clears it cleanly and no listener leaks.
+			const retryWhenDescriptorAvailable = new RunOnceScheduler(() => {
+				// The container may have been cleared/switched in the meantime.
+				if (this.getActivePaneComposite() === composite) {
+					this.ensureFirstViewWorking();
+				}
+			}, 0);
+			this.ensureFirstViewWorkingSubscriptions.add(retryWhenDescriptorAvailable);
+			this.ensureFirstViewWorkingSubscriptions.add(viewContainerModel.onDidChangeActiveViewDescriptors(() => {
+				// Only re-run once a descriptor is actually available; the
+				// RunOnceScheduler guarantees we do not spin on every change.
+				if (viewContainerModel.allViewDescriptors.length > 0) {
+					retryWhenDescriptorAvailable.schedule();
+				}
+			}));
+			return;
+		}
 
 		// 1) 取消折叠（持久化）—— 否则 `updateViewHeaders` 多视图分支会把首视图当作
 		//    `lastMergedCollapsedPane` 再折叠一次（"闪一下消失"的直接原因）。
@@ -386,13 +453,31 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	}
 
 	override async openPaneComposite(id?: string, focus?: boolean, skipMaximizeOnShow?: boolean, skipExclusion?: boolean): Promise<IPaneComposite | undefined> {
-		if (typeof id === 'string' && !skipExclusion) {
-			// View-level mutual exclusion: no single view may be visible in both
-			// sides at once. If the other side is currently showing a container
-			// that shares a view with `id`, release the other side first so the
-			// open on this side can proceed without ever duplicating a view.
-			if (this.panelPart.releaseOtherSideIfViewOverlap(this.side, id)) {
-				// Fall through to the normal open below on this side.
+		if (typeof id === 'string') {
+			// 视图级互斥（统一入口）：同一 view 绝不能同时在左右两侧显示。
+			//
+			// 之前只有 `!skipExclusion` 路径（用户操作）会检查另一侧，而
+			// `skipExclusion=true`（系统还原：create() 的 restore / Toggle Panel
+			// 的 savedLayout 还原）会**完全跳过**这一检查，导致两侧共享同一 view
+			// 的容器被同时打开并各自写入 storage，刷新/Toggle 后复现"两栏相同视图"。
+			//
+			// 现在统一：无论是否 skipExclusion，只要本侧要开的容器与**另一侧已激活**
+			// 的容器共享 view：
+			//   - 非 skipExclusion（用户操作）：照旧释放另一侧后本侧打开；
+			//   - skipExclusion（系统还原）：另一侧也已/将要被还原，本侧**禁止打开**
+			//     这个冲突容器（基线侧保留），返回 undefined 使基类 `showComposite`
+			//     不会被触发、冲突值不会写回 storage。这是从写入侧彻底根治重复。
+		const otherActiveId = this.panelPart.getOtherSidePart(this.side).getActivePaneComposite()?.getId();
+			if (otherActiveId && this.panelPart.containersShareView(otherActiveId, id)) {
+				if (!skipExclusion) {
+					this.panelPart.releaseOtherSideIfViewOverlap(this.side, id);
+					// fall through to open on this side below
+				} else {
+					// 系统还原期间：另一侧已激活且冲突，本侧不打开冲突容器。
+					// 同步清除本侧持久化的 active id，切断"记忆→还原→再出现"循环。
+					this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor(this.side), StorageScope.WORKSPACE);
+					return undefined;
+				}
 			}
 		}
 
@@ -593,6 +678,16 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// container still has views that were simply not active.
 		const currentContainerId = composite.getId();
 		if (viewContainerModel.allViewDescriptors.length === 0) {
+			// While a drag is in progress the dragged view's content is still in
+			// the DOM, so keep it visible instead of dropping to the "Drag a view
+			// here" placeholder mid-drag. The final empty/kept state is resolved
+			// on drag end (see the `onDragEnd` handler registered in the
+			// constructor): if the view was really dropped outside the Panel the
+			// container stays empty and we clear then; if the drag was cancelled
+			// the view is back and nothing needs to change.
+			if (this.isDragInProgress) {
+				return;
+			}
 			if (this.getActivePaneComposite()?.getId() === currentContainerId) {
 				this.clearActivePaneComposite();
 			}

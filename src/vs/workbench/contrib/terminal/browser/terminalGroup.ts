@@ -16,6 +16,7 @@ import { TerminalStatus } from './terminalStatusList.js';
 import { getWindow } from '../../../../base/browser/dom.js';
 import { getPartByLocation } from '../../../services/views/browser/viewsService.js';
 import { asArray } from '../../../../base/common/arrays.js';
+import { localize } from '../../../../nls.js';
 
 const enum Constants {
 	/**
@@ -271,7 +272,7 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 	readonly onPanelOrientationChanged = this._onPanelOrientationChanged.event;
 
 	constructor(
-		private _container: HTMLElement | undefined,
+		container: HTMLElement | undefined,
 		shellLaunchConfigOrInstance: IShellLaunchConfig | ITerminalInstance | undefined,
 		@ITerminalConfigurationService private readonly _terminalConfigurationService: ITerminalConfigurationService,
 		@ITerminalInstanceService private readonly _terminalInstanceService: ITerminalInstanceService,
@@ -283,15 +284,32 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 		if (shellLaunchConfigOrInstance) {
 			this.addInstance(shellLaunchConfigOrInstance);
 		}
-		if (this._container) {
-			this.attachToElement(this._container);
+		// Always attach the constructor's container as the *primary* one.
+		// The parent `TerminalGroupService.createGroup` is responsible for
+		// passing the primary container it has registered (the first
+		// `setContainer` call wins as primary in the dual-panel layout);
+		// any subsequent `setContainer` calls from the opposite side's
+		// `TerminalTabbedView` will attach as mirrors (no DOM move).
+		if (container) {
+			this.attachToElement(container, true);
 		}
 		this._onPanelOrientationChanged.fire(this._terminalLocation === ViewContainerLocation.Panel && isHorizontal(this._panelPosition) ? Orientation.HORIZONTAL : Orientation.VERTICAL);
 		this._register(toDisposable(() => {
-			if (this._container && this._groupElement) {
-				this._groupElement.remove();
-				this._groupElement = undefined;
+			// Tear down every attachment (primary + mirrors). Tracking them
+			// in `_attachedContainers` lets us remove primary, mirrors and
+			// future re-attachments uniformly on dispose.
+			for (const container of this._attachedContainers) {
+				if (this._groupElement && container.contains(this._groupElement)) {
+					this._groupElement.remove();
+				}
+				const mirror = this._mirrorElements.get(container);
+				if (mirror) {
+					mirror.remove();
+				}
 			}
+			this._attachedContainers.clear();
+			this._groupElement = undefined;
+			this._splitPaneContainer = undefined;
 		}));
 	}
 
@@ -462,23 +480,113 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 		}
 	}
 
-	attachToElement(element: HTMLElement): void {
-		this._container = element;
+	/**
+	 * Containers this group is attached to. The first entry is treated as the
+	 * "primary" container (the one that owns the real `_groupElement` /
+	 * `_splitPaneContainer` / xterm DOM nodes); every subsequent entry is a
+	 * "mirror" container that gets a placeholder element so the panel side's
+	 * body is not blank, while the real terminal contents remain rendered
+	 * inside the primary container.
+	 *
+	 * Why: `TerminalGroupService` is a singleton; in the dual-panel layout
+	 * two `TerminalViewPane` instances (one per side) each construct their
+	 * own `TerminalTabbedView`, which in turn calls
+	 * `terminalGroupService.setContainer(...)`. The old
+	 * single-`_container` model would silently overwrite the container on
+	 * each call - the dominant side's `setContainer` last wins, and
+	 * `attachToElement` blindly `appendChild`ed the group DOM to the new
+	 * container, which the browser dutifully *moves* from the old container
+	 * to the new one. The other side then ended up with a `TerminalViewPane`
+	 * whose body was a single empty pane header over zero DOM, manifesting
+	 * as "the Terminal tab is selected/highlighted but the body is
+	 * completely blank and unusable" (the recurring "Terminal blank" bug
+	 * in the dual-panel layout).
+	 */
+	private _attachedContainers: Set<HTMLElement> = new Set();
+	private _mirrorElements: WeakMap<HTMLElement, HTMLElement> = new WeakMap();
 
-		// If we already have a group element, we can reparent it
-		if (!this._groupElement) {
-			this._groupElement = document.createElement('div');
-			this._groupElement.classList.add('terminal-group');
+	attachToElement(element: HTMLElement, isPrimary: boolean): void {
+		// Already attached to this exact container - nothing to do.
+		if (this._attachedContainers.has(element)) {
+			return;
+		}
+		this._attachedContainers.add(element);
+
+		if (isPrimary) {
+			// If this container used to be a mirror placeholder for us (the
+			// primary has just transferred to it), clear the stale placeholder
+			// before appending the real group DOM, otherwise two `.terminal-group`
+			// children would coexist in the same panel-side container.
+			const staleMirror = this._mirrorElements.get(element);
+			if (staleMirror) {
+				staleMirror.remove();
+				this._mirrorElements.delete(element);
+			}
+			// Primary container: own the real group DOM. Create (or reuse) the
+			// `<div class="terminal-group">` and the SplitPaneContainer that
+			// backs it, the same way the historical single-container code did.
+			// If we already had a primary container (rare - happens when the
+			// primary side flips in a re-render), keep that DOM where it is
+			// and just register the new primary without moving DOM. Real
+			// re-attachment to the same DOM is still triggered by the
+			// `_groupElement` check below on the next SplitPaneContainer set.
+			if (!this._groupElement) {
+				this._groupElement = document.createElement('div');
+				this._groupElement.classList.add('terminal-group');
+			}
+			element.appendChild(this._groupElement);
+			if (!this._splitPaneContainer) {
+				this._panelPosition = this._layoutService.getPanelPosition();
+				this._terminalLocation = this._viewDescriptorService.getViewLocationById(TERMINAL_VIEW_ID)!;
+				const orientation = this._terminalLocation === ViewContainerLocation.Panel && isHorizontal(this._panelPosition) ? Orientation.HORIZONTAL : Orientation.VERTICAL;
+				this._splitPaneContainer = this._instantiationService.createInstance(SplitPaneContainer, this._groupElement, orientation);
+				this.terminalInstances.forEach(instance => this._splitPaneContainer!.split(instance, this._activeInstanceIndex + 1));
+			}
+			return;
 		}
 
-		this._container.appendChild(this._groupElement);
-		if (!this._splitPaneContainer) {
-			this._panelPosition = this._layoutService.getPanelPosition();
-			this._terminalLocation = this._viewDescriptorService.getViewLocationById(TERMINAL_VIEW_ID)!;
-			const orientation = this._terminalLocation === ViewContainerLocation.Panel && isHorizontal(this._panelPosition) ? Orientation.HORIZONTAL : Orientation.VERTICAL;
-			this._splitPaneContainer = this._instantiationService.createInstance(SplitPaneContainer, this._groupElement, orientation);
-			this.terminalInstances.forEach(instance => this._splitPaneContainer!.split(instance, this._activeInstanceIndex + 1));
+		// Mirror container: do NOT touch `_groupElement`/`_splitPaneContainer`.
+		// Appending the real `_groupElement` here would move it out of the
+		// primary container (browsers move, not copy, on `appendChild`) and
+		// re-create the very bug we are fixing. Instead drop a clearly
+		// labelled placeholder so the panel-side body has *something* to
+		// render and the user understands the terminal lives on the other
+		// side of the dual-panel split.
+		this._appendMirrorPlaceholder(element);
+	}
+
+	/**
+	 * Drop any DOM this group attached to `container` and forget that
+	 * attachment. Called by the service when the primary container hands off
+	 * ownership (e.g. when the user drags the Terminal view from the Panel
+	 * into the Editor area and the editor-side container takes over as the
+	 * new primary). Idempotent.
+	 */
+	detachFromContainer(container: HTMLElement): void {
+		if (!this._attachedContainers.has(container)) {
+			return;
 		}
+		this._attachedContainers.delete(container);
+		if (this._groupElement && container.contains(this._groupElement)) {
+			this._groupElement.remove();
+		}
+		const mirror = this._mirrorElements.get(container);
+		if (mirror) {
+			mirror.remove();
+			this._mirrorElements.delete(container);
+		}
+	}
+
+	private _appendMirrorPlaceholder(element: HTMLElement): void {
+		const placeholder = document.createElement('div');
+		placeholder.classList.add('terminal-group', 'terminal-group-mirror');
+		placeholder.setAttribute('role', 'presentation');
+		placeholder.textContent = localize('terminal.dualPanelMirrorHint', "Terminal is shown on the other side of the Panel.");
+		element.appendChild(placeholder);
+		this._mirrorElements.set(element, placeholder);
+		// Mirror visibility tracks the primary one (which `setVisible` keeps
+		// in sync below).
+		placeholder.style.display = this._visible ? '' : 'none';
 	}
 
 	get title(): string {
@@ -514,6 +622,17 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 		this._visible = visible;
 		if (this._groupElement) {
 			this._groupElement.style.display = visible ? '' : 'none';
+		}
+		// Keep mirror placeholders in sync with the primary group's visibility
+		// so a side that should be invisible (e.g. the non-active side of a
+		// dual-panel split) does not keep showing the "Terminal is shown on
+		// the other side" hint. New mirrors added later by `attachToElement`
+		// pick up the current `_visible` value automatically there.
+		for (const container of this._attachedContainers) {
+			const mirror = this._mirrorElements.get(container);
+			if (mirror) {
+				mirror.style.display = visible ? '' : 'none';
+			}
 		}
 		this.terminalInstances.forEach(i => i.setVisible(visible));
 	}

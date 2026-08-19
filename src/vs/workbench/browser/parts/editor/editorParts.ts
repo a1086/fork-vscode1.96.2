@@ -343,10 +343,10 @@ export class EditorParts extends MultiWindowParts<EditorPart> implements IEditor
 				await group.closeAllEditors({ excludeConfirming: true });
 			}
 
-			const closed = (part as unknown as IAuxiliaryEditorPart).close(); // will move remaining editors to main part
-			if (!closed) {
-				return false; // this indicates that closing was vetoed
-			}
+		const closed = await (part as unknown as IAuxiliaryEditorPart).close(); // will move remaining editors to main part
+		if (!closed) {
+			return false; // this indicates that closing was vetoed
+		}
 		}
 
 		// Restore auxiliary state unless we are in an empty state

@@ -143,7 +143,18 @@ export interface ITerminalGroup {
 	resizePane(direction: Direction): void;
 	resizePanes(relativeSizes: number[]): void;
 	setActiveInstanceByIndex(index: number, force?: boolean): void;
-	attachToElement(element: HTMLElement): void;
+	/**
+	 * Attach the group's DOM to `element`. `isPrimary` is `true` for the
+	 * single container that owns the real `.terminal-group`/xterm DOM; all
+	 * other (mirror) containers receive only a labelled placeholder so that
+	 * the single xterm canvas is never moved between dual-panel sides.
+	 */
+	attachToElement(element: HTMLElement, isPrimary: boolean): void;
+	/**
+	 * Detach the group's real DOM from `container` (used when a container is
+	 * demoted from primary to mirror in the dual-panel layout).
+	 */
+	detachFromContainer(container: HTMLElement): void;
 	addInstance(instance: ITerminalInstance): void;
 	removeInstance(instance: ITerminalInstance): void;
 	moveInstance(instances: ITerminalInstance | ITerminalInstance[], index: number, position: 'before' | 'after'): void;
@@ -510,6 +521,22 @@ export interface ITerminalGroupService extends ITerminalInstanceHost {
 	setActiveInstanceByIndex(terminalIndex: number): void;
 
 	setContainer(container: HTMLElement): void;
+
+	/**
+	 * Re-home the *primary* (real xterm DOM) container to `container`. In the
+	 * dual-panel layout the Terminal view can be dragged between the left and
+	 * right sides; since both sides share the Panel `ViewContainerLocation`,
+	 * `setContainer` does not transfer the primary on its own (it only does so
+	 * when the view moves out of the Panel, e.g. into the Editor). Without this
+	 * explicit re-home the real terminal DOM stays attached to the side the
+	 * terminal was *originally* opened on, while the side the user just dragged
+	 * it to keeps showing the "Terminal is shown on the other side" mirror
+	 * placeholder - i.e. the terminal becomes non-functional on the side it was
+	 * dragged to. Calling this from `TerminalViewPane.onDidChangeBodyVisibility`
+	 * (which fires when the terminal view body becomes visible on a side) keeps
+	 * the live xterm canvas on whatever side currently hosts the view.
+	 */
+	setPrimaryContainer(container: HTMLElement): void;
 
 	showPanel(focus?: boolean): Promise<void>;
 	hidePanel(): void;

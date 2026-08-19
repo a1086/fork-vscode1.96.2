@@ -23,6 +23,8 @@ import { IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../s
 import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IHostService } from '../../../services/host/browser/host.js';
+import { IViewDescriptorService } from '../../../common/views.js';
+import { ViewEditorInput, restoreViewEditorInputToOriginalLocation } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
 import { IWorkbenchLayoutService, shouldShowCustomTitleBar } from '../../../services/layout/browser/layoutService.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
 import { IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
@@ -234,7 +236,8 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 		@IStorageService storageService: IStorageService,
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IHostService hostService: IHostService,
-		@IContextKeyService contextKeyService: IContextKeyService
+		@IContextKeyService contextKeyService: IContextKeyService,
+		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
 	) {
 		const id = AuxiliaryEditorPartImpl.COUNTER++;
 		super(editorPartsView, `workbench.parts.auxiliaryEditor.${id}`, groupsLabel, windowId, instantiationService, themeService, configurationService, storageService, layoutService, hostService, contextKeyService);
@@ -243,15 +246,13 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 	override removeGroup(group: number | IEditorGroupView, preserveFocus?: boolean): void {
 
 		// Close aux window when last group removed
-		const groupView = this.assertGroupView(group);
-		if (this.count === 1 && this.activeGroup === groupView) {
+		if (this.count <= 1) {
 			this.doRemoveLastGroup(preserveFocus);
+			return; // 不进入父类 removeGroup，避免 doRemoveEmptyGroup → gridWidget.removeView 抛出 "Can't remove last view"
 		}
 
 		// Otherwise delegate to parent implementation
-		else {
-			super.removeGroup(group, preserveFocus);
-		}
+		super.removeGroup(group, preserveFocus);
 	}
 
 	private doRemoveLastGroup(preserveFocus?: boolean): void {
@@ -279,24 +280,65 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 		return; // disabled, auxiliary editor part state is tracked outside
 	}
 
-	close(): boolean {
+	close(): Promise<boolean> {
 		return this.doClose(true /* merge all groups to main part */);
 	}
 
-	private doClose(mergeGroupsToMainPart: boolean): boolean {
+	private async doClose(mergeGroupsToMainPart: boolean): Promise<boolean> {
 		let result = true;
 		if (mergeGroupsToMainPart) {
-			result = this.mergeGroupsToMainPart();
+			result = await this.mergeGroupsToMainPart();
 		}
 
+		// 必须在归位完成后再触发 onWillClose —— onWillClose 会真正关闭
+		// 浮动窗口。若不等归位就触发，窗口会在 ViewEditorInput 还没从本
+		// 窗口 group 移除时被销毁，导致 merge 仍把视图搬到主窗口 editor 区。
 		this._onWillClose.fire();
 
 		return result;
 	}
 
-	private mergeGroupsToMainPart(): boolean {
+	private async mergeGroupsToMainPart(): Promise<boolean> {
 		if (!this.groups.some(group => group.count > 0)) {
 			return true; // skip if we have no editors opened
+		}
+
+		// 修复"关闭拖出的浮动窗口后视图同时出现在 panel 和 editor"：
+		// 关闭辅助窗口时，原生的 merge 会把本窗口里的 editor（包括
+		// ViewEditorInput 承载的视图）整体 move 到主窗口 editor 区，主窗口
+		// 随后 setInput 重新承载，于是 editor 区残留一份视图。
+		// 在 merge 之前先把所有 ViewEditorInput 归位回其原栏（Panel / Aux Bar）
+		// 并关闭本窗口的 editor tab，使接下来 merge 时无 editor 可搬，
+		// 主窗口便不会再出现视图副本。归位语义保持"从哪拖出，关窗回哪"。
+		// 先收集再关闭，避免在遍历 group.editors 时修改集合引发的迭代问题。
+		// 注意：group.closeEditor 是异步的，必须 await 全部完成后才能
+		// mergeAllGroups，否则 editor 还在 group 里，会被再次搬到主窗口。
+		const viewEditorInputs: { group: IEditorGroupView; editor: ViewEditorInput }[] = [];
+		for (const group of this.groups) {
+			for (const editor of group.editors) {
+				if (editor instanceof ViewEditorInput) {
+					viewEditorInputs.push({ group, editor });
+				}
+			}
+		}
+		await Promise.all(viewEditorInputs.map(async ({ group, editor }) => {
+			// 先把视图 move 回原栏（Panel / Aux Bar），再 await closeEditor
+			// 把 editor 从本窗口 group 真正移除。两步都必须完成，否则其后的
+			// mergeAllGroups 仍会把 editor 搬到主窗口 editor 区，造成残留。
+			// 注意：closeEditor 是异步的，这里必须 await；归位（move）在
+			// close 之前调用，确保视图先脱离 Editor 区再关 tab。
+			restoreViewEditorInputToOriginalLocation(
+				editor,
+				this.viewDescriptorService,
+				undefined
+			);
+			await group.closeEditor(editor);
+		}));
+
+		// 若本窗口里的 ViewEditorInput 已在本步全部归位关闭，剩下的（若有）
+		// 非视图 editor 继续走原生 merge 流程。
+		if (!this.groups.some(group => group.count > 0)) {
+			return true; // 所有 editor 都是 ViewEditorInput，归位后已无残留
 		}
 
 		// Find the most recent group that is not locked

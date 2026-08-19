@@ -16,6 +16,7 @@ import { DelayedDragHandler } from '../../../base/browser/dnd.js';
 import { IKeybindingService } from '../../../platform/keybinding/common/keybinding.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { CompositeDragAndDropObserver, ICompositeDragAndDrop, Before2D, toggleDropEffect } from '../dnd.js';
+import { nextViewDragSession } from './viewDragSession.js';
 import { Color } from '../../../base/common/color.js';
 import { BaseActionViewItem, IActionViewItemOptions } from '../../../base/browser/ui/actionbar/actionViewItems.js';
 import { Codicon } from '../../../base/common/codicons.js';
@@ -619,12 +620,27 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 				insertDropBefore = this.updateFromDragging(container, false, e.eventData);
 			},
 			onDragStart: e => {
-				if (e.dragAndDropData.getData().id !== this.compositeBarActionItem.id) {
+				const dragged = e.dragAndDropData.getData();
+				const draggedItem = this.getDraggedItem();
+				console.log('[viewDrag][onDragStart]', { itemId: this.compositeBarActionItem.id, draggedId: dragged.id, expectedId: draggedItem.id, match: dragged.id === draggedItem.id });
+				if (dragged.id !== draggedItem.id) {
 					return;
 				}
 
 				if (e.eventData.dataTransfer) {
 					e.eventData.dataTransfer.effectAllowed = 'move';
+					// Phase 4 去重：同一次拖拽（无论 Panel / Aux Bar / 原生 editor tabs
+					// 各实例的 onDragEnd）共享一个 sessionId。sessionId 现在保存在
+					// 模块级变量里（见 viewDragSession.ts），`onDragEnd` 直接读取，
+					// 不再经受 protected 模式限制的 `dataTransfer`。这里仍写入
+					// dataTransfer 仅作兼容（无副作用），但去重不再依赖它。
+					try {
+						const sessionId = nextViewDragSession();
+						e.eventData.dataTransfer.setData('application/vnd.code.viewDragSession', String(sessionId));
+						console.log('[viewDrag][onDragStart] next session', sessionId);
+					} catch {
+						// dragstart 写入 dataTransfer 失败不应阻断拖拽
+					}
 				}
 
 				this.blur(); // Remove focus indicator when dragging

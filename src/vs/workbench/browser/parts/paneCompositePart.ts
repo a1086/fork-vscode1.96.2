@@ -10,6 +10,7 @@ import { IProgressIndicator } from '../../../platform/progress/common/progress.j
 import { Extensions, PaneComposite, PaneCompositeDescriptor, PaneCompositeRegistry } from '../panecomposite.js';
 import { IPaneComposite } from '../../common/panecomposite.js';
 import { IViewDescriptorService, IViewPaneContainer, ViewContainer, ViewContainerLocation } from '../../common/views.js';
+import { onSuppressPanelRelayoutOnDragOutChange } from './viewDragSession.js';
 import { DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { IView } from '../../../base/browser/ui/grid/grid.js';
 import { IWorkbenchLayoutService, Parts, SINGLE_WINDOW_PARTS } from '../../services/layout/browser/layoutService.js';
@@ -316,6 +317,16 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 				}
 			}));
 		}
+
+		// When the drag-out suppression is lifted, the owning part's composite bar
+		// may have skipped a refresh while it was mid-relayout (e.g. a view dragged
+		// out to its own window left its source tab pinned in the DOM as a stale
+		// duplicate). Layout the composite bar again so any unpinned tab is removed.
+		this._register(onSuppressPanelRelayoutOnDragOutChange(value => {
+			if (!value) {
+				this.layoutCompositeBar();
+			}
+		}));
 	}
 
 	private _extensionsRegistered: boolean = false;

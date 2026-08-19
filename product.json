@@ -1,6 +1,7 @@
 {
 	"nameShort": "AccoTest",
 	"nameLong": "AccoTest",
+	"quality": "stable",
 	"enableTelemetry": false,
 	"applicationName": "accotest",
 	"dataFolderName": ".accotest",

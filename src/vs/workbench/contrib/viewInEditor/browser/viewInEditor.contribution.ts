@@ -11,6 +11,10 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ViewEditorInput } from './viewEditorInput.js';
 import { ViewEditorPane } from './viewEditorPane.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
+import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { IHostService } from '../../../services/host/browser/host.js';
 
 interface ISerializedViewEditorInput {
 	readonly viewId: string;
@@ -43,16 +47,22 @@ class ViewEditorInputSerializer implements IEditorSerializer {
 			originalLocation = undefined;
 		}
 
-		// Always restore the view to the Editor container on deserialization
+		// Phase 4 重启恢复：不自动把视图塞回编辑器区（否则主编辑器会残留无窗口承载的
+		// ViewEditorPane）。改为归位到 originalLocation（原 Panel / Aux Bar），
+		// 与"关闭浮动窗口即归还"的语义一致；用户可再次拖出。
 		instantiationService.invokeFunction(accessor => {
 			const viewDescriptorService = accessor.get(IViewDescriptorService);
 			const descriptor = viewDescriptorService.getViewDescriptorById(viewId);
 			if (descriptor) {
-				viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'restore');
+				const targetLocation = originalLocation ?? ViewContainerLocation.Panel;
+				const currentLocation = viewDescriptorService.getViewLocationById(viewId);
+				if (currentLocation !== targetLocation) {
+					viewDescriptorService.moveViewToLocation(descriptor, targetLocation, 'restore');
+				}
 			}
 		});
 
-		return instantiationService.createInstance(ViewEditorInput, viewId, originalLocation);
+		return instantiationService.createInstance(ViewEditorInput, viewId, originalLocation, undefined, undefined);
 	}
 }
 
@@ -64,3 +74,55 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)
 
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)
 	.registerEditorSerializer(ViewEditorInput.ID, ViewEditorInputSerializer);
+
+//#region Phase 1' 技术验证 Spike（内部命令，不暴露入口）
+//
+// 目的：验证 `ViewPane` / `ViewEditorPane` 能否在 auxiliary window 正常渲染
+// （`getActiveWindow()` 是否错乱、context menu 是否弹到主窗口等）。
+// 该命令仅用于验证，不注册到命令面板 / 右键菜单 / 标题菜单，不会暴露给最终用户。
+// 验证通过后由 Phase 3 的 `compositeBar.ts` 拖拽链路接替，此命令可删除。
+//
+// 触发方式（开发者）：从开发者控制台执行
+//   await require('vs/platform/commands/common/commands').CommandsRegistry.executeCommand('_spike.openViewInAuxiliaryWindow', 'workbench.panel.problems')
+
+interface IOpenViewInAuxiliaryWindowArgs {
+	readonly viewId: string;
+}
+
+CommandsRegistry.registerCommand('_spike.openViewInAuxiliaryWindow', async (accessor: ServicesAccessor, args: IOpenViewInAuxiliaryWindowArgs) => {
+	const editorGroupsService = accessor.get(IEditorGroupsService);
+	const hostService = accessor.get(IHostService);
+	const viewDescriptorService = accessor.get(IViewDescriptorService);
+
+	const viewId = args?.viewId;
+	if (!viewId) {
+		throw new Error('[spike] missing viewId argument');
+	}
+
+	const descriptor = viewDescriptorService.getViewDescriptorById(viewId);
+	if (!descriptor) {
+		throw new Error('[spike] no view descriptor for: ' + viewId);
+	}
+
+	// 取当前光标屏幕坐标作为新窗口 bounds（参照 editorTabsControl#maybeCreateAuxiliaryEditorPartAt）。
+	const screenPoint = await hostService.getCursorScreenPoint();
+	const bounds = screenPoint
+		? { x: screenPoint.point.x, y: screenPoint.point.y }
+		: undefined;
+
+	const auxiliaryEditorPart = await editorGroupsService.createAuxiliaryEditorPart({ bounds });
+	const targetGroup = auxiliaryEditorPart.activeGroup;
+
+	// 记录视图来源位置，便于后续 Phase 4 归位。
+	const originalLocation = viewDescriptorService.getViewLocationById(viewId) ?? undefined;
+
+	const input = accessor.get(IInstantiationService).createInstance(ViewEditorInput, viewId, originalLocation, undefined, undefined);
+	await targetGroup.openEditor(input, { pinned: true });
+	targetGroup.focus();
+
+	// 把视图从原 Panel / Aux Bar 移除（方案 A：浮动窗口内承载，原栏不再显示）。
+	viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'spike-drag-out');
+
+	return auxiliaryEditorPart;
+});
+//#endregion

@@ -1972,6 +1972,20 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		// If panel part becomes visible, show last active panel or default panel
 		else if (!hidden && !this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Panel)) {
+			// When the Panel is in the dual (split) layout, `PanelPart` restores
+			// *both* sides itself from the persisted snapshot in its
+			// `onDidChangePartVisibility` show branch. Opening the (single) Panel
+			// location here as well would fire an async `leftPart.openPaneComposite`
+			// that races with that restore and — through the mutual-exclusion
+			// safety net — can `clearAndUnpinSide('right')` and drop the right
+			// panel on every Toggle Panel. So defer entirely to `PanelPart` when a
+			// faithful snapshot exists.
+		const panelPart = this.panelPartView as PanelPart;
+		const hasSnapshot = panelPart?.hasDualPanelSnapshot?.() ?? false;
+		console.log(`[Layout][show] dual snapshot=${hasSnapshot}, activePanel=${this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Panel)?.getId()}`);
+		if (hasSnapshot) {
+			// No-op: the split restore is handled by PanelPart below.
+		} else {
 			let panelToOpen: string | undefined = this.paneCompositeService.getLastActivePaneCompositeId(ViewContainerLocation.Panel);
 
 			// verify that the panel we try to open has views before we default to it
@@ -1982,9 +1996,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 					.find(viewContainer => this.hasViews(viewContainer.id))?.id;
 			}
 
-			if (panelToOpen) {
-				const focus = !skipLayout;
-				this.paneCompositeService.openPaneComposite(panelToOpen, ViewContainerLocation.Panel, focus);
+		if (panelToOpen) {
+			const focus = !skipLayout;
+			this.paneCompositeService.openPaneComposite(panelToOpen, ViewContainerLocation.Panel, focus);
+		}
 			}
 		}
 

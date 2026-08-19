@@ -179,6 +179,7 @@ exports.config = {
     darwinForceDarkModeSupport: true,
     darwinCredits: darwinCreditsTemplate ? Buffer.from(darwinCreditsTemplate({ commit: commit, date: new Date().toISOString() })) : undefined,
     linuxExecutableName: product.applicationName,
+    win32ExeBasename: product.nameShort,
     winIcon: 'resources/win32/code.ico',
     token: process.env['GITHUB_TOKEN'],
     repo: product.electronRepository || undefined,

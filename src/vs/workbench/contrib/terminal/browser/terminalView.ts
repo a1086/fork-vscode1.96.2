@@ -237,6 +237,17 @@ export class TerminalViewPane extends ViewPane {
 		this._register(this.onDidChangeBodyVisibility(async visible => {
 			this._viewShowing.set(visible);
 			if (visible) {
+				// Re-home the real terminal DOM to THIS side of the dual-panel
+				// layout. The TerminalGroupService keeps a single "primary"
+				// container that owns the live xterm canvas; when the Terminal
+				// view is dragged from the left Panel to the right (or back),
+				// this fires for the side the view was dragged TO and moves the
+				// canvas here, otherwise the view we just dropped keeps showing
+				// the "Terminal is shown on the other side" mirror placeholder and
+				// stays non-functional. No-op when the primary is already here.
+				if (this._terminalTabbedView) {
+					this._terminalGroupService.setPrimaryContainer(this._terminalTabbedView.container);
+				}
 				if (this._hasWelcomeScreen()) {
 					this._onDidChangeViewWelcomeState.fire();
 				}

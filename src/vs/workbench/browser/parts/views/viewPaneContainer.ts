@@ -471,11 +471,11 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					overlay = undefined;
 				}
 
-				if (this.isSinglePaneContainer) {
-					// 单视图模式（Panel / AuxiliaryBar 分区）：分区内恒定只显示一个视图，
-					// 拖入一个可移动的 view / composite 时只应整体切换为单视图（而非混入
-					// 当前容器）。这里在整块内容区显示一个无方向提示的 drop 热区，让拖拽
-					// 有可见反馈；真正的切换在 onDrop 里基于 pendingSinglePaneDrop 触发。
+			if (this.isSinglePaneContainer) {
+				// 单视图模式（仅 Panel 分区）：分区内恒定只显示一个视图，
+				// 拖入一个可移动的 view / composite 时只应整体切换为单视图（而非混入
+				// 当前容器）。这里在整块内容区显示一个无方向提示的 drop 热区，让拖拽
+				// 有可见反馈；真正的切换在 onDrop 里基于 pendingSinglePaneDrop 触发。
 					const dropData = e.dragAndDropData.getData();
 					let pending: { type: 'view' | 'composite'; id: string } | undefined;
 					if (dropData.type === 'view') {
@@ -529,7 +529,7 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			},
 			onDragOver: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式：整块内容区即热区，允许 drop 发生（onDrop 基于
+					// 单视图模式（仅 Panel）：整块内容区即热区，允许 drop 发生（onDrop 基于
 					// pendingSinglePaneDrop 触发整体切换）。保持 overlay 存活。
 					if (overlay && overlay.disposed) {
 						overlay = undefined;
@@ -569,32 +569,32 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					this.pendingSinglePaneDrop = undefined;
 					overlay?.dispose();
 					overlay = undefined;
-					if (pending) {
-						if (pending.type === 'composite') {
+				if (pending) {
+					if (pending.type === 'composite') {
 							const container = this.viewDescriptorService.getViewContainerById(pending.id)!;
 							const sameLocation = this.viewDescriptorService.getViewContainerLocation(container) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
 							if (!sameLocation) {
 								this.viewDescriptorService.moveViewContainerToLocation(container, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, undefined, 'dnd');
 							}
 							this._onRequestOpenCompositeForView.fire(pending.id);
-					} else {
-						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(pending.id);
-						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(pending.id);
-						if (oldViewContainer && viewDescriptor) {
-							const sameLocation = this.viewDescriptorService.getViewContainerLocation(oldViewContainer) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
-							if (!sameLocation) {
-								this.viewDescriptorService.moveViewToLocation(viewDescriptor, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, 'dnd');
-							}
-							// 跨 location 移动后，该 view 已不在 oldViewContainer 中，
-							// 必须重新查询其所在的（目标）容器 id 才能正确打开它。
-							const targetContainer = !sameLocation
-								? this.viewDescriptorService.getViewContainerByViewId(pending.id)
-								: oldViewContainer;
-							if (targetContainer) {
-								this._onRequestOpenCompositeForView.fire(targetContainer.id);
+						} else {
+							const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(pending.id);
+							const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(pending.id);
+							if (oldViewContainer && viewDescriptor) {
+								const sameLocation = this.viewDescriptorService.getViewContainerLocation(oldViewContainer) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
+								if (!sameLocation) {
+									this.viewDescriptorService.moveViewToLocation(viewDescriptor, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, 'dnd');
+								}
+								// 跨 location 移动后，该 view 已不在 oldViewContainer 中，
+								// 必须重新查询其所在的（目标）容器 id 才能正确打开它。
+								const targetContainer = !sameLocation
+									? this.viewDescriptorService.getViewContainerByViewId(pending.id)
+									: oldViewContainer;
+								if (targetContainer) {
+									this._onRequestOpenCompositeForView.fire(targetContainer.id);
+								}
 							}
 						}
-					}
 					}
 					return;
 				}
@@ -754,16 +754,25 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	}
 
 	/**
-	 * 单视图模式：容器内部只允许存在一个 ViewPane，拒绝通过拖拽把其它 view 加入本容器。
-	 * 仅双分区 Panel 的每个子分区（左/右）恒定展示一个视图，故位于 Panel 位置的容器
-	 * 返回 true。AuxiliaryBar 不再是单视图模式——支持多 pane 垂直堆叠与方向性拖放热区，
-	 * 与 Sidebar 行为一致。
-	 * 注意这不影响面板分区之间（composite 级别）的拖拽，那条路径走的是 CompositeBar 的 dndHandler。
+	 * 单视图模式：容器内部恒定只显示一个 ViewPane，拖入视图时整体切换到该视图所属的
+	 * 容器（而非混入当前容器），热区覆盖整块内容区。
+	 *
+	 * 位于 Panel 位置的子分区（双分区 Panel 的左/右）以及 AuxiliaryBar 都属于单视图模式：
+	 * 它们都要接收"从 Editor 拖入一个视图"并整体切换内容。把 AuxiliaryBar 从单视图模式
+	 * 移出会导致其丢失整块热区与整体切换能力——从 Editor 拖入时既无可见热区、drop 也只
+	 * 会把视图混入现有容器而非整体切换，参见 regression：视图拖入 Aux Bar 不再触发热区。
+	 */
+	/**
+	 * 单视图模式：仅 Panel 分区（panelSidePart）使用。
+	 * AuxiliaryBar 不再是单视图模式 —— 它支持把拖入的视图以"堆叠"方式合并进当前
+	 * 激活容器（见非 single-pane 的 onDrop 分支），并且拖拽时按每个视图小模块
+	 * 显示 drop 热区（而非整块内容区热区）。
 	 */
 	protected get isSinglePaneContainer(): boolean {
 		const location = this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
 		return location === ViewContainerLocation.Panel;
 	}
+
 
 	layout(dimension: Dimension): void {
 		if (this.paneview) {

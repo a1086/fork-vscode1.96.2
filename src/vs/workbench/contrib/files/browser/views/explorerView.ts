@@ -964,7 +964,13 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 	}
 
 	hasPhantomElements(): boolean {
-		return this.findProvider.isShowingFilterResults();
+		// Guard: `findProvider` is created lazily inside `createTree()` during
+		// `render()`. When an Explorer view is hosted outside the side bar (e.g.
+		// inside the editor area via `ViewEditorPane`, or while a drag-to-window
+		// operation is still initializing it) `ExplorerService.refresh()` may fire
+		// before `createTree()` ran, leaving `findProvider` undefined and throwing
+		// "Cannot read properties of undefined (reading 'isShowingFilterResults')".
+		return this.findProvider?.isShowingFilterResults() ?? false;
 	}
 
 	override dispose(): void {

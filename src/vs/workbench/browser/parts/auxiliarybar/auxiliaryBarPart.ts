@@ -38,6 +38,8 @@ import { CompositeMenuActions } from '../../actions.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { PaneComposite } from '../../panecomposite.js';
+import { CompositeDragAndDropObserver, toggleDropEffect } from '../../dnd.js';
+import { EventHelper, getWindow } from '../../../../base/browser/dom.js';
 
 export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 
@@ -130,6 +132,142 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 		// subscribes. Without this, dropping a view onto an AuxiliaryBar that already
 		// shows a view does nothing because nobody listens to `onRequestOpenCompositeForView`.
 		this._register(this.onDidPaneCompositeOpen(() => this.subscribeViewPaneContainer()));
+
+		// When the Auxiliary Bar is hidden (collapsed), its grid part is removed from
+		// the layout, so it can no longer receive HTML5 drag-and-drop events. That means
+		// dropping a view onto a *hidden* Auxiliary Bar (e.g. straight from the Editor)
+		// would silently do nothing - no overlay, no reveal. To mirror the behaviour of
+		// dropping a view from the Panel onto a hidden Auxiliary Bar (which wakes it up via
+		// `openPaneComposite` -> `doOpenPaneComposite` -> `setPartHidden(false)`), register a
+		// thin, always-visible drop proxy strip on the window edge where the bar would sit.
+		// The strip only exists while the bar is hidden and removes itself once the bar shows.
+		this.registerHiddenDropProxy();
+	}
+
+	/**
+	 * Maintains a 6px drop proxy strip attached to the window edge the Auxiliary Bar
+	 * occupies (left or right, following the activity-bar position). It is created when
+	 * the bar is hidden and disposed when the bar becomes visible, so a hidden bar can
+	 * still act as a drag-and-drop target: dragging a view here reveals the bar and
+	 * drops the view into it, exactly like the Panel-to-AuxiliaryBar wake-up path.
+	 */
+	private hiddenDropProxyStore = this._register(new DisposableStore());
+	private hiddenDropProxyElement: HTMLElement | undefined;
+
+	private registerHiddenDropProxy(): void {
+		const update = () => this.layoutHiddenDropProxy();
+		this._register(this.layoutService.onDidChangePartVisibility(() => update()));
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(LayoutSettings.ACTIVITY_BAR_LOCATION)) {
+				update();
+			}
+		}));
+		this.layoutHiddenDropProxy();
+	}
+
+	private layoutHiddenDropProxy(): void {
+		const visible = this.layoutService.isVisible(Parts.AUXILIARYBAR_PART);
+		if (visible) {
+			this.disposeHiddenDropProxy();
+			return;
+		}
+		if (this.hiddenDropProxyElement) {
+			return;
+		}
+
+		const targetWindow = getWindow(this.getContainer() ?? document.body);
+		const proxy = $('.auxiliary-bar-hidden-drop-proxy');
+		const isPositionLeft = this.layoutService.getSideBarPosition() === Position.LEFT;
+		proxy.style.position = 'fixed';
+		proxy.style.top = '0';
+		proxy.style.bottom = '0';
+		proxy.style.width = '6px';
+		proxy.style.zIndex = '1';
+		if (isPositionLeft) {
+			proxy.style.left = '0';
+		} else {
+			proxy.style.right = '0';
+		}
+		targetWindow.document.body.appendChild(proxy);
+		this.hiddenDropProxyElement = proxy;
+
+		const store = new DisposableStore();
+		// Route the drop through the shared observer so we receive the same
+		// `dragAndDropData` (with `.type` / `.id`) the rest of the workbench uses,
+		// instead of poking at the raw DataTransfer.
+		store.add(CompositeDragAndDropObserver.INSTANCE.registerTarget(proxy, {
+			onDragEnter: (e) => {
+				EventHelper.stop(e.eventData, true);
+				const valid = this.isValidAuxiliaryDrop(e.dragAndDropData.getData());
+				toggleDropEffect(e.eventData.dataTransfer, 'move', valid);
+				if (valid) {
+					proxy.classList.add('active');
+				}
+			},
+			onDragOver: (e) => {
+				EventHelper.stop(e.eventData, true);
+				const valid = this.isValidAuxiliaryDrop(e.dragAndDropData.getData());
+				toggleDropEffect(e.eventData.dataTransfer, 'move', valid);
+				if (valid) {
+					proxy.classList.add('active');
+				}
+			},
+			onDragLeave: (e) => {
+				EventHelper.stop(e.eventData, true);
+				proxy.classList.remove('active');
+			},
+			onDrop: (e) => {
+				EventHelper.stop(e.eventData, true);
+				proxy.classList.remove('active');
+				const data = e.dragAndDropData.getData();
+				if (!this.isValidAuxiliaryDrop(data)) {
+					return;
+				}
+				if (data.type === 'composite') {
+					const currentContainer = this.viewDescriptorService.getViewContainerById(data.id);
+					if (currentContainer) {
+						this.viewDescriptorService.moveViewContainerToLocation(currentContainer, this.location, undefined, 'dnd');
+						this.openPaneComposite(currentContainer.id, true);
+					}
+				} else if (data.type === 'view') {
+					const viewToMove = this.viewDescriptorService.getViewDescriptorById(data.id);
+					if (viewToMove && viewToMove.canMoveView) {
+						this.viewDescriptorService.moveViewToLocation(viewToMove, this.location, 'dnd');
+						const newContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id);
+						if (newContainer) {
+							this.openPaneComposite(newContainer.id, true).then(composite => {
+								composite?.openView(viewToMove.id, true);
+							});
+						}
+					}
+				}
+			},
+		}));
+		this.hiddenDropProxyStore.add(store);
+		this.hiddenDropProxyStore.add({
+			dispose: () => {
+				if (this.hiddenDropProxyElement === proxy) {
+					this.hiddenDropProxyElement = undefined;
+				}
+				proxy.remove();
+			}
+		});
+	}
+
+	private disposeHiddenDropProxy(): void {
+		this.hiddenDropProxyStore.clear();
+		this.hiddenDropProxyElement = undefined;
+	}
+
+	/**
+	 * Accept only view/composite drags, mirroring what the Auxiliary Bar's visible
+	 * drop targets accept, so the hidden proxy strip never swallows unrelated drops.
+	 */
+	private isValidAuxiliaryDrop(data: { type: string; id: string } | undefined): boolean {
+		if (!data) {
+			return false;
+		}
+		return (data.type === 'view' || data.type === 'composite') && !!data.id;
 	}
 
 	private onDidChangeActivityBarLocation(): void {

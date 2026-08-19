@@ -482,7 +482,7 @@ export interface IAuxiliaryEditorPart extends IEditorPart {
 	 *
 	 * @returns `false` if an editor could not be moved back.
 	 */
-	close(): boolean;
+	close(): Promise<boolean>;
 }
 
 export interface IEditorWorkingSet {
