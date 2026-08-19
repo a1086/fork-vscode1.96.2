@@ -30,6 +30,24 @@
 .monaco-workbench .terminal-editor .terminal-outer-container {
 	height: 100%;
 }
+
+/* Mirror pane in the dual-panel layout: the .terminal-groups-container of the
+ * non-primary side holds a placeholder `.terminal-group-mirror` div with text
+ * explaining where the actual terminal lives. Keeps the side's body from
+ * appearing blank while the real DOM stays on the primary side. */
+.monaco-workbench .pane-body.integrated-terminal .terminal-group-mirror {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: 0 24px;
+	box-sizing: border-box;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	text-align: center;
+	opacity: 0.8;
+	user-select: none;
+}
 .monaco-workbench .part.sidebar .pane-body.integrated-terminal .terminal-outer-container,
 .monaco-workbench .part.auxiliarybar .pane-body.integrated-terminal .terminal-outer-container {
 	background-color: var(--vscode-terminal-background, var(--vscode-sideBar-background));

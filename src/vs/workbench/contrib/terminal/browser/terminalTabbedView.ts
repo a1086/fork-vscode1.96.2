@@ -137,6 +137,16 @@ export class TerminalTabbedView extends Disposable {
 		this._setupSplitView(terminalOuterContainer);
 	}
 
+	/**
+	 * The inner `.terminal-groups-container` element this tabbed view registered
+	 * with `TerminalGroupService` as its container. Exposed so `TerminalViewPane`
+	 * can tell the group service to re-home the primary (real xterm DOM) to this
+	 * side when the Terminal view is dragged across the dual-panel layout.
+	 */
+	get container(): HTMLElement {
+		return this._terminalContainer;
+	}
+
 	private _shouldShowTabs(): boolean {
 		const enabled = this._terminalConfigurationService.config.tabs.enabled;
 		const hide = this._terminalConfigurationService.config.tabs.hideCondition;
@@ -415,6 +425,7 @@ export class TerminalTabbedView extends Disposable {
 		}
 		this._tabList.refresh(false);
 	}
+
 
 	focusTabs(): void {
 		if (!this._shouldShowTabs()) {

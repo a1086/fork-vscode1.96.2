@@ -34,6 +34,20 @@
 	text-transform: uppercase;
 }
 
+/* Thin always-visible drop proxy strip shown on the window edge while the
+   Auxiliary Bar is hidden, so a view dragged from the Editor (or anywhere)
+   can still wake the bar up by dropping here. */
+.auxiliary-bar-hidden-drop-proxy {
+	background-color: transparent;
+	transition: background-color 50ms ease-in-out;
+}
+
+.auxiliary-bar-hidden-drop-proxy.active {
+	background-color: var(--vscode-editorDragAndDrop-background);
+	outline: 1px solid var(--vscode-editorDragAndDrop-border);
+	outline-offset: -1px;
+}
+
 .monaco-workbench .part.auxiliarybar > .title > .composite-bar-container {
 	flex: 1;
 }

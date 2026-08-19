@@ -36,6 +36,17 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	private _terminalGroupCountContextKey: IContextKey<number>;
 
 	private _container: HTMLElement | undefined;
+	/**
+	 * Every container that has been registered via `setContainer`. In the
+	 * dual-panel layout two `TerminalViewPane` instances (left/right side)
+	 * each construct their own `TerminalTabbedView`, which calls
+	 * `setContainer(...)` on this singleton service. The first registered
+	 * container is "primary" and is the only one that receives the real
+	 * `.terminal-group` DOM nodes; subsequent containers are "mirrors" and
+	 * get placeholder elements only. See {@link TerminalGroup.attachToElement}.
+	 */
+	private readonly _registeredContainers: Set<HTMLElement> = new Set();
+	private _primaryContainer: HTMLElement | undefined;
 
 	private _isQuickInputOpened: boolean = false;
 
@@ -121,8 +132,34 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	}
 
 	setContainer(container: HTMLElement) {
+		// Backwards-compat: keep `_container` pointing at the most-recently
+		// registered container so existing callers still see a sane value.
 		this._container = container;
-		this.groups.forEach(group => group.attachToElement(container));
+
+		// Re-registering the SAME container (e.g. on a panel re-layout) is a
+		// no-op for attach purposes - the group DOM stays where it is.
+		if (this._registeredContainers.has(container)) {
+			return;
+		}
+		this._registeredContainers.add(container);
+
+		// IMPORTANT: `setContainer` is called from `TerminalTabbedView`'s
+		// constructor for *every* panel side. Both sides call it almost
+		// simultaneously at startup, so it must NOT move the real DOM away
+		// from an existing primary - doing so would let the two sides fight
+		// over the single xterm canvas and end up with the terminal on a side
+		// the user is not looking at (or with a mirror placeholder shown where
+		// the user expects the live terminal). First call wins as primary;
+		// subsequent calls attach as mirrors only. The *deliberate* transfer
+		// of the primary to the side the user is actually viewing is handled
+		// separately by `setPrimaryContainer` (driven by
+		// `TerminalViewPane.onDidChangeBodyVisibility`).
+		if (this._primaryContainer === undefined) {
+			this._primaryContainer = container;
+		}
+		const isPrimary = container === this._primaryContainer;
+
+		this.groups.forEach(group => group.attachToElement(container, isPrimary));
 		// Re-evaluate visibility after the DOM has been (re)attached. Without
 		// this, a group that was set `display: none` before its container
 		// element existed (the common case during the very first
@@ -130,6 +167,66 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 		// hidden even though it now has a real, laid-out host. The first
 		// PowerShell shell then renders nothing because its group element is
 		// still `display: none`.
+		this.updateVisibility();
+	}
+
+	/**
+	 * Re-home the primary (real xterm DOM) container to `container`. See the
+	 * interface doc on `setPrimaryContainer` for the motivation: when the
+	 * Terminal view is dragged between the two sides of the dual-panel layout,
+	 * `setContainer` alone leaves the live xterm canvas on the side the view
+	 * was first opened on, so the side it was dragged to keeps showing the
+	 * mirror placeholder and the terminal is unusable there.
+	 *
+	 * Idempotent when `container` is already the primary.
+	 */
+	setPrimaryContainer(container: HTMLElement): void {
+		if (this._primaryContainer === container) {
+			return;
+		}
+
+		// A container the service has never seen before must be registered so
+		// the bookkeeping (`_registeredContainers` / `_attachedContainers` on
+		// each group) stays consistent with the new primary.
+		if (!this._registeredContainers.has(container)) {
+			this._registeredContainers.add(container);
+		}
+
+		const oldPrimary = this._primaryContainer;
+
+		// If the new container was previously registered as a *mirror*, it is
+		// still present in each group's `_attachedContainers` set and
+		// `attachToElement(container, true)` below would early-return without
+		// moving the real `_groupElement` into it (see the guard at the top of
+		// `TerminalGroup.attachToElement`). Detach it first so the promotion
+		// actually re-homes the live xterm canvas to this side.
+		for (const group of this.groups) {
+			group.detachFromContainer(container);
+		}
+
+		// Demote the old primary: detach the real DOM, then re-attach it as a
+		// mirror (labelled placeholder) so its body is no longer blank-but-dead.
+		if (oldPrimary) {
+			for (const group of this.groups) {
+				group.detachFromContainer(oldPrimary);
+			}
+			for (const group of this.groups) {
+				group.attachToElement(oldPrimary, false);
+			}
+		}
+
+		// Promote the new container to primary: this moves the single real
+		// `_groupElement` / xterm canvas into it (browsers move, not copy, on
+		// appendChild), so the terminal is now live on the side the user just
+		// dragged it to.
+		this._primaryContainer = container;
+		for (const group of this.groups) {
+			group.attachToElement(container, true);
+		}
+
+		// The new primary may have a brand-new size, so re-apply visibility and
+		// let the owning `TerminalViewPane.layoutBody` re-size the xterm canvas
+		// on the next layout pass.
 		this.updateVisibility();
 	}
 
@@ -160,7 +257,26 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	}
 
 	createGroup(slcOrInstance?: IShellLaunchConfig | ITerminalInstance): ITerminalGroup {
-		const group = this._instantiationService.createInstance(TerminalGroup, this._container, slcOrInstance);
+		// New groups are always created against the *primary* container so
+		// that `TerminalGroup`'s real `.terminal-group` DOM lands in the
+		// right side of the dual-panel layout. If `setContainer` has not yet
+		// been called (rare cold-start races) we fall back to the most
+		// recently registered container, matching the previous behavior.
+		const initialContainer = this._primaryContainer ?? this._container;
+		const group = this._instantiationService.createInstance(TerminalGroup, initialContainer, slcOrInstance);
+
+		// The newly created group attached itself to the primary container
+		// in its constructor. If a mirror container was registered *before*
+		// the group existed (the dual-panel layout races - both panes call
+		// `setContainer` very early, long before any terminal exists), the
+		// group is now visible on the primary side only and the mirror side
+		// has nothing to render. Walk every registered containers and attach
+		// the new group as a mirror on each non-primary one.
+		for (const container of this._registeredContainers) {
+			if (container !== this._primaryContainer) {
+				group.attachToElement(container, false);
+			}
+		}
 		this.groups.push(group);
 		group.addDisposable(Event.forward(group.onPanelOrientationChanged, this._onDidChangePanelOrientation));
 		group.addDisposable(Event.forward(group.onDidDisposeInstance, this._onDidDisposeInstance));
@@ -528,6 +644,24 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 			visible = true;
 		} else {
 			visible = this._viewsService.isViewVisible(TERMINAL_VIEW_ID);
+		}
+
+		// When there is exactly one group (the overwhelmingly common case: a
+		// single terminal, or the only terminal in a dual-panel side), force it
+		// visible whenever the view is visible. Relying solely on
+		// `i === this.activeGroupIndex` here is what previously left a
+		// freshly-restored / drag-moved terminal blank ("title shows but body
+		// is empty / unusable") in the dual-panel layout: the active-group index
+		// can still be -1 (or point at a not-yet-attached group) during the
+		// async restore / cross-side move sequence, so `setVisible(false)` was
+		// applied and the group's `.terminal-group` element stayed `display:none`.
+		// Because a single group cannot be "hidden behind another tab", making it
+		// unconditionally visible when the view is visible is both correct and
+		// the safest fix for the regression. Multi-group (split) terminals keep
+		// the original tab-switching behaviour below.
+		if (this.groups.length === 1) {
+			this.groups[0].setVisible(visible);
+			return;
 		}
 		this.groups.forEach((g, i) => g.setVisible(visible && i === this.activeGroupIndex));
 	}
