@@ -4,14 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* Container */
-
-.monaco-workbench .part.editor > .content .editor-group-container {
-	height: 100%;
-}
-
-/* 6px visible divider: adjacent groups each contribute 3px border, merging into a 6px line */
 .monaco-workbench .part.editor > .content .editor-group-container:not(.empty) {
 	box-sizing: border-box;
+	/* 3px gap on inner edges so that two adjacent groups create a 6px visible divider.
+	 * Use border (not margin) so that the scrollbar (.monaco-scrollable-element) that
+	 * is measured against .editor-group-container stays inside the content area and does
+	 * not visually include the gap. The .split-view-view behind shows through the gap via
+	 * border-color. */
 	border: 3px solid var(--separator-border, var(--vscode-editorGroup-border, #3c3c3c));
 }
 
