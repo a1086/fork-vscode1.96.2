@@ -956,3 +956,74 @@ return (this.instantiationService as any).createInstance(
 ### 38.2 注意
 - 提交时 pre-commit hygiene 检查对两处报 error：`product.json` 含 `extensionsGallery`（OSS 构建允许，属预期）、`code-icon.svg` 含中文 `图层`（品牌图标预期内容）。两者均非真实 bug，提交以 `--no-verify` 绕过 hook。
 - `Changes_Summary.md` 本身的品牌化（标题仍写 "VS Code 工作区改动总结"）未改动，仅追加本章节。
+
+---
+
+## 39. 调整 Edit View 间距：从 border 改为 margin（2026-08-19，commit 6f2ad989dd9）
+
+**需求**：将编辑器区（edit view）各 Part 之间的视觉分隔，从之前的"透明 border"实现改为使用 margin 间隙，使布局更符合预期。
+
+### 39.1 改动文件
+- `src/vs/workbench/browser/parts/editor/media/editorgroupview.css`（+5/-6）：编辑器分组容器去掉原先的 `border` 分隔，改为通过 `margin` 产生相邻组之间的间隙。
+- `package.json`（+1/-1）、`package-lock.json`（+4/-4）：依赖版本微调（随本次改动一并提交）。
+
+### 39.2 说明
+- 本次是把第 16 节引入的"Part 级 2px transparent border + grid 背景透出"方案，在编辑器区局部切换为 margin 间隙思路；为后续第 41 节"全区域统一用 margin gap"做铺垫。
+
+---
+
+## 40. Panel / Auxiliary Bar 视图支持拖拽脱离编辑器 + Panel 分区 bug 修复（2026-08-19，commit 4d45e42af65）
+
+**需求**：新增 Panel 和 Auxiliary Bar 区域的视图能够拖拽脱离编辑器区的能力，并修复 Panel 分区的若干 bug，主要包括：
+- 没有视图时 Panel 应当自动隐藏；
+- 初始化打开编辑器时，展示单个 Panel；
+- 单个 Panel 只展示 Terminal 和 DEBUG CONSOLE 两个视图；
+- 多次点击 Toggle Panel 时，能够记住上一次 Panel 的状态。
+
+### 40.1 核心实现文件（拖拽脱离编辑器）
+- `src/vs/workbench/browser/parts/viewDragSession.ts`（新增，+126）：新增视图拖拽会话，支撑 Panel / Aux 视图在编辑器区 <-> 面板之间移动。
+- `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts`（+138）：辅助栏接入拖拽脱离 / 拖入编辑器区的逻辑。
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`（+1010/-）、`panelSidePart.ts`（+119/-）：Panel 分区重构，修复没有视图时隐藏、单个 Panel 只展示 Terminal / DEBUG CONSOLE、记住 Toggle 状态等。
+- `src/vs/workbench/browser/parts/editor/editorPart.ts`（+69/-）、`auxiliaryEditorPart.ts`（+62/-）、`editorParts.ts`（+8/-）：编辑器区接收 / 送回拖出视图的落点逻辑。
+- `src/vs/workbench/browser/parts/compositeBar.ts`（+311/-）、`compositeBarActions.ts`（+18/-）：通用 composite bar 适配拖拽。
+- `src/vs/workbench/browser/parts/paneCompositePart.ts`（+11）：PaneCompositePart 通用层补充分区 / 拖拽钩子。
+- `src/vs/workbench/browser/parts/views/viewPaneContainer.ts`（+67/-）：视图容器在双栏 / 拖拽落点的渲染。
+- `src/vs/workbench/browser/layout.ts`（+21/-）、`build/lib/electron.js`（+1）、`product.json`（+1）：布局接入与构建 / 产品配置。
+- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts`（+114）、`viewEditorPane.ts`（+158/-）、`viewInEditor.contribution.ts`（+68/-）：编辑器承载视图的输入 / 面板 / 贡献点适配。
+- 终端相关：`terminal.ts`（+29/-）、`terminalGroup.ts`（+157/-）、`terminalGroupService.ts`（+138/-）、`terminalTabbedView.ts`（+11）、`terminalView.ts`（+11）：Terminal 适配作为可拖出视图。
+- 其他：`src/vs/workbench/contrib/files/browser/views/explorerView.ts`（+8）、`common/gettingStartedContent.ts`（+4/-）、`services/editor/common/editorGroupsService.ts`（+2/-）、`test/browser/workbenchTestServices.ts`（+1）、`terminal/media/terminal.css`（+18）、`auxiliaryBarPart.css`（+14）。
+- 设计文档：`View_Drag_Out_To_Window_Plan.md`（新增，+131）。
+
+### 40.2 关键修复点
+- **无视图时 Panel 隐藏**：Panel 拖空后按第 20 节逻辑自动隐藏。
+- **初始化展示单个 Panel**：首次打开编辑器时默认仅显示一个 Panel 容器。
+- **单个 Panel 只展示 Terminal 与 DEBUG CONSOLE**：控制默认可见视图集合，避免一次性展开全部视图。
+- **Toggle Panel 记忆上次状态**：多次 Toggle 时恢复上一次展开的 Panel 内容 / 可见性，而非每次重置。
+
+### 40.3 验证方式
+- 将 Panel / Aux 视图拖出到编辑器区，视图以编辑器 tab 形式承载；反向拖回也生效。
+- Panel 无视图时自动隐藏；初始化仅展开单个 Panel，且只包含 Terminal 与 DEBUG CONSOLE。
+- 多次 Toggle Panel，确认能恢复到上一次的状态。
+
+---
+
+## 41. 各区域分隔统一改用 margin 间隙 + hygiene 检查修复（2026-08-21，commit f1dde1416d8）
+
+**需求**：将 activitybar / sidebar / auxiliarybar / panel / editor / viewEditor 各顶层区域之间的分隔，从 border 实现统一改为 margin 间隙（gap），并修复因此引入的编辑器面板分区溢出问题；同时补齐 hygiene（pre-commit）检查所需的变量注册与注释规范。
+
+### 41.1 改动文件
+**样式（分隔改 margin gap）**
+- `src/vs/workbench/browser/parts/activitybar/media/activitybarpart.css`（+5）：Activity Bar 与相邻区域改用 margin 间隙。
+- `src/vs/workbench/browser/parts/sidebar/media/sidebarpart.css`（+5）：Sidebar 改用 margin 间隙。
+- `src/vs/workbench/browser/parts/auxiliarybar/media/auxiliaryBarPart.css`（+8/-1）：Auxiliary Bar 改用 margin 间隙。
+- `src/vs/workbench/browser/parts/panel/media/panelpart.css`（+50/-34）：Panel 分区（split / side）之间的分隔改用 margin 间隙，并修正分区布局。
+- `src/vs/workbench/browser/parts/editor/media/editorgroupview.css`（+27/-14）：编辑器分组在分区时增加 gap，并修复面板溢出问题（承接第 39 节从 border 改 margin 的思路，扩展为全区域）。
+- `src/vs/workbench/contrib/viewInEditor/browser/media/viewEditorPane.css`（+9）：编辑器承载视图的分隔改用 margin 间隙。
+
+**hygiene 检查修复**
+- `build/lib/stylelint/vscode-known-variables.json`（+6）：注册新增 CSS 变量 `--vscode-part-gap`、`--vscode-part-panel-gap`、`--editor-group-partition-gap` 及历史遗留的 `--vscode-editorDragAndDrop-background`、`--vscode-editorDragAndDrop-border`、`--vscode-panel-dragAndDropBorder`，消除 "Unknown variable" 错误。
+- 修正 `panelpart.css` / `auxiliaryBarPart.css` 等文件中历史遗留的注释续行缩进（3 空格开头），改为合规的 `\t *` 风格，消除 "Bad whitespace indentation" 错误。
+
+### 41.2 说明
+- 至此，所有顶层 Part（Activity Bar / Sidebar / Auxiliary Bar / Panel / Editor / Status Bar 等）之间的视觉分隔统一为 margin 间隙方案，取代了早期第 16 节的 transparent border 方案。
+- 本次提交已通过 `npm run precommit` hygiene 检查（0 错误）。
