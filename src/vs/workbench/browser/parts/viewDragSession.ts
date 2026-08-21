@@ -63,7 +63,6 @@ export function tryClaimViewDragSession(viewId: string): boolean {
 	if (__pendingViews.has(viewId)) {
 		// 该 viewId 的本轮回填窗口仍在处理中（同源的多次 onDragEnd 回调、
 		// 或原生 editor tabs 链路的二次开窗），直接跳过。
-		console.log(`[viewDragSession] skip duplicate claim: ${viewId}`);
 		return false;
 	}
 

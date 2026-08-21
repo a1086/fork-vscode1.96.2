@@ -294,8 +294,8 @@ export abstract class CompositePart<T extends Composite> extends Part {
 		// itself is still visible and the scheduled refresh will recover it.
 		try {
 			composite.setVisible(true);
-		} catch (error) {
-			console.error('CompositePart.showComposite: setVisible threw; continuing to layout', error);
+		} catch {
+			// swallow: keep layout/boundary sashes running so the view stays usable
 		}
 
 		// Make sure that the user meanwhile did not open another composite or closed the part containing the composite

@@ -54,18 +54,15 @@ export class ViewEditorPane extends EditorPane {
 		await super.setInput(input, options, context, token);
 
 		if (this._editorView) {
-			console.log('[viewEditorPane] setInput: already has editor view, returning early');
 			return;
 		}
 
 		const descriptor = this.viewDescriptorService.getViewDescriptorById(input.viewId);
-		console.log('[viewEditorPane] setInput', { viewId: input.viewId, descriptorId: descriptor?.id, originalLocation: input.originalLocation, originalContainerId: input.originalContainerId });
 		if (!descriptor) {
 			throw new Error('No view descriptor found for view id: ' + input.viewId);
 		}
 
 		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
-		console.log('[viewEditorPane] viewContainer', { containerId: viewContainer?.id });
 		if (!viewContainer) {
 			throw new Error('No view container found for view id: ' + input.viewId);
 		}
@@ -96,21 +93,16 @@ export class ViewEditorPane extends EditorPane {
 			// Some views (e.g. the Explorer) are tightly coupled to their side-bar
 			// container and cannot be hosted inside the editor area / an auxiliary
 			// window. Fail soft: do not let a single unsupported view crash the
-			// whole floating window. This also produces a clear, diagnosable log
-			// instead of an empty window with no explanation.
-			console.error('[viewEditorPane] failed to create view for id', input.viewId, error);
+			// whole floating window.
 			throw new Error(`View "${input.viewId}" cannot be opened in a floating window: ${error}`);
 		}
 
 		// Panel views default to HORIZONTAL orientation; force vertical in the editor area.
 		pane.orientation = Orientation.VERTICAL;
-		console.log('[viewEditorPane] view pane created, rendering...', { viewId: input.viewId, ctor: descriptor.ctorDescriptor.ctor.name });
 
 		try {
 			pane.render();
-			console.log('[viewEditorPane] view pane rendered successfully', { viewId: input.viewId });
 		} catch (error) {
-			console.error('[viewEditorPane] failed to render view for id', input.viewId, error);
 			throw new Error(`View "${input.viewId}" failed to render in floating window: ${error}`);
 		}
 		this.container.appendChild(pane.element);

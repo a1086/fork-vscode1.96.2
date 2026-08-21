@@ -244,10 +244,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// `hideActivePaneComposite` would otherwise overwrite it with the
 		// post-mutation (wrong) state.
 		if (this.suppressLayoutSave) {
-			console.log(`[PanelPart][save] SUPPRESSED (rightInSplit=${this.rightViewInSplit}, left=${this.activeContainerBySide.get('left')}, right=${this.activeContainerBySide.get('right')})`);
 			return;
 		}
-		console.log(`[PanelPart][save] -> rightInSplit=${this.rightViewInSplit}, left=${this.activeContainerBySide.get('left')}, right=${this.activeContainerBySide.get('right')}`);
 		// Defensive (gated to pre-hide capture only, see `capturingLayout`):
 		// if the in-memory map lost a side (e.g. a stale close event deleted
 		// it before the user-driven open refreshed it, or a partially-resolved
@@ -263,11 +261,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 		let rightActive: string | undefined = this.activeContainerBySide.get('right');
 		if (this.capturingLayout) {
 			if (!rightActive && prior?.rightActive && this.rightViewInSplit) {
-				console.log(`[PanelPart][save] recovering rightActive from prior snapshot: ${prior.rightActive}`);
 				rightActive = prior.rightActive;
 			}
 			if (!leftActive && prior?.leftActive) {
-				console.log(`[PanelPart][save] recovering leftActive from prior snapshot: ${prior.leftActive}`);
 				leftActive = prior.leftActive;
 			}
 		}
@@ -296,7 +292,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 	hasDualPanelSnapshot(): boolean {
 		const saved = this.loadDualPanelLayout();
 		const result = !!saved && saved.rightInSplit && !!saved.rightActive && !!saved.leftActive;
-		console.log(`[PanelPart][hasDualPanelSnapshot] ${result} (rightInSplit=${saved?.rightInSplit}, left=${saved?.leftActive}, right=${saved?.rightActive})`);
 		return result;
 	}
 
@@ -373,7 +368,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// post-cross-side-move save would *also* recover the old container and
 		// re-introduce the ghost it just moved out.
 		this.capturingLayout = true;
-		console.log(`[PanelPart][capture] before hide: rightInSplit=${this.rightViewInSplit}, left=${this.activeContainerBySide.get('left')}, right=${this.activeContainerBySide.get('right')}`);
 		this.saveDualPanelLayout();
 		this.capturingLayout = false;
 		// Now suppress the saves that the subsequent hide mutation would
@@ -563,7 +557,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// `hasDualPanelSnapshot()` returns false and the whole restore path is
 		// skipped — the right panel is lost. (suppressLayoutSave guards this
 		// during hide/restore so the faithful snapshot is not clobbered.)
-		console.log(`[PanelPart][open] side=${side} id=${openedId} (rightInSplit=${this.rightViewInSplit}, left=${this.activeContainerBySide.get('left')}, right=${this.activeContainerBySide.get('right')})`);
 		this.saveDualPanelLayout();
 		// Record that the user has now opened this container on this side, so the
 		// empty-side fallback may later reopen it (and only it / other user-opened
@@ -592,7 +585,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const otherSide: PanelSide = side === 'left' ? 'right' : 'left';
 		const otherActiveId = this.getOtherSidePart(side).getActivePaneComposite()?.getId();
 		if (openedId && otherActiveId && this.containersShareView(openedId, otherActiveId)) {
-			console.error(`[PanelPart] invariant violated: view shown in both Panel sides (opened=${openedId} on ${side}, other=${otherActiveId})`);
 			this.clearAndUnpinSide(otherSide);
 		} else {
 			// 无冲突时仅刷新 bar 的禁用/启用视觉反馈（与 `isCompositeEnabled` 对齐）。
@@ -621,7 +613,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// 重新 open 回刚被清空的侧，污染 activeContainerBySide 并触发一次错误
 			// 的 save，导致下一次 Toggle 时右栏状态错乱甚至直接消失。
 			if (this.hidingEntirePanel) {
-				console.log(`[PanelPart] close on ${side} (${e.getId()}) during whole-panel hide -> skip fallback`);
 				return;
 			}
 
@@ -884,7 +875,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// both sides converge to the same view.
 			this.suppressLayoutSave = true;
 			const savedLayout = this.loadDualPanelLayout();
-			console.log(`[PanelPart][show] loaded: rightInSplit=${savedLayout?.rightInSplit}, left=${savedLayout?.leftActive}, right=${savedLayout?.rightActive}, hiddenSides=${[...savedLayout?.hiddenSides ?? []]}`);
 
 			if (savedLayout) {
 				this.hiddenSides = new Set(savedLayout.hiddenSides);
@@ -932,8 +922,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// A *same-container* split is intentional (e.g. two Terminals) and is
 			// now permitted — `containersShareView` returns false for `a === b`,
 			// so this branch no longer wipes the right panel for that case.
-			console.log(`[PanelPart][show] rightToOpen cleared: containersShareView(${leftToOpen}, ${rightToOpen})=true`);
-			this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
+				this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
 			rightToOpen = undefined;
 		}
 		// When the persisted right container can't be opened (it was cleared
@@ -943,7 +932,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// "two halves, right empty" and "hidden", which looks like the right
 		// panel "disappeared".
 		if (!rightToOpen && this.rightViewInSplit) {
-			console.log(`[PanelPart][show] no right container to restore; collapsing dual layout to single area`);
 			this.removeRightFromSplit();
 		}
 		// NOTE: a "same id on both sides" (rightToOpen === leftToOpen) is no
@@ -993,7 +981,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// actualLeftId` also blocked this case, which is what made
 				// `Toggle Panel` drop the right panel on every cycle.)
 				if (actualLeftId && this.containersShareView(actualLeftId, rightToOpen)) {
-					console.log(`[PanelPart][show] right NOT opened: shareWithLeft=${this.containersShareView(actualLeftId, rightToOpen)}`);
 					this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
 					// The two sides cannot co-exist with this container, so the
 					// right side must collapse to keep the invariant "never show a
@@ -1007,11 +994,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 				} else {
 					// `addRightToSplit` above already inserted the right view into
 					// the split; now populate it with its saved container.
-					console.log(`[PanelPart][show] opening right side with ${rightToOpen}`);
 					this.rightPart.openPaneComposite(rightToOpen, false, true, true);
 				}
 			} else {
-				console.log(`[PanelPart][show] right branch skipped: rightToOpen=${rightToOpen}, savedRightInSplit=${savedLayout.rightInSplit}, rightHidden=${this.isSideHidden('right')}, rightActiveNow=${this.rightPart.getActivePaneComposite()?.getId()}`);
+				// (no right container to open / right side configured hidden)
 			}
 			} else {
 				// No persisted state (first show or restored session): do NOT
@@ -1080,7 +1066,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 			this.leftPart.ensureFirstViewWorking();
 			// 兜底不变式：初始 restore 后两侧绝不能出现共享同一 view 的可见项。
 			this.enforceViewUniquenessAfterRestore();
-			console.log(`[PanelPart][init] after restore: leftVisible=${[...this.leftPart.getVisiblePaneCompositeIds()]}, leftActive=${this.leftPart.getActivePaneComposite()?.getId()}, rightVisible=${[...this.rightPart.getVisiblePaneCompositeIds()]}, rightActive=${this.rightPart.getActivePaneComposite()?.getId()}, rightInSplit=${this.rightViewInSplit}`);
 		});
 
 		// 二次兜底：等所有扩展（含 `ForwardedPortsView` 这类动态注册视图的贡献点）
@@ -1664,7 +1649,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const rightVisible = new Set(this.rightPart.getVisiblePaneCompositeIds());
 		const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
 		const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
-		console.log(`[PanelPart][enforce] leftVisible=${[...leftVisible]}, rightVisible=${[...rightVisible]}, leftActive=${leftActiveId}, rightActive=${rightActiveId}, rightInSplit=${this.rightViewInSplit}`);
 
 		// (1) 同一 id 同时出现在两侧可见集。
 		let conflictingId: string | undefined;
