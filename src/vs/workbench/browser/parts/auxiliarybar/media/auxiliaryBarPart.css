@@ -8,6 +8,11 @@
 	visibility: hidden !important;
 }
 
+/* Gap between the auxiliary bar and the editor */
+.monaco-workbench .part.auxiliarybar.right {
+	margin-left: var(--vscode-part-gap, 4px);
+}
+
 .monaco-workbench .part.auxiliarybar > .content .monaco-editor,
 .monaco-workbench .part.auxiliarybar > .content .monaco-editor .margin,
 .monaco-workbench .part.auxiliarybar > .content .monaco-editor .monaco-editor-background {
@@ -35,8 +40,8 @@
 }
 
 /* Thin always-visible drop proxy strip shown on the window edge while the
-   Auxiliary Bar is hidden, so a view dragged from the Editor (or anywhere)
-   can still wake the bar up by dropping here. */
+	 * Auxiliary Bar is hidden, so a view dragged from the Editor (or anywhere)
+	 * can still wake the bar up by dropping here. */
 .auxiliary-bar-hidden-drop-proxy {
 	background-color: transparent;
 	transition: background-color 50ms ease-in-out;

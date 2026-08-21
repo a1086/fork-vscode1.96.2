@@ -8,6 +8,11 @@
 	height: 100%;
 }
 
+/* Gap between the activity bar and the sidebar (both on the left) */
+.monaco-workbench:not(.nosidebar) .part.activitybar.left {
+	margin-right: var(--vscode-part-gap, 4px);
+}
+
 .monaco-workbench .activitybar.bordered::before {
 	content: '';
 	float: left;
