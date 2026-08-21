@@ -9,3 +9,12 @@ itself and its actions (e.g. the Terminal shell switcher) visible; only hide the
 .view-editor-pane .pane > .pane-header > h3.title {
 	display: none;
 }
+
+/* In the editor area the pane is mounted directly without a real PaneView parent.
+	 * The global 4px header margin is not accounted for by Pane.layout (it only
+	 * subtracts the fixed 22px header height), so the pane body would overflow by
+	 * those 4px and clip content such as the REPL input. Reset the margin here so
+	 * the header + body exactly fits the editor pane. */
+.monaco-pane-view.view-editor-pane .pane > .pane-header {
+	margin-bottom: 0;
+}

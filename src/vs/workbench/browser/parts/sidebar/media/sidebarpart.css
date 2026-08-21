@@ -8,6 +8,11 @@
 	visibility: hidden !important;
 }
 
+/* Gap between the sidebar and the editor */
+.monaco-workbench .part.sidebar.left {
+	margin-right: var(--vscode-part-gap, 4px);
+}
+
 .monaco-workbench .part.sidebar .title-actions .actions-container {
 	justify-content: flex-end;
 }
