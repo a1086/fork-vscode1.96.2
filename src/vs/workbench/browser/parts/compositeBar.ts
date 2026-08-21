@@ -352,7 +352,6 @@ const claimResult = tryClaimViewDragSession(claimViewId);
 		}
 
 		if (!descriptor) {
-			console.warn('[viewDrag][openInAuxiliaryWindow] no descriptor — returning early', { type, id });
 			return;
 		}
 
@@ -495,7 +494,7 @@ const claimResult = tryClaimViewDragSession(claimViewId);
 			setTimeout(() => setSuppressPanelRelayoutOnDragOut(false), 0);
 		}, 0);
 		} catch (error) {
-			console.error('[viewDrag][openInAuxiliaryWindow] FAILED', error);
+			// swallow: opening an auxiliary window for a view is best-effort
 		}
 	}
 

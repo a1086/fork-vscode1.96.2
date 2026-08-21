@@ -621,9 +621,8 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 			},
 			onDragStart: e => {
 				const dragged = e.dragAndDropData.getData();
-				const draggedItem = this.getDraggedItem();
-				console.log('[viewDrag][onDragStart]', { itemId: this.compositeBarActionItem.id, draggedId: dragged.id, expectedId: draggedItem.id, match: dragged.id === draggedItem.id });
-				if (dragged.id !== draggedItem.id) {
+			const draggedItem = this.getDraggedItem();
+			if (dragged.id !== draggedItem.id) {
 					return;
 				}
 
@@ -636,9 +635,8 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 					// dataTransfer 仅作兼容（无副作用），但去重不再依赖它。
 					try {
 						const sessionId = nextViewDragSession();
-						e.eventData.dataTransfer.setData('application/vnd.code.viewDragSession', String(sessionId));
-						console.log('[viewDrag][onDragStart] next session', sessionId);
-					} catch {
+					e.eventData.dataTransfer.setData('application/vnd.code.viewDragSession', String(sessionId));
+				} catch {
 						// dragstart 写入 dataTransfer 失败不应阻断拖拽
 					}
 				}

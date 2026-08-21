@@ -1982,7 +1982,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			// faithful snapshot exists.
 		const panelPart = this.panelPartView as PanelPart;
 		const hasSnapshot = panelPart?.hasDualPanelSnapshot?.() ?? false;
-		console.log(`[Layout][show] dual snapshot=${hasSnapshot}, activePanel=${this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Panel)?.getId()}`);
 		if (hasSnapshot) {
 			// No-op: the split restore is handled by PanelPart below.
 		} else {
