@@ -47,18 +47,27 @@ class ViewEditorInputSerializer implements IEditorSerializer {
 			originalLocation = undefined;
 		}
 
-		// Phase 4 重启恢复：不自动把视图塞回编辑器区（否则主编辑器会残留无窗口承载的
-		// ViewEditorPane）。改为归位到 originalLocation（原 Panel / Aux Bar），
-		// 与"关闭浮动窗口即归还"的语义一致；用户可再次拖出。
+		// 重启恢复：Editor tab 会被重新打开并调用 `ViewEditorPane.setInput` 继续承载该
+		// 视图，因此这里**绝不能**主动把视图从 Editor 移走归位。
+		//
+		// 旧实现曾在此调用 `moveViewToLocation(..., originalLocation)`，意图"刷新后归还原栏"。
+		// 但该调用是异步的：它先移除视图当前归属再挂到目标 location，而 `deserialize`
+		// 紧接着返回 `ViewEditorInput`，Editor tab 立刻 `setInput`，此时视图正处于"无 container"
+		// 的中间态，`getViewContainerByViewId` 返回 undefined → 抛
+		// "No view container found for view id"。这正是刷新编辑器报错的根因。
+		//
+		// 正确语义：视图的 location 在上次保存 workbench 状态时已是 Editor（拖入时
+		// `moveViewToLocation(..., Editor)` 已写入），reload 后直接由 Editor tab 承载即可。
+		// 归位回原栏只在视图真正脱离 Editor（关 tab / 关浮动窗口 / 反向拖出）时发生，
+		// 那由 `ViewEditorPane.clearInput` / `dispose` / `registerReverseDrag.onDragEnd` 负责。
+		//
+		// 唯一兜底：若视图当前确实不属于任何 container（异常态），则把它挂回 Editor，
+		// 保证 `setInput` 能找到 container，而不是归位到 Panel（那样仍会与 Editor tab 冲突）。
 		instantiationService.invokeFunction(accessor => {
 			const viewDescriptorService = accessor.get(IViewDescriptorService);
 			const descriptor = viewDescriptorService.getViewDescriptorById(viewId);
-			if (descriptor) {
-				const targetLocation = originalLocation ?? ViewContainerLocation.Panel;
-				const currentLocation = viewDescriptorService.getViewLocationById(viewId);
-				if (currentLocation !== targetLocation) {
-					viewDescriptorService.moveViewToLocation(descriptor, targetLocation, 'restore');
-				}
+			if (descriptor && !viewDescriptorService.getViewContainerByViewId(viewId)) {
+				viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'restore-editor');
 			}
 		});
 

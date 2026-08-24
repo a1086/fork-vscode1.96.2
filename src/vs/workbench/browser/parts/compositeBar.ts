@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -303,11 +303,11 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 			// 后续所有 await 都在 claim 之后，其他回调看到的已是已被占有的状态。
 			const { type: dragType, id: dragId } = e.dragAndDropData.getData();
 			const claimViewId = `${dragType}:${dragId}`; // 用 type:id 组合作为唯一键
-const claimResult = tryClaimViewDragSession(claimViewId);
-		if (!claimResult) {
-			return;
-		}
-		try {
+			const claimResult = tryClaimViewDragSession(claimViewId);
+			if (!claimResult) {
+				return;
+			}
+			try {
 				await this.openInAuxiliaryWindow(e);
 			} finally {
 				// 关键修复（拖一个视图却开出多个窗口）：
@@ -330,169 +330,177 @@ const claimResult = tryClaimViewDragSession(claimViewId);
 			const { type, id } = e.dragAndDropData.getData();
 
 			// 解析出要承载的视图 id：
-		// - 拖 'view' 类型：id 直接就是 view id，`getViewDescriptorById` 能解析。
-		// - 拖 'composite' 类型：id 是 container id（如 Aux Bar 的 `workbench.view.debug`、
-		//   Panel 的 `workbench.panel.terminal`）。`getViewDescriptorById(containerId)`
-		//   必然返回 undefined，因此必须先用 `getViewContainerById` 取出容器，再取它的
-		//   第一个（也是唯一可承载拖出窗口的）视图描述符。
-		// 旧实现对 composite 类型只做了 `getViewDescriptorById(id) ?? id`，等于拿
-		// container id 当 view id 去查，结果永远 undefined → 直接 return 不开窗。
-		// 这正是"从 Aux Bar 拖不出视图"的根因：Aux Bar 上的面板几乎都是多视图容器，
-		// 拖出来的类型一律是 'composite'，于是永远解析失败。Panel 上能拖出来是因为
-		// Problems/Output 等是单视图容器，走了 `type: 'view'` 分支。
-		let descriptor: IViewDescriptor | undefined;
-		if (type === 'view') {
-			descriptor = this.viewDescriptorService.getViewDescriptorById(id) ?? undefined;
-		} else if (type === 'composite') {
-			const container = this.viewDescriptorService.getViewContainerById(id);
-			if (container) {
-				const model = this.viewDescriptorService.getViewContainerModel(container);
-				descriptor = model?.activeViewDescriptors[0] ?? model?.allViewDescriptors[0];
-			}
-		}
-
-		if (!descriptor) {
-			return;
-		}
-
-		// 只对来源于 Panel / Auxiliary Bar 的视图开窗。Side Bar（如 Explorer 资源
-		// 管理器）和 Editor 区的视图走各自的原生链路（Side Bar 视图由
-		// `editorPart.ts` 的拖入 editor 区逻辑承载，Editor 区视图已在编辑器内）。
-		// 关键：Explorer 等 Side Bar 视图强耦合其侧边栏容器与 `ExplorerService`，
-		// 一旦被 `moveViewToLocation(Editor)` 并塞进 `ViewEditorPane`，
-		// `ExplorerService.refresh()` 会在 `findProvider` 尚未初始化时访问它，
-		// 抛出 "Cannot read properties of undefined (reading 'isShowingFilterResults')"
-		// （即截图中的报错），导致浮动窗口白屏。因此这里直接跳过非
-		// Panel / AuxiliaryBar 的视图，避免崩溃。
-		const sourceLocation = this.viewDescriptorService.getViewLocationById(descriptor.id);
-		if (sourceLocation !== ViewContainerLocation.Panel && sourceLocation !== ViewContainerLocation.AuxiliaryBar) {
-			return;
-		}
-
-		// 取当前光标屏幕坐标作为新窗口 bounds（参照 editorTabsControl#maybeCreateAuxiliaryEditorPartAt）。
-		const screenPoint = await this.hostService.getCursorScreenPoint();
-
-		const targetWindow = getWindow(this.compositeBarContainer);
-
-		// 几何否决判定（"鼠标仍在本窗口内 → 不开窗"）。
-		// 注意（Aux Bar 拖不出来的根因之一）：
-		// Chromium 在 `dragend` 事件里 `event.screenX/screenY` **不反映释放时的
-		// 光标位置**（多数平台回退到拖拽开始时的坐标，甚至 0）。Aux Bar 标签本来就
-		// 贴着窗口边缘，拖拽开始的 screenX/Y 一定落在窗口矩形内；一旦
-		// `getCursorScreenPoint()` 在该环境下拿不到值而用 `screenX/Y` 兜底，就会
-		// 把"已拖出窗口"误判为"仍在窗口内"而直接 return，表现为 Aux Bar 永远拖不出。
-		// 因此：只有当 `getCursorScreenPoint()` 真的返回了坐标时才用该坐标做精确几何否决。
-		//
-		// 关键修复（栏内跨侧拖拽产生重复视图）：
-		// 当 `getCursorScreenPoint()` 返回 undefined（Chromium dragend 常见）时，旧实现
-		// 直接跳过否决并无条件开窗，于是 Panel 栏内"从一侧拖到另一侧"这种纯栏内移动
-		// 也会被开出一个浮动窗口、并把视图 move 到 Editor 区，结果原视图在新窗口/Editor
-		// 区与新窗口里各出现一份 → 表现为"视图重复"（截图里的 WATCH/TERMINAL 多副本）。
-		// 对齐 editorTabsControl#maybeCreateAuxiliaryEditorPartAt 的做法：当拿不到真实
-		// 光标坐标、但源窗口仍可见且有焦点时（即释放点必然还在本窗口内，是一次栏内
-		// 移动或拖回窗口），直接拒绝开窗；只有当窗口已失去焦点（真正拖出窗口）才开窗。
-		const windowStillFocused = targetWindow.document.visibilityState === 'visible' && targetWindow.document.hasFocus();
-		if (screenPoint) {
-			const point = screenPoint.point;
-			if (point.x >= targetWindow.screenX && point.x <= targetWindow.screenX + targetWindow.outerWidth
-				&& point.y >= targetWindow.screenY && point.y <= targetWindow.screenY + targetWindow.outerHeight) {
-				return; // 鼠标仍在本窗口内，不开窗（视为栏内移动 / 拖回窗口）
-			}
-		} else if (windowStillFocused) {
-			return; // 拿不到光标坐标且源窗口仍聚焦 → 视为栏内移动，拒绝开窗（消除重复视图）
-		}
-
-		let bounds: { x: number; y: number } | undefined;
-		if (screenPoint) {
-			bounds = { x: screenPoint.point.x, y: screenPoint.point.y };
-			// 跨多显示器保护：防止窗口溢出到屏幕/显示器左上与上方之外。
-			const display = screenPoint.display;
-			if (display) {
-				if (bounds.x < display.x) {
-					bounds.x = display.x;
-				}
-				if (bounds.y < display.y) {
-					bounds.y = display.y;
+			// - 拖 'view' 类型：id 直接就是 view id，`getViewDescriptorById` 能解析。
+			// - 拖 'composite' 类型：id 是 container id（如 Aux Bar 的 `workbench.view.debug`、
+			//   Panel 的 `workbench.panel.terminal`）。`getViewDescriptorById(containerId)`
+			//   必然返回 undefined，因此必须先用 `getViewContainerById` 取出容器，再取它的
+			//   第一个（也是唯一可承载拖出窗口的）视图描述符。
+			// 旧实现对 composite 类型只做了 `getViewDescriptorById(id) ?? id`，等于拿
+			// container id 当 view id 去查，结果永远 undefined → 直接 return 不开窗。
+			// 这正是"从 Aux Bar 拖不出视图"的根因：Aux Bar 上的面板几乎都是多视图容器，
+			// 拖出来的类型一律是 'composite'，于是永远解析失败。Panel 上能拖出来是因为
+			// Problems/Output 等是单视图容器，走了 `type: 'view'` 分支。
+			let descriptor: IViewDescriptor | undefined;
+			if (type === 'view') {
+				descriptor = this.viewDescriptorService.getViewDescriptorById(id) ?? undefined;
+			} else if (type === 'composite') {
+				const container = this.viewDescriptorService.getViewContainerById(id);
+				if (container) {
+					const model = this.viewDescriptorService.getViewContainerModel(container);
+					descriptor = model?.activeViewDescriptors[0] ?? model?.allViewDescriptors[0];
 				}
 			}
-		}
 
-		// 关键修复：先开辅助窗口 + openEditor，最后才把视图 move 到 Editor 区。
-		// 旧实现先 move 再 create 会让视图短暂出现在主窗口 editor 区，
-		// 触发原生 `editorTabsControl` 的拖出链路（onDragEnd 二次回调），结果多开窗口。
-		// 新顺序：view 还在原栏 → 不会出现在主窗口 editor → 原生链路不会介入 → 干净单窗口。
-		const auxiliaryEditorPart = await this.editorGroupsService.createAuxiliaryEditorPart({ bounds });
-		const targetGroup = auxiliaryEditorPart.activeGroup;
+			if (!descriptor) {
+				return;
+			}
 
-		// 对于 composite 类型（多视图容器如 Debug），将所有活跃视图都打开到
-		// 浮动窗口中。单一视图类型则只打开那一个。
-		// 这确保用户拖出 Debug 容器时能看到完整的调试面板（Breakpoints、
-		// Call Stack、Watch、Variables），而不是只有一个空的子视图。
-		//
-		// 重要：viewsToOpen 决定了哪些视图会被 moveViewToLocation(Editor)。
-		// 如果把容器中所有视图都 move 走，后续再拖该容器的其他子视图时，
-		// getViewLocationById 会返回 Editor → 被 location check 拦截 → 无法再次开窗。
-		// 因此只有 type === 'composite'（拖的是容器 tab 本身）时才全量 move；
-		// type === 'view'（拖的是具体子视图）时只 move 那一个。
-		const viewsToOpen = type === 'composite'
-			? (() => {
+			// 只对来源于 Panel / Auxiliary Bar 的视图开窗。Side Bar（如 Explorer 资源
+			// 管理器）和 Editor 区的视图走各自的原生链路（Side Bar 视图由
+			// `editorPart.ts` 的拖入 editor 区逻辑承载，Editor 区视图已在编辑器内）。
+			// 关键：Explorer 等 Side Bar 视图强耦合其侧边栏容器与 `ExplorerService`，
+			// 一旦被 `moveViewToLocation(Editor)` 并塞进 `ViewEditorPane`，
+			// `ExplorerService.refresh()` 会在 `findProvider` 尚未初始化时访问它，
+			// 抛出 "Cannot read properties of undefined (reading 'isShowingFilterResults')"
+			// （即截图中的报错），导致浮动窗口白屏。因此这里直接跳过非
+			// Panel / AuxiliaryBar 的视图，避免崩溃。
+			const sourceLocation = this.viewDescriptorService.getViewLocationById(descriptor.id);
+			if (sourceLocation !== ViewContainerLocation.Panel && sourceLocation !== ViewContainerLocation.AuxiliaryBar) {
+				return;
+			}
+
+			// 取当前光标屏幕坐标作为新窗口 bounds（参照 editorTabsControl#maybeCreateAuxiliaryEditorPartAt）。
+			const screenPoint = await this.hostService.getCursorScreenPoint();
+
+			const targetWindow = getWindow(this.compositeBarContainer);
+
+			// 几何否决判定（"鼠标仍在本窗口内 → 不开窗"）。
+			// 注意（Aux Bar 拖不出来的根因之一）：
+			// Chromium 在 `dragend` 事件里 `event.screenX/screenY` **不反映释放时的
+			// 光标位置**（多数平台回退到拖拽开始时的坐标，甚至 0）。Aux Bar 标签本来就
+			// 贴着窗口边缘，拖拽开始的 screenX/Y 一定落在窗口矩形内；一旦
+			// `getCursorScreenPoint()` 在该环境下拿不到值而用 `screenX/Y` 兜底，就会
+			// 把"已拖出窗口"误判为"仍在窗口内"而直接 return，表现为 Aux Bar 永远拖不出。
+			// 因此：只有当 `getCursorScreenPoint()` 真的返回了坐标时才用该坐标做精确几何否决。
+			//
+			// 关键修复（栏内跨侧拖拽产生重复视图）：
+			// 当 `getCursorScreenPoint()` 返回 undefined（Chromium dragend 常见）时，旧实现
+			// 直接跳过否决并无条件开窗，于是 Panel 栏内"从一侧拖到另一侧"这种纯栏内移动
+			// 也会被开出一个浮动窗口、并把视图 move 到 Editor 区，结果原视图在新窗口/Editor
+			// 区与新窗口里各出现一份 → 表现为"视图重复"（截图里的 WATCH/TERMINAL 多副本）。
+			// 对齐 editorTabsControl#maybeCreateAuxiliaryEditorPartAt 的做法：当拿不到真实
+			// 光标坐标、但源窗口仍可见且有焦点时（即释放点必然还在本窗口内，是一次栏内
+			// 移动或拖回窗口），直接拒绝开窗；只有当窗口已失去焦点（真正拖出窗口）才开窗。
+			const windowStillFocused = targetWindow.document.visibilityState === 'visible' && targetWindow.document.hasFocus();
+			if (screenPoint) {
+				const point = screenPoint.point;
+				if (point.x >= targetWindow.screenX && point.x <= targetWindow.screenX + targetWindow.outerWidth
+					&& point.y >= targetWindow.screenY && point.y <= targetWindow.screenY + targetWindow.outerHeight) {
+					return; // 鼠标仍在本窗口内，不开窗（视为栏内移动 / 拖回窗口）
+				}
+			} else if (windowStillFocused) {
+				return; // 拿不到光标坐标且源窗口仍聚焦 → 视为栏内移动，拒绝开窗（消除重复视图）
+			}
+
+			let bounds: { x: number; y: number } | undefined;
+			if (screenPoint) {
+				bounds = { x: screenPoint.point.x, y: screenPoint.point.y };
+				// 跨多显示器保护：防止窗口溢出到屏幕/显示器左上与上方之外。
+				const display = screenPoint.display;
+				if (display) {
+					if (bounds.x < display.x) {
+						bounds.x = display.x;
+					}
+					if (bounds.y < display.y) {
+						bounds.y = display.y;
+					}
+				}
+			}
+
+			// 关键修复：先开辅助窗口 + openEditor，最后才把视图 move 到 Editor 区。
+			// 旧实现先 move 再 create 会让视图短暂出现在主窗口 editor 区，
+			// 触发原生 `editorTabsControl` 的拖出链路（onDragEnd 二次回调），结果多开窗口。
+			// 新顺序：view 还在原栏 → 不会出现在主窗口 editor → 原生链路不会介入 → 干净单窗口。
+			const auxiliaryEditorPart = await this.editorGroupsService.createAuxiliaryEditorPart({ bounds });
+			const targetGroup = auxiliaryEditorPart.activeGroup;
+
+			// 对于 composite 类型（多视图容器如 Debug），将所有活跃视图都打开到
+			// 浮动窗口中。单一视图类型则只打开那一个。
+			// 这确保用户拖出 Debug 容器时能看到完整的调试面板（Breakpoints、
+			// Call Stack、Watch、Variables），而不是只有一个空的子视图。
+			//
+			// 重要：viewsToOpen 决定了哪些视图会被 moveViewToLocation(Editor)。
+			// 如果把容器中所有视图都 move 走，后续再拖该容器的其他子视图时，
+			// getViewLocationById 会返回 Editor → 被 location check 拦截 → 无法再次开窗。
+			// 因此只有 type === 'composite'（拖的是容器 tab 本身）时才全量 move；
+			// type === 'view'（拖的是具体子视图）时只 move 那一个。
+			const viewsToOpen = type === 'composite'
+				? (() => {
 					const container = this.viewDescriptorService.getViewContainerById(id);
 					const model = container ? this.viewDescriptorService.getViewContainerModel(container) : null;
 					return model?.activeViewDescriptors.length
 						? model.activeViewDescriptors
 						: (model?.allViewDescriptors ?? []);
-			  })()
-			: [descriptor];
+				})()
+				: [descriptor];
 
-		for (const v of viewsToOpen) {
-			const vOriginalLocation = this.viewDescriptorService.getViewLocationById(v.id) ?? undefined;
-			const vOriginalContainer = this.viewDescriptorService.getViewContainerByViewId(v.id);
-			const vOriginalContainerId = vOriginalContainer?.id ?? undefined;
-			// 记录该视图在原容器内的顺序位置，关闭浮动窗口归位时用来还原排序，
-			// 否则 WATCH 等中间位置的子视图会跑到 Debug 容器顶部。
-			const vOriginalIndex = vOriginalContainer
-				? this.viewDescriptorService.getViewContainerModel(vOriginalContainer).allViewDescriptors.findIndex(d => d.id === v.id)
-				: -1;
-			const input = this.instantiationService.createInstance(
-				ViewEditorInput,
-				v.id,
-				vOriginalLocation,
-				vOriginalContainerId,
-				vOriginalIndex >= 0 ? vOriginalIndex : undefined
-			);
+			for (const v of viewsToOpen) {
+				const vOriginalLocation = this.viewDescriptorService.getViewLocationById(v.id) ?? undefined;
+				const vOriginalContainer = this.viewDescriptorService.getViewContainerByViewId(v.id);
+				const vOriginalContainerId = vOriginalContainer?.id ?? undefined;
+				// 记录该视图在原容器内的顺序位置，关闭浮动窗口归位时用来还原排序，
+				// 否则 WATCH 等中间位置的子视图会跑到 Debug 容器顶部。
+				const vOriginalIndex = vOriginalContainer
+					? this.viewDescriptorService.getViewContainerModel(vOriginalContainer).allViewDescriptors.findIndex(d => d.id === v.id)
+					: -1;
+				const input = this.instantiationService.createInstance(
+					ViewEditorInput,
+					v.id,
+					vOriginalLocation,
+					vOriginalContainerId,
+					vOriginalIndex >= 0 ? vOriginalIndex : undefined
+				);
+				// 记录"拖出来源"为原栏（Panel/Aux），使关闭独立窗口时归位回原栏
+				// （而非被后面 moveViewToLocation(E			);
 			await targetGroup.openEditor(input, { pinned: true });
-		}
-		targetGroup.focus();
+			}
+			targetGroup.focus();
 
-		// 此时再把视图从原栏移除（视图已经承载在新窗口的 ViewEditorPane 里，
-		// 原栏不再需要它）。这一步会让原 composite bar 隐藏对应 tab，
-		// 但因为 ViewEditorInput 是 Singleton，原窗口不会再现。
-		//
-		// 关键：延迟到当前 dragend 事件循环完全结束之后再 move。
-		// 若立即 move，ViewEditorPane 的 tab 会立刻出现在本窗口 editor 区，
-		// 而此时原生 `editorTabsControl.onDragEnd` 拖出链路仍在运行、会捕获到该 tab
-		// 并再开一个浮动窗口（这就是"拖出三个窗口"的第三个来源）。
-		// 用一个 microtask/timeout 让原生链路先跑完（此时视图尚未进入 editor 区、
-		// 拿不到该 tab），再执行 move，即不会再触发二次开窗。
-		//
-		// 重要：只 move viewsToOpen 中的视图。对于 type === 'view'（拖的是子视图），
-		// viewsToOpen 只包含那一个视图，不会影响同容器的其他子视图。
-		// 这样用户可以逐个把 Debug 容器的 Watch、Call Stack 等分别拖到独立窗口。
-		const viewDescriptorService = this.viewDescriptorService;
-		setTimeout(() => {
-			// 拖出窗口期间抑制 Panel 区域重新渲染闪烁（见 viewDragSession.ts 的
-			// `isSuppressPanelRelayoutOnDragOut` 说明）：置位开关，move 把视图从
-			// 原 Panel 容器移走时，Panel 侧不会把最小高度从 77 抬到 350 触发整区
-			// 重布局、也不会 fallback 重开其它容器，避免"拖出时 Panel 闪一下"。
+			// 此时再把视图从原栏移除（视图已经承载在新窗口的 ViewEditorPane 里，
+			// 原栏不再需要它）。这一步会让原 composite bar 隐藏对应 tab，
+			// 但因为 ViewEditorInput 是 Singleton，原窗口不会再现。
+			//
+			// 关键：延迟到当前 dragend 事件循环完全结束之后再 move。
+			// 若立即 move，ViewEditorPane 的 tab 会立刻出现在本窗口 editor 区，
+			// 而此时原生 `editorTabsControl.onDragEnd` 拖出链路仍在运行、会捕获到该 tab
+			// 并再开一个浮动窗口（这就是"拖出三个窗口"的第三个来源）。
+			// 用一个 microtask/timeout 让原生链路先跑完（此时视图尚未进入 editor 区、
+			// 拿不到该 tab），再执行 move，即不会再触发二次开窗。
+			//
+			// 重要：只 move viewsToOpen 中的视图。对于 type === 'view'（拖的是子视图），
+			// viewsToOpen 只包含那一个视图，不会影响同容器的其他子视图。
+			// 这样用户可以逐个把 Debug 容器的 Watch、Call Stack 等分别拖到独立窗口。
+			const viewDescriptorService = this.viewDescriptorService;
+			setTimeout(() => {
+				// 拖出窗口期间抑制 Panel 区域重新渲染闪烁（见 viewDragSession.ts 的
+				// `isSuppressPanelRelayoutOnDragOut` 说明）：置位开关，move 把视图从
+				// 原 Panel 容器移走时，Panel 侧不会把最小高度从 77 抬到 350 触发整区
+				// 重布局、也不会 fallback 重开其它容器，避免"拖出时 Panel 闪一下"。
 			setSuppressPanelRelayoutOnDragOut(true);
 			for (const v of viewsToOpen) {
 				viewDescriptorService.moveViewToLocation(v, ViewContainerLocation.Editor, 'dnd-composite-to-window');
 			}
-			// 必须在 fallback 调度器（RunOnceScheduler(0)）之后清除开关：fallback 在
-			// 上面的 move 触发 close 事件时已排队到下一帧，这里再排一个 0 延时确保
-			// 它先于本清除执行，使本次拖出收尾干净、且不影响后续常规关闭行为。
-			setTimeout(() => setSuppressPanelRelayoutOnDragOut(false), 0);
-		}, 0);
+			// 必须在 Panel 的收尾判定（close→emptyPanelCheckScheduler→autoHide/
+			// autoCollapse，均依赖 suppress 为 true 来跳过）全部 fire 之后再清除开关。
+			// 上面 move 触发的 close 事件会把 `emptyPanelCheckScheduler` 排到下一帧
+			// (RunOnceScheduler(0))，而这里若只用 setTimeout(0) 与它在同一零延时队列里
+			// 竞态、可能先于它清除，导致 autoHide 在 suppress=false 时误判 Panel 为空、
+			// 把仍含其它视图（如 Problems）的 Panel 直接隐藏。改为 300ms（与拖出 claim
+			// 释放同生命周期），确保整个收尾窗口内 suppress 始终为 true，Panel 不被误隐藏。
+			setTimeout(() => {
+				setSuppressPanelRelayoutOnDragOut(false);
+			}, 300);
+			}, 0);
 		} catch (error) {
 			// swallow: opening an auxiliary window for a view is best-effort
 		}
