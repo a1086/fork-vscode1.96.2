@@ -745,16 +745,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// `getVisiblePaneCompositeIds()` —— 后者包含空容器 tab（例如没有 debug
 				// session 时的 DEBUG CONSOLE 容器 workbench.panel.repl），open 这种空容器
 				// 后它会因无可见视图而再次 close，内容区只剩 "Drag a view here"。
-				const allPanelContainers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
-				const remainingVisible = allPanelContainers
-					.map(c => c.id)
-					.filter(id => id !== e.getId())
-					.filter(id => {
-						const c = this.panelViewDescriptorService.getViewContainerById(id);
-						return !!c && this.panelViewDescriptorService.getViewContainerModel(c).activeViewDescriptors.length > 0;
-					});
-				if (remainingVisible.length > 0) {
-					sidePart.openPaneComposite(remainingVisible[0], false, true, false);
+				const openedOnSide = this.openedContainersBySide.get(side);
+				const fallback = this.panelViewDescriptorService
+					.getViewContainersByLocation(ViewContainerLocation.Panel)
+					.filter(c => c.id !== e.getId() &&
+						(openedOnSide?.has(c.id) ?? false) &&
+						this.panelViewDescriptorService.getViewContainerModel(c).activeViewDescriptors.length > 0 &&
+						!this.containersShareViewOnSide(c.id, side))
+					.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))[0];
+				if (fallback) {
+					sidePart.openPaneComposite(fallback.id, false, true, false);
 				}
 
 				// 整个 Panel 正在隐藏（Toggle Panel / Ctrl+J）时，不要为这个 close
@@ -877,6 +877,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 		this.rightInSplit = false;
 		this.splitView.removeView(1, Sizing.Distribute);
+		this.rightPart.sideElement.remove();
 		this.updateSideVisibility();
 		// Persist so a later Toggle Panel off/on restores this exact layout.
 		this.saveDualPanelLayout();
@@ -959,7 +960,21 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Track drag source side so the two sides can drop composites onto
 		// each other even though they share the same ViewContainerLocation.
 		this._register(CompositeDragAndDropObserver.INSTANCE.onDragStart(e => {
+			// 若上一轮拖出（拖到 Editor/窗口/侧栏）未派发 dragend，isDragInProgress
+			// 可能卡在 true，会干扰本轮拖拽判定，先复位再开始新一轮拖拽。
+			if (this.isDragInProgress) {
+				console.log('dr');
+				this.isDragInProgress = false;
+			}
 			this.isDragInProgress = true;
+			console.log('ds');
+			// 拖拽开始时若整块 Panel 因被拖空而隐藏，临时重新显示为空热区，
+			// 否则容器无布局尺寸，getSplitTargetSide 永远返回 undefined，热区唤不起。
+			if (!this.layoutService.isVisible(Parts.PANEL_PART) && this.lastAutoHideWasEmpty) {
+				console.log('sh');
+				this.layoutService.setPartHidden(false, Parts.PANEL_PART);
+				console.log('sv', this.layoutService.isVisible(Parts.PANEL_PART));
+			}
 			const target = e.eventData.target as HTMLElement;
 			if (isAncestor(target, this.leftPart.sideElement)) {
 				this.dragSourceSide = 'left';
@@ -986,8 +1001,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// 才复位，作为第二道保险，确保这段窗口内的 fallback 同样被拦下。
 			setTimeout(() => {
 				this.isDragInProgress = false;
+				console.log('de');
 				// drag 完全结束后重新检查 Panel 是否已空，若已空则自动隐藏。
-				this.updatePanelVisibility();
+				if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
+					return;
+				}
+				if (this.activeContainerBySide.size === 0) {
+					console.log('ah');
+					this.autoHidePanelIfEmpty();
+				}
 			}, 0);
 		}));
 
@@ -2509,90 +2531,23 @@ export class PanelPart extends AbstractPaneCompositePart {
 			return;
 		}
 
-		const leftActive = this.activeContainerBySide.has('left');
-		const rightActive = this.activeContainerBySide.has('right');
+		const leftActive = this.leftPart.hasActiveView();
+		const rightActive = this.rightPart.hasActiveView();
 
-		if (!leftActive && !this.isSideHidden('left')) {
-			// 左侧是基线单栏 Panel：即使其 `activeContainerBySide` 暂时为空（例如
-			// Terminal 与 Ports 合并成动态容器 `workbench.views.service.panel.<uuid>`，
-			// 而该动态容器在视图状态变化时被短暂清空），也**绝不能**调用 `hideSide`。
-			// `hideSide` 会把 `left` 写进 `hiddenSides`——那是"用户主动关闭"的永久
-			// 意图标记——并在落盘时把 `leftActive` 抹掉。一旦 `hiddenSides` 含 `left`，
-			// 之后每一次 Toggle Panel 恢复都会因 `isSideHidden('left') === true` 而
-			// 跳过左侧重新打开，导致含 Terminal 的左栏永久消失、再也显示不了。
-			//
-			// 正确做法：保留左侧为可见的空拖拽目标（单栏本就允许空占位），由
-			// `createSide` 里的 fallback scheduler 在下一帧自动重开用户曾打开过的
-			// 容器，既不污染 `hiddenSides`，也不会丢失可恢复的布局。
-			// （仅当该侧确无任何可恢复容器时，才交给 `autoHidePanelIfEmpty` 处理整 Panel。）
-		}
 		if (!rightActive && this.rightViewInSplit) {
-			// 右侧变空。这里必须区分"过渡态假空"与"真空气"：
-			//
-			//  - 过渡态假空：用户把视图拖入右栏 / 恢复 / Problems 重开等过程中，
-			//    右栏 active 会在极短的一帧内被 `onDidPaneCompositeClose` 清成
-			//    undefined，但 `rightViewInSplit` 仍为 true。若此刻急着 `removeRightFromSplit`，
-			//    会把右栏彻底移出 split 并落盘 `rightInSplit=false, rightActive=undefined`，
-			//    之后每一次 Toggle Panel 恢复读到的都是空右栏，导致右栏（连同 Problems）
-			//    永久消失、再也显示不了。这正是"拖入 Problems 后多次 Toggle 右栏丢失"的根因。
-			//
-			//  - 真空气：右栏确实没有任何可恢复的容器了（用户关闭了右栏所有视图，
-			//    且该侧从未打开过任何容器、存储里也没有 rightActive）。
-			//
-			// 修复：仅当右栏"确无可恢复容器"时才收起右栏；否则保留右栏为可见的空
-			// 拖拽目标，由 `createSide` 的 fallback scheduler 在下一帧自动重开用户曾
-			// 打开过的容器（如 Problems），既不污染 `rightInSplit`/`rightActive` 的
-			// 持久化状态，也不会在 Toggle 后丢失右栏。
-			const recoverable = this.hasRecoverableContainer('right');
-			if (!recoverable) {
-				// 右栏真的空了：把右栏从 split 移除，Panel 回到单栏（左侧填充）。
-				// `removeRightFromSplit` 不会把 `right` 写进 `hiddenSides`（只移出
-				// split 视图），因此不会像 `hideSide` 那样造成"永久消失"，可安全调用。
+			if (!this.isDragInProgress && this.splitPreviewSide !== undefined) {
+				this.splitView.layout(this.sideWidth);
+			} else {
+				console.log('ph');
 				this.removeRightFromSplit();
 			}
 		}
-	}
-
-	/**
-	 * 某一侧是否还有"可恢复的容器"：即曾经在该侧打开过视图，或存储里仍记录着该侧
-	 * 的有效 active 容器。用于 `autoCollapseEmptySides` 区分"过渡态假空"与"真空气"——
-	 * 仅当两侧都无任何可恢复容器时才收起空侧，避免一次拖入/恢复过程中的瞬时清空把
-	 * 右栏（连同其 Problems 视图）永久移除。
-	 *
-	 * 关键排除：刚刚从该侧关闭/拖出的容器不再视为"可恢复"。否则用户把右栏唯一
-	 * 视图拖走后，`openedContainersBySide` 里还留着该容器，会让空右栏永远被判定为
-	 * "可恢复"，导致空 Panel 无法自动收起。
-	 */
-	private hasRecoverableContainer(side: PanelSide): boolean {
-		const justClosed = this.lastClosedContainerBySide.get(side);
-
-		// 1) 该侧曾经打开过的容器集合（拖入/点击过即记录，见 createSide 的 open 回调）。
-		const opened = this.openedContainersBySide.get(side);
-		if (opened) {
-			for (const id of opened) {
-				if (id !== justClosed) {
-					return true;
-				}
+		if (!leftActive && rightActive && !this.isSideHidden('left') && this.splitPreviewSide === undefined) {
+			if (!this.isDragInProgress) {
+				console.log('ph');
+				this.hideSide('left');
 			}
 		}
-
-		// 2) 存储里仍记录着该侧的有效 active 容器（未被用户显式丢弃）。
-		const stored = this.loadDualPanelLayout();
-		if (side === 'right' && stored?.rightActive && stored.rightActive !== justClosed) {
-			return true;
-		}
-		if (side === 'left' && stored?.leftActive && stored.leftActive !== justClosed) {
-			return true;
-		}
-
-		// 3) 最近活跃的容器归属记录指向该侧（拖出/恢复的兜底）。
-		for (const [containerId, s] of this.lastActiveSideByContainer) {
-			if (containerId !== justClosed && s === side) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/**
@@ -2771,8 +2726,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// target (minimum height handled elsewhere).
 			this.splitView.layout(this.sideWidth);
 		} else {
-			const leftActive = this.activeContainerBySide.has('left');
-			const rightActive = this.activeContainerBySide.has('right');
+			const leftActive = this.activeContainerBySide.has('left') || !!this.leftPart.getActivePaneComposite();
+			const rightActive = this.activeContainerBySide.has('right') || !!this.rightPart.getActivePaneComposite();
+			console.log('pa', leftActive, rightActive, !!this.leftPart.getActivePaneComposite(), !!this.rightPart.getActivePaneComposite(), this.activeContainerBySide.has('left'), this.activeContainerBySide.has('right'), this.splitView.length, this.splitPreviewSide, this.isDragInProgress);
 
 			// An empty side only needs a visible drop target while the user is
 			// actively dragging a view. When no drag is in progress, collapse the
@@ -2791,16 +2747,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// - otherwise `updateSideVisibility` collapses it to zero the instant
 			// `ensureSideInSplit` adds it, leaving only a 1px sash as a drop
 			// target (the "right side has almost no hot zone" bug).
-			const previewingRight = this.splitPreviewSide === 'right';
-			const previewingLeft = this.splitPreviewSide === 'left';
-			const emptyDropWidth = (this.isDragInProgress || previewingRight || previewingLeft) ? 150 : 0;
+			const emptyDropWidth = this.splitPreviewSide !== undefined ? 150 : 0;
 
 			if (leftActive && !rightActive) {
+				console.log('p1');
 				// Left shows a view, right is empty: give the right side a minimum
 				// drop width (while dragging / previewing it) and let the left fill.
 				this.splitView.resizeView(1, emptyDropWidth);
 				this.splitView.resizeView(0, this.sideWidth - emptyDropWidth);
 			} else if (rightActive && !leftActive) {
+				console.log('p2');
 				// Only the right side has a view. Keep the empty left side at the
 				// same minimum drop width unless it was explicitly closed, in which
 				// case collapse it to zero so the right side fills the panel.
@@ -2811,7 +2767,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 					this.splitView.resizeView(0, emptyDropWidth);
 					this.splitView.resizeView(1, this.sideWidth - emptyDropWidth);
 				}
+			} else if (!leftActive && !rightActive) {
+				console.log('p3');
+				if (this.isDragInProgress || this.splitPreviewSide !== undefined) {
+					this.splitView.layout(this.sideWidth);
+				} else {
+					this.removeRightFromSplit();
+				}
 			} else {
+				console.log('p4');
 				// Both sides host a view: split by the persisted ratio.
 				const ratio = this.loadSplitRatio();
 				const left = Math.max(150, Math.round(this.sideWidth * ratio));
@@ -2824,7 +2788,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Laying out the sides explicitly so their composites get re-sized to
 		// the new widths (the now-filling side must repaint at full width).
 		this.leftPart.layout(this.splitView.getViewSize(0), this.sideHeight, 0, 0);
-		this.rightPart.layout(this.splitView.getViewSize(1), this.sideHeight, 0, 0);
+		if (this.splitView.length > 1) {
+			this.rightPart.layout(this.splitView.getViewSize(1), this.sideHeight, 0, 0);
+		}
 	}
 
 	// ----- Drag-to-split (editor-like) --------------------------------------
@@ -2899,6 +2865,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const getSplitTargetSide = (e: DragEvent): PanelSide | undefined => {
 			const rect = this.splitContainer.getBoundingClientRect();
 			if (rect.width <= 0) {
+				console.log('gw');
 				return undefined;
 			}
 			// The boundary between the two halves depends on the *visible*
@@ -2942,12 +2909,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 				splitX = rect.left + rect.width / 2;
 			}
 			const targetSide: PanelSide = e.clientX < splitX ? 'left' : 'right';
-			// Only take over when the targeted side is not already showing a
-			// view - if it already has a container the side's own handler should
-			// deal with the drop (e.g. re-ordering / focusing), and we must not
-			// steal it.
-			const hasTarget = this.activeContainerBySide.has(targetSide);
-			if (hasTarget) {
+			// 只有当目标侧"真实持有可见视图"才算被占据。activeContainerBySide /
+			// isSideHidden 在视图被拖走后经常残留旧记录，不能据此拒绝接管，否则
+			// 空出的那一半永远唤不起 drop 热区。getActivePaneComposite() 才是该侧
+			// 是否真有可见内容的权威来源。
+			const occupied = targetSide === 'right'
+				? !!this.rightPart.getActivePaneComposite()
+				: !!this.leftPart.getActivePaneComposite();
+			if (occupied) {
+				console.log('gh');
 				return undefined;
 			}
 			return targetSide;
@@ -3034,7 +3004,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// whole window / dropping is cleaned up by the `dragend` / `drop`
 			// handlers, which always run.
 			if (e.relatedTarget && !isAncestor(e.relatedTarget as HTMLElement, this.splitContainer)) {
-				this.clearSplitPreview();
+				this.endDragState();
 			}
 		}, true));
 
@@ -3065,14 +3035,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 				const targetPart = dropSide === 'left' ? this.leftPart : this.rightPart;
 				const accepted = targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
 				if (accepted) {
-					// Mirror the success branch below: drop the dashed preview
-					// border but keep the layout until the async move resolves.
-					this.splitPreviewSide = undefined;
-					this.splitContainer.classList.remove('panel-split-preview');
+					// Mirror the success branch below: the drop ended, so reset the
+					// drag state now (observer dragend is unreliable for cross-side
+					// drags and would otherwise leave `isDragInProgress` stuck true).
+					this.endDragState();
 				} else {
 					// No valid view dropped: cancel any preview so we don't leave a
 					// broken half-occupied split behind.
-					this.clearSplitPreview();
+					this.endDragState();
 				}
 				// Clean up any stale ViewPaneDropOverlay that the target side's
 				// ViewPaneContainer created during onDragEnter (isSinglePaneContainer
@@ -3117,28 +3087,23 @@ export class PanelPart extends AbstractPaneCompositePart {
 			const targetPart = side === 'left' ? this.leftPart : this.rightPart;
 			const accepted = targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
 			if (accepted) {
-				// IMPORTANT: do NOT call `clearSplitPreview()` here. The move onto
-				// the target side (`movePaneCompositeToSide` -> `openPaneComposite`)
-				// resolves asynchronously, *after* this synchronous drop handler
-				// returns - `activeContainerBySide` is not yet updated, so
-				// `clearSplitPreview` would wrongly conclude the target side is
-				// still empty and tear it back out of the split, making the
-				// dropped view vanish. We only drop the dashed preview border;
-				// the real layout is applied once the composite finishes opening
-				// (onDidPaneCompositeOpen -> updateSideVisibility). The later
-				// `dragend` is a no-op because the preview side is already cleared.
-				this.splitPreviewSide = undefined;
-				this.splitContainer.classList.remove('panel-split-preview');
+				// The drop ended. The async move (`movePaneCompositeToSide` ->
+				// `openPaneComposite`) will apply the real layout via
+				// `onDidPaneCompositeOpen -> updateSideVisibility`. Reset the drag
+				// state here so `isDragInProgress` does not stay stuck true (the
+				// observer's dragend is unreliable for cross-side drags and would
+				// otherwise leave an empty 150px placeholder panel behind).
+				this.endDragState();
 			} else {
 				// No valid view was dropped (e.g. an unrecognised data type):
 				// cancel the preview and collapse the target side back out of the
 				// split, since it has nothing to show.
-				this.clearSplitPreview();
+				this.endDragState();
 			}
 		}, true));
 
 		this._register(addDisposableListener(this.splitContainer, EventType.DRAG_END, () => {
-			this.clearSplitPreview();
+			this.endDragState();
 		}, true));
 	}
 
@@ -3202,6 +3167,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 		} else {
 			this.updateSideVisibility();
 		}
+	}
+
+	private endDragState(): void {
+		this.isDragInProgress = false;
+		this.splitPreviewSide = undefined;
+		this.splitContainer.classList.remove('panel-split-preview');
+		this.dragEndFallbackScheduler.cancel();
+		this.updateSideVisibility();
 	}
 
 	/**
