@@ -540,6 +540,18 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		return composite;
 	}
 
+	hasActiveView(): boolean {
+		const composite = this.getActivePaneComposite() as PaneComposite | undefined;
+		if (!composite) {
+			return false;
+		}
+		const container = this.viewDescriptorService.getViewContainerById(composite.getId());
+		if (!container) {
+			return false;
+		}
+		return this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors.length > 0;
+	}
+
 	/**
 	 * Wire up the currently active composite's ViewPaneContainer to react to
 	 * "drop a view here" requests: instead of merging the dropped view into the
