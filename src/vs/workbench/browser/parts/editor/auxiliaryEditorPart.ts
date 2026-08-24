@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -321,12 +321,25 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 				}
 			}
 		}
+		// 收集"留在 Editor"路径的视图（从 Editor 拖出窗口、关窗应回 Editor）。
+		// 这些视图不能走归位+closeEditor，也不能单纯依赖下面的 mergeAllGroups
+		// （terminal 等 Singleton 在 merge 时可能被主窗口去重丢弃而"消失"）。
+		// 改为关闭辅助窗口前，主动把它们重新 open 到主窗口的 editor group。
+		const stayInEditorEditors: ViewEditorInput[] = [];
 		await Promise.all(viewEditorInputs.map(async ({ group, editor }) => {
+			// 视图"从哪个区域拖出独立窗口，关闭窗口就回到哪个区域"。
+			// - originalContainerId 有值（从 Panel/Aux 直接拖出窗口）：归位回原栏
+			//   并关闭本窗口 editor tab，使后续 merge 无 editor 可搬。
+			// - originalContainerId 为 undefined（先拖入 Editor 再从 Editor 拖出
+			//   窗口，关窗时此实例是被重建的、丢失了原栏信息）：视图本就该留在
+			//   Editor 区，收集起来稍后 open 到主窗口。
+			if (editor.originalContainerId === undefined) {
+				stayInEditorEditors.push(editor);
+				return;
+			}
 			// 先把视图 move 回原栏（Panel / Aux Bar），再 await closeEditor
 			// 把 editor 从本窗口 group 真正移除。两步都必须完成，否则其后的
 			// mergeAllGroups 仍会把 editor 搬到主窗口 editor 区，造成残留。
-			// 注意：closeEditor 是异步的，这里必须 await；归位（move）在
-			// close 之前调用，确保视图先脱离 Editor 区再关 tab。
 			restoreViewEditorInputToOriginalLocation(
 				editor,
 				this.viewDescriptorService,
@@ -334,6 +347,24 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 			);
 			await group.closeEditor(editor);
 		}));
+
+		// 把"留在 Editor"的视图重新打开到主窗口 editor 区，确保关窗后不消失。
+		// 必须在 merge 之前、窗口销毁之前完成，使主窗口持有一个可见的 editor tab。
+		if (stayInEditorEditors.length > 0) {
+			const mainPart = this.editorPartsView.mainPart;
+			const target = mainPart.activeGroup ?? mainPart.getGroups(GroupsOrder.MOST_RECENTLY_ACTIVE)[0];
+			for (const editor of stayInEditorEditors) {
+				// 先从辅助窗口 group 移除（避免 merge 时重复/丢弃），再 open 到主窗口。
+				for (const group of this.groups) {
+					if (group.contains(editor)) {
+						await group.closeEditor(editor);
+					}
+				}
+				if (target) {
+					await target.openEditor(editor, { pinned: true });
+				}
+			}
+		}
 
 		// 若本窗口里的 ViewEditorInput 已在本步全部归位关闭，剩下的（若有）
 		// 非视图 editor 继续走原生 merge 流程。

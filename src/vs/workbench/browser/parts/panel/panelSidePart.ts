@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -403,12 +403,18 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			if (!pane) {
 				return;
 			}
-			// 对当前已存在的 pane 挂一次监听，覆盖"启动时 OUTPUT 已存在但一直折叠"的情况。
-			watchPaneBody(pane);
-			// 已是工作状态则无需任何操作，避免无谓的 body 重渲染/闪烁。
-			if (pane.isVisible() && pane.isExpanded()) {
-				return;
-			}
+		// 对当前已存在的 pane 挂一次监听，覆盖"启动时 OUTPUT 已存在但一直折叠"的情况。
+		watchPaneBody(pane);
+		// 已是工作状态则无需任何操作，避免无谓的 body 重渲染/闪烁。
+		// 关键修复：仅看 pane 的 isVisible/isExpanded 不可靠——容器被"切换激活"
+		// （而非首次打开）时，pane 的同步状态可能领先于 body 的真实渲染，导致
+		// 内容区仍显示 "Drag a view here" 占位符。因此必须同时确认该视图在容器
+		// model 层面也处于可见（isVisible(id)），两者都为真才跳过；否则强制
+		// composite.openView 真正把 body 渲染出来。
+		const modelVisible = viewContainerModel.isVisible(firstDescriptor.id);
+		if (pane.isVisible() && pane.isExpanded() && modelVisible) {
+			return;
+		}
 			composite.openView(firstDescriptor.id, false);
 		};
 
@@ -453,6 +459,19 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	}
 
 	override async openPaneComposite(id?: string, focus?: boolean, skipMaximizeOnShow?: boolean, skipExclusion?: boolean): Promise<IPaneComposite | undefined> {
+		// 单一容器归属（视图不能同时在左右两个 Panel 中显示）：
+		// 当另一侧已经激活了与 `id` 相同的 container 时，本侧不再打开它，
+		// 直接返回。这能拦住所有"把视图拖回右侧 Panel 后左侧出现副本"的
+		// 路径（例如 drop 走 `_onRequestOpenCompositeForView` 在右侧打开、
+		// 而某兜底/还原逻辑又在左侧对同一 container id 再次 open 的情形），
+		// 避免左侧 Panel 出现同一视图的副本。
+		if (typeof id === 'string') {
+			const otherPart = this.panelPart.getOtherSidePart(this.side);
+			const otherActiveId = otherPart.getActivePaneComposite()?.getId();
+			if (otherActiveId === id) {
+				return undefined;
+			}
+		}
 		if (typeof id === 'string') {
 			// 视图级互斥（统一入口）：同一 view 绝不能同时在左右两侧显示。
 			//
@@ -467,7 +486,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			//   - skipExclusion（系统还原）：另一侧也已/将要被还原，本侧**禁止打开**
 			//     这个冲突容器（基线侧保留），返回 undefined 使基类 `showComposite`
 			//     不会被触发、冲突值不会写回 storage。这是从写入侧彻底根治重复。
-		const otherActiveId = this.panelPart.getOtherSidePart(this.side).getActivePaneComposite()?.getId();
+			const otherActiveId = this.panelPart.getOtherSidePart(this.side).getActivePaneComposite()?.getId();
 			if (otherActiveId && this.panelPart.containersShareView(otherActiveId, id)) {
 				if (!skipExclusion) {
 					this.panelPart.releaseOtherSideIfViewOverlap(this.side, id);
@@ -1034,6 +1053,9 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// does when the composite bar is hidden.
 		if (dragData.type === 'composite' && dragData.id) {
 			const currentContainer = this.viewDescriptorService.getViewContainerById(dragData.id)!;
+			// 跨 location 拖入：先清掉另一侧（左栏）里与之同 id / 共享 view 的
+			// pinned tab，保证单一容器归属（避免左栏残留 DEBUG CONSOLE 等副本）。
+			this.panelPart.unpinConflictingContainersOnOtherSide(this.side, currentContainer.id);
 			this.viewDescriptorService.moveViewContainerToLocation(currentContainer, this.location, undefined, 'dnd');
 			// This open is the side effect of a drag-and-drop, so skip the panel's
 			// auto-maximize-on-show (dropping a view must not blow the panel to widest).
@@ -1046,6 +1068,9 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			if (viewToMove && viewToMove.canMoveView) {
 				this.viewDescriptorService.moveViewToLocation(viewToMove, this.location, 'dnd');
 				const newContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id)!;
+				// 跨 location 拖入：先清掉另一侧（左栏）里与 newContainer 同 id /
+				// 共享 view 的 pinned tab，保证单一容器归属。
+				this.panelPart.unpinConflictingContainersOnOtherSide(this.side, newContainer.id);
 				// This open is the side effect of a drag-and-drop, so skip the panel's
 				// auto-maximize-on-show (dropping a view must not blow the panel to widest).
 				this.openPaneComposite(newContainer.id, true, true).then(composite => {

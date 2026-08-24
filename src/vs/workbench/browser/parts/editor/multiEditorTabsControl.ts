@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -1710,13 +1710,14 @@ export class MultiEditorTabsControl extends EditorTabsControl {
 						return; // drag to open in new window is disabled
 					}
 
-					const auxiliaryEditorPart =
-						await this.maybeCreateAuxiliaryEditorPartAt(e, tab);
-					if (!auxiliaryEditorPart) {
-						return;
-					}
+				const auxiliaryEditorPart =
+					await this.maybeCreateAuxiliaryEditorPartAt(e, tab);
+				if (!auxiliaryEditorPart) {
+					return;
+				}
 
-					const targetGroup = auxiliaryEditorPart.activeGroup;
+
+				const targetGroup = auxiliaryEditorPart.activeGroup;
 					const editors = draggedEditors.map((de) => ({
 						editor: de.identifier.editor,
 					}));

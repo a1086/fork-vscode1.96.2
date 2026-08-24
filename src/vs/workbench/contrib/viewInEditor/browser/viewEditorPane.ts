@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -6,6 +6,7 @@
 import { Dimension } from '../../../../base/browser/dom.js';
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { timeout } from '../../../../base/common/async.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -62,7 +63,15 @@ export class ViewEditorPane extends EditorPane {
 			throw new Error('No view descriptor found for view id: ' + input.viewId);
 		}
 
-		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
+		// 视图必须归属于某个 container 才能被承载。reload 后 `deserialize` 兜底的
+		// `moveViewToLocation(..., Editor)` 是异步的，可能在 `setInput` 这一同步点
+		// 还没把视图挂回 Editor container，导致此处短暂为 undefined。等一拍让
+		// move 完成后再取一次，避免误报 "No view container found"。
+		let viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
+		if (!viewContainer) {
+			await timeout(50);
+			viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
+		}
 		if (!viewContainer) {
 			throw new Error('No view container found for view id: ' + input.viewId);
 		}

@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -155,6 +155,33 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.autoCollapseEmptySides();
 		this.autoHidePanelIfEmpty();
 	}, 0);
+	/**
+	 * Safety net for the case where `CompositeDragAndDropObserver.onDragEnd`
+	 * never fires (e.g. a view is dragged from one Panel side onto the other
+	 * side, or dropped outside any VS Code drop target). In those flows the
+	 * observer swallows the dragend, so `isDragInProgress` would stay `true`
+	 * forever and `autoHidePanelIfEmpty` would keep bailing — leaving an empty
+	 * Panel visible. This scheduler resets the flag a little after the close
+	 * that emptied a side, so the empty-Panel auto-hide can finally run. It is
+	 * guarded by `isDragInProgress` so a normal drag (whose `onDragEnd` already
+	 * cleared the flag) is a no-op and never interferes with drag hit-testing.
+	 */
+	private readonly dragEndFallbackScheduler = new RunOnceScheduler(() => {
+		if (!this.isDragInProgress) {
+			return;
+		}
+		this.isDragInProgress = false;
+		this.updatePanelVisibility();
+	}, 250);
+	/**
+	 * 初始化的"确保首视图工作状态"收口点。详见 `scheduleInitialEnsureWorking`
+	 * 的注释：它把散落在 `restore().then()` 与 `whenInstalledExtensionsRegistered
+	 * ().then()` 中的两处竞态裸调用，合并到"布局就绪 + 扩展就绪"两者都完成后的
+	 * 唯一确定时点，根除 Panel 初始化"时好时坏、偶尔停在 'Drag a view here'"。
+	 */
+	private readonly initialEnsureScheduler = this._register(new RunOnceScheduler(() => {
+		this.runInitialEnsureWorking();
+	}, 0));
 	private dragSourceSide: PanelSide | undefined;
 	/**
 	 * Whether a Panel-originated drag is currently in progress. The empty-side
@@ -259,7 +286,27 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const prior = this.loadDualPanelLayout();
 		let leftActive: string | undefined = this.activeContainerBySide.get('left');
 		let rightActive: string | undefined = this.activeContainerBySide.get('right');
+		// 兜底：当某一侧的 active 在内存里暂为空（例如 Terminal 所在的动态合并容器
+		// `workbench.views.service.panel.<uuid>` 因视图状态变化被瞬间清空、或一次
+		// 过渡性的 close 事件触发了本保存），但存储里仍记录着该侧上一个有效容器，
+		// 且这一侧并未被用户显式关闭（不在 `hiddenSides`、右栏也仍在 split 中），
+		// 则沿用存储里的有效值，而**不要**把 active 写成 `undefined` 污染快照。
+		//
+		// 否则一次"过渡性 close"就会把 `leftActive` 抹成 undefined 落盘，下一次
+		// Toggle Panel 的 `capturingLayout` 兜底读到的是已被污染的 undefined，
+		// 含 Terminal 的栏因此永久丢失。
+		//
+		// 注意：`hideSide` / 用户主动关闭会先把该侧加入 `hiddenSides`，此时我们
+		// 尊重用户意图，允许把 active 写成空，不做此兜底。
+		if (!leftActive && prior?.leftActive && !this.hiddenSides.has('left')) {
+			leftActive = prior.leftActive;
+		}
+		if (!rightActive && prior?.rightActive && this.rightViewInSplit && !this.hiddenSides.has('right')) {
+			rightActive = prior.rightActive;
+		}
 		if (this.capturingLayout) {
+			// 隐藏前快照：即便上面已在普通保存中兜底，这里仍再补一层，确保
+			// `rightViewInSplit` 与 prior 一致时右栏容器不丢（原有逻辑保留）。
 			if (!rightActive && prior?.rightActive && this.rightViewInSplit) {
 				rightActive = prior.rightActive;
 			}
@@ -511,23 +558,32 @@ export class PanelPart extends AbstractPaneCompositePart {
 				return;
 			}
 
-		const openedOnSide = this.openedContainersBySide.get(side);
-		const fallback = this.panelViewDescriptorService
-			.getViewContainersByLocation(ViewContainerLocation.Panel)
-			.filter(c => c.id !== closedContainerId &&
-				// Only reopen a container the user has actually opened on this side
-				// before. Containers registered with an active view by default (e.g.
-				// Problems, which sorts first by `order`) would otherwise be
-				// auto-opened the moment a drag empties a side, even though the user
-				// never asked for them — see `openedContainersBySide`.
-				(openedOnSide?.has(c.id) ?? false) &&
-				this.panelViewDescriptorService.getViewContainerModel(c).activeViewDescriptors.length > 0 &&
-				// 关键：兜底容器不得与另一侧当前激活容器共享任何 view，否则打开它
-				// 会触发 `releaseOtherSideIfViewOverlap` 反过来清空另一侧（刚拖入的
-				// 那一侧），造成两个 Panel 来回清空/重开的循环抖动。互斥由 `openPaneComposite`
-				// 内部的门保证，这里提前排除冲突容器，使兜底永远安全。
-				!this.containersShareViewOnSide(c.id, side))
-			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))[0];
+			const openedOnSide = this.openedContainersBySide.get(side);
+			// During the initial startup window (`pendingInitialOpen`) the default
+			// view (TERMINAL) may be closed by initialization churn (e.g.
+			// `hideOtherPanelViews` / visibility restore close+reopen). The normal
+			// fallback excludes `closedContainerId` to avoid re-opening a container
+			// the user *explicitly* closed, but during startup the close is not
+			// user-driven — it is a side effect of init. Including the just-closed
+			// container in the candidate set lets the fallback re-open TERMINAL so
+			// the Panel does not stay empty on first load.
+			const excludeClosed = !this.pendingInitialOpen;
+			const fallback = this.panelViewDescriptorService
+				.getViewContainersByLocation(ViewContainerLocation.Panel)
+				.filter(c => (!excludeClosed || c.id !== closedContainerId) &&
+					// Only reopen a container the user has actually opened on this side
+					// before. Containers registered with an active view by default (e.g.
+					// Problems, which sorts first by `order`) would otherwise be
+					// auto-opened the moment a drag empties a side, even though the user
+					// never asked for them — see `openedContainersBySide`.
+					(openedOnSide?.has(c.id) ?? false) &&
+					this.panelViewDescriptorService.getViewContainerModel(c).activeViewDescriptors.length > 0 &&
+					// 关键：兜底容器不得与另一侧当前激活容器共享任何 view，否则打开它
+					// 会触发 `releaseOtherSideIfViewOverlap` 反过来清空另一侧（刚拖入的
+					// 那一侧），造成两个 Panel 来回清空/重开的循环抖动。互斥由 `openPaneComposite`
+					// 内部的门保证，这里提前排除冲突容器，使兜底永远安全。
+					!this.containersShareViewOnSide(c.id, side))
+				.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))[0];
 			if (fallback) {
 				// 不跳过互斥检查：兜底容器可能与另一侧当前容器共享 view，必须走
 				// `releaseOtherSideIfViewOverlap` 在打开前同步清空另一侧，否则会出现
@@ -547,57 +603,125 @@ export class PanelPart extends AbstractPaneCompositePart {
 			fallbackScheduler.cancel();
 			this.lastClosedContainerBySide.delete(side);
 
-		const openedId = e.getId();
-		this.activeContainerBySide.set(side, openedId);
-		// Persist the freshly-opened side immediately. `addRightToSplit` /
-		// `openPaneComposite` is asynchronous, so the `saveDualPanelLayout` it
-		// triggers still sees `activeContainerBySide.get(side) === undefined` and
-		// would write `rightActive: undefined` to storage. Without this save the
-		// persisted `rightActive` is never filled in, so on the next Toggle Panel
-		// `hasDualPanelSnapshot()` returns false and the whole restore path is
-		// skipped — the right panel is lost. (suppressLayoutSave guards this
-		// during hide/restore so the faithful snapshot is not clobbered.)
-		this.saveDualPanelLayout();
-		// Record that the user has now opened this container on this side, so the
-		// empty-side fallback may later reopen it (and only it / other user-opened
-		// containers) instead of auto-opening a container the user never opened.
-		let opened = this.openedContainersBySide.get(side);
-		if (!opened) {
-			opened = new Set<string>();
-			this.openedContainersBySide.set(side, opened);
-		}
-		opened.add(openedId);
+			// A view was opened on this side by some path (drag-in, View menu,
+			// API). The Panel is no longer in the "empty auto-hide" state, so
+			// clear that flag: otherwise the next Toggle Panel would wrongly
+			// skip reopening this view and show an empty Panel instead.
+			if (this.lastAutoHideWasEmpty) {
+			}
+			this.lastAutoHideWasEmpty = false;
+
+			const openedId = e.getId();
+			this.activeContainerBySide.set(side, openedId);
+			// Once startup has fully settled (`runInitialEnsureWorking` done) a real
+			// open event proves the default view is genuinely active — drop the
+			// `pendingInitialOpen` guard so a *genuinely* empty Panel can later be
+			// auto-hidden. We gate on `initialEnsureDone` so that an open event fired
+			// *during* the startup churn does NOT prematurely clear the guard (which
+			// would let a transient empty map hide the Panel on first load).
+			if (this.initialEnsureDone) {
+				this.pendingInitialOpen = false;
+			}
+			// Persist the freshly-opened side immediately. `addRightToSplit` /
+			// `openPaneComposite` is asynchronous, so the `saveDualPanelLayout` it
+			// triggers still sees `activeContainerBySide.get(side) === undefined` and
+			// would write `rightActive: undefined` to storage. Without this save the
+			// persisted `rightActive` is never filled in, so on the next Toggle Panel
+			// `hasDualPanelSnapshot()` returns false and the whole restore path is
+			// skipped — the right panel is lost. (suppressLayoutSave guards this
+			// during hide/restore so the faithful snapshot is not clobbered.)
+			this.saveDualPanelLayout();
+			// Record that the user has now opened this container on this side, so the
+			// empty-side fallback may later reopen it (and only it / other user-opened
+			// containers) instead of auto-opening a container the user never opened.
+			let opened = this.openedContainersBySide.get(side);
+			if (!opened) {
+				opened = new Set<string>();
+				this.openedContainersBySide.set(side, opened);
+			}
+			opened.add(openedId);
 			// Remember which side this container last lived on so drag-out-to-window
 			// close can restore it back to the correct side even if a fallback
 			// container has since opened on that side.
 			this.lastActiveSideByContainer.set(openedId, side);
 			this.subscribeToSideContainerViews(side, sidePart, openedId);
 
-		// 视图级互斥：同一 view 不能在左右两侧同时显示。所有"正常"打开路径
-		// （用户点击、拖拽、close 后的 fallback）都通过 `openPaneComposite` 中的
-		// `releaseOtherSideIfViewOverlap` 在打开前同步清空另一侧；restore 后由
-		// `enforceViewUniquenessAfterRestore` 兜底。但某些拖拽/视图合并路径可能
-		// 绕过互斥门（例如拖拽一个 view 落到本侧已存在的容器、或跨位置移动的
-		// 副作用打开），导致本侧打开的容器与另一侧共享 view。这里作为最后一道
-		// 安全网：检测到共享就清空另一侧，保证"视图唯一"不变量在任意路径下成立。
-		// 清空另一侧会触发它的 `onDidPaneCompositeClose` → fallback，而 fallback 已
-		// 用 `containersShareViewOnSide` 排除冲突容器，不会反过来清空本侧，故不会循环。
-		const otherSide: PanelSide = side === 'left' ? 'right' : 'left';
-		const otherActiveId = this.getOtherSidePart(side).getActivePaneComposite()?.getId();
-		if (openedId && otherActiveId && this.containersShareView(openedId, otherActiveId)) {
-			this.clearAndUnpinSide(otherSide);
-		} else {
-			// 无冲突时仅刷新 bar 的禁用/启用视觉反馈（与 `isCompositeEnabled` 对齐）。
-			this.getOtherSidePart(side).updateCompositeEnabledStates();
-		}
-		this.updatePanelMinimumHeight();
+			// 视图级互斥：同一 view 不能在左右两侧同时显示。所有"正常"打开路径
+			// （用户点击、拖拽、close 后的 fallback）都通过 `openPaneComposite` 中的
+			// `releaseOtherSideIfViewOverlap` 在打开前同步清空另一侧；restore 后由
+			// `enforceViewUniquenessAfterRestore` 兜底。但某些拖拽/视图合并路径可能
+			// 绕过互斥门（例如拖拽一个 view 落到本侧已存在的容器、或跨位置移动的
+			// 副作用打开），导致本侧打开的容器与另一侧共享 view。这里作为最后一道
+			// 安全网：检测到共享就清空另一侧，保证"视图唯一"不变量在任意路径下成立。
+			// 清空另一侧会触发它的 `onDidPaneCompositeClose` → fallback，而 fallback 已
+			// 用 `containersShareViewOnSide` 排除冲突容器，不会反过来清空本侧，故不会循环。
+			const otherSide: PanelSide = side === 'left' ? 'right' : 'left';
+			const otherPart = this.getOtherSidePart(side);
+			const otherActiveId = otherPart.getActivePaneComposite()?.getId();
+			const otherVisibleIds = otherPart.getVisiblePaneCompositeIds();
+			if (openedId && otherActiveId === openedId) {
+				// 同一 container 同时 active 在左右两侧：保留本侧（用户拖入的目标侧），
+				// 清空另一侧的副本。
+				this.clearAndUnpinSide(otherSide);
+			} else if (openedId && otherVisibleIds.includes(openedId)) {
+				// 另一侧只是把同一 container 作为 pinned tab 显示（未激活），而本侧
+				// 刚刚 active 了它（典型场景：左栏初始 pin 了 DEBUG CONSOLE，用户把它
+				// 拖到右栏 active）。单一容器归属要求它不能同时出现在两侧，因此只 unpin
+				// 掉另一侧的那个 tab，而不是清空整侧（避免误伤另一侧其它视图）。
+				otherPart.unpinPaneComposite(openedId);
+				otherPart.refreshCompositeBar();
+			} else if (openedId && otherVisibleIds.some(id => this.containersShareView(openedId, id))) {
+				// 另一侧的 pinned tab 与本侧刚激活的容器"共享 view"（例如本侧激活的是
+				// debug 容器里的 VARIABLES，而左栏还 pin 着同一个 debug 容器
+				// `workbench.panel.repl` 的 tab）。单一容器归属要求它不能同时出现在两侧，
+				// 因此把另一侧所有与之共享 view 的 pinned tab 逐个 unpin 掉。
+				for (const id of otherVisibleIds) {
+					if (this.containersShareView(openedId, id)) {
+						otherPart.unpinPaneComposite(id);
+					}
+				}
+				otherPart.refreshCompositeBar();
+			} else if (openedId && otherActiveId && this.containersShareView(openedId, otherActiveId)) {
+				this.clearAndUnpinSide(otherSide);
+			} else {
+				// 无冲突时仅刷新 bar 的禁用/启用视觉反馈（与 `isCompositeEnabled` 对齐）。
+				otherPart.updateCompositeEnabledStates();
+			}
+			this.updatePanelMinimumHeight();
 
-		// 双栏分区后，本 side 的容器刚打开/切换：确保容器内"从左往右第一个视图"
-		// 处于工作状态（展开可见）。详见 PanelSidePart.ensureFirstViewWorking。
-		sidePart.ensureFirstViewWorking();
+			// 双栏分区后，本 side 的容器刚打开/切换：确保容器内"从左往右第一个视图"
+			// 处于工作状态（展开可见）。详见 PanelSidePart.ensureFirstViewWorking。
+			sidePart.ensureFirstViewWorking();
 		}));
 		this._register(sidePart.onDidPaneCompositeClose(e => {
 			if (this.activeContainerBySide.get(side) === e.getId()) {
+				// BUG FIX: 拖出独立窗口 / 跨位置移动时，close 事件触发的其实是
+				// "容器里少了一个视图"，但**整个容器可能仍然活著**（Panel 里还有其它
+				// 残留视图）。此时若直接 delete 会把仍含视图的容器误判为已空，使
+				// activeContainerBySide 变空 → autoHidePanelIfEmpty 把整个 Panel 隐藏。
+				// 因此删除前先确认容器是否真的没有可见视图：有残留就保留登记、不排
+				// 兜底，容器继续正常显示，Panel 不会被误隐藏。
+				const closingContainer = this.panelViewDescriptorService.getViewContainerById(e.getId());
+				const closingModel = closingContainer ? this.panelViewDescriptorService.getViewContainerModel(closingContainer) : undefined;
+			const containerStillHasViews = !!closingModel
+				&& closingModel.activeViewDescriptors.length > 0;
+			const containerStillVisibleViews = !!closingModel
+				&& closingModel.visibleViewDescriptors.length > 0;
+			if (containerStillHasViews) {
+				// 容器明明还有可见视图却收到了 close（典型：拖走另一容器后本侧
+				// 被切到该容器，但其视图描述符的增删事件竞态触发了一次误 close，
+				// 导致内容区短暂消失）。这里不 delete 登记，并且若容器当前已无
+				// active 则重新激活它，把内容拉回来，避免 Panel 显示空占位符。
+				// 仅在拖出窗口收尾期间（suppress 为 true）才 re-open：此时本侧正
+				// 在从"拖走一个容器"切到下一个容器，re-open 能把误 close 的容器
+				// 拉回。归位（关闭独立窗口把视图 move 回原栏）时 suppress 为 false，
+				// 不走此分支，避免与正常的 open 流程竞争导致两个容器同时高亮。
+				if (containerStillVisibleViews && isSuppressPanelRelayoutOnDragOut()
+					&& sidePart.getActivePaneComposite()?.getId() !== e.getId()) {
+					sidePart.openPaneComposite(e.getId(), false, true, false);
+				}
+				return;
+			}
 				this.activeContainerBySide.delete(side);
 				this.sideContainerViewSubscriptions.get(side)?.clear();
 				const otherPart = this.getOtherSidePart(side);
@@ -606,23 +730,57 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// this side again (it is no longer active in the other side), so
 				// re-enable it in this side's bar.
 				sidePart.updateCompositeEnabledStates();
-			this.updatePanelMinimumHeight();
+				this.updatePanelMinimumHeight();
 
-			// 整个 Panel 正在隐藏（Toggle Panel / Ctrl+J）时，不要为这个 close
-			// 安排"兜底重开"。否则隐藏完成后（setTimeout 0）fallback 会把某个容器
-			// 重新 open 回刚被清空的侧，污染 activeContainerBySide 并触发一次错误
-			// 的 save，导致下一次 Toggle 时右栏状态错乱甚至直接消失。
-			if (this.hidingEntirePanel) {
-				return;
+				// BUG FIX: 单栏（或某侧）Panel 里存在多个容器（如 DEBUG CONSOLE +
+				// Terminal）。拖走当前 active 容器（整容器被移到独立窗口）后，本侧
+				// active 被删除、activeContainerBySide 变空，但 Panel 里**还有其它可见
+				// 容器**。此时不应让 Panel 落到空态进而被 autoHide 隐藏，而应立即把另一个
+				// 容器激活为本侧新 active，保证 Panel 始终显示仍存在的视图。
+				// 注意：fallback 的候选集被 `openedContainersBySide` 过滤，可能排除掉
+				// DEBUG CONSOLE 这类"未显式记过"的默认容器，导致 fallback 落空、Panel 被
+				// 误隐藏。因此这里直接选中 Panel 里仍"有可见视图"的其它容器，优先级高于
+				// fallback。
+				// 必须用 `activeViewDescriptors.length > 0` 过滤，而不能只用
+				// `getVisiblePaneCompositeIds()` —— 后者包含空容器 tab（例如没有 debug
+				// session 时的 DEBUG CONSOLE 容器 workbench.panel.repl），open 这种空容器
+				// 后它会因无可见视图而再次 close，内容区只剩 "Drag a view here"。
+				const allPanelContainers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
+				const remainingVisible = allPanelContainers
+					.map(c => c.id)
+					.filter(id => id !== e.getId())
+					.filter(id => {
+						const c = this.panelViewDescriptorService.getViewContainerById(id);
+						return !!c && this.panelViewDescriptorService.getViewContainerModel(c).activeViewDescriptors.length > 0;
+					});
+				if (remainingVisible.length > 0) {
+					sidePart.openPaneComposite(remainingVisible[0], false, true, false);
+				}
+
+				// 整个 Panel 正在隐藏（Toggle Panel / Ctrl+J）时，不要为这个 close
+				// 安排"兜底重开"。否则隐藏完成后（setTimeout 0）fallback 会把某个容器
+				// 重新 open 回刚被清空的侧，污染 activeContainerBySide 并触发一次错误
+				// 的 save，导致下一次 Toggle 时右栏状态错乱甚至直接消失。
+				if (this.hidingEntirePanel) {
+					return;
+				}
+
+				// 兜底逻辑延迟到下一帧：同步的 close 事件可能发生在普通容器切换的
+				// 过程中（新 composite 尚未 setActive），立即打开会造成两个容器争用
+				// 同一 side，出现"两个 title 同时高亮"、"内容区仍显示 Drag a view here"
+				// 等异常。如果同一帧内随后触发了 open，上面的 scheduler 会被 cancel。
+				this.lastClosedContainerBySide.set(side, e.getId());
+				fallbackScheduler.schedule();
+
+				// 拖拽把视图拖走（跨侧 / 拖出窗口）时 observer 可能不派发 dragend，
+				// 导致 isDragInProgress 卡在 true，使 autoHidePanelIfEmpty 一直 bail。
+				// 排一个稍长的兜底，若届时标志仍未被正常 dragend 复位，则在此复位并
+				// 触发整 Panel 空判定（autoHidePanelIfEmpty）。正常拖拽 dragend 已先复位，
+				// 这里会因守卫跳过，不干扰拖拽命中。
+				if (this.isDragInProgress) {
+					this.dragEndFallbackScheduler.schedule();
+				}
 			}
-
-			// 兜底逻辑延迟到下一帧：同步的 close 事件可能发生在普通容器切换的
-			// 过程中（新 composite 尚未 setActive），立即打开会造成两个容器争用
-			// 同一 side，出现"两个 title 同时高亮"、"内容区仍显示 Drag a view here"
-			// 等异常。如果同一帧内随后触发了 open，上面的 scheduler 会被 cancel。
-			this.lastClosedContainerBySide.set(side, e.getId());
-			fallbackScheduler.schedule();
-		}
 		}));
 
 		return sidePart;
@@ -632,21 +790,20 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const that = this;
 		return {
 			element: sidePart.sideElement,
-		get minimumSize(): number {
-			// When this side has been explicitly closed (close button), force it
-			// to 0 so the other side fills the entire panel width.
-			if (that.isSideHidden(side)) {
-				return 0;
-			}
-			// A side without an active composite still keeps a minimum visible
-			// width. Otherwise, once the only view on a side is dragged away
-			// (e.g. from the left side onto the right side), the now-empty side
-			// collapses to zero width and *disappears* entirely - the user can
-			// no longer drop another view into it, breaking the dual-panel
-			// workflow. Keeping it at 150px leaves a usable drop target, exactly
-			// like the empty right side during the split-preview.
-			return 150;
-		},
+			get minimumSize(): number {
+				// When this side has been explicitly closed (close button), force it
+				// to 0 so the other side fills the entire panel width.
+				if (that.isSideHidden(side)) {
+					return 0;
+				}
+				// 空侧（没有激活的视图容器）应该隐藏，而不是显示 "Drag a view here"
+				// 占位。把最小宽度设为 0，让 SplitView 能把它完全收起。
+				const part = side === 'left' ? that.leftPart : that.rightPart;
+				if (!part.getActivePaneComposite()) {
+					return 0;
+				}
+				return 150;
+			},
 			get maximumSize(): number {
 				// A closed side cannot grow at all.
 				return that.isSideHidden(side) ? 0 : Number.POSITIVE_INFINITY;
@@ -857,6 +1014,29 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// The whole-Panel hide is done; the next hide could be a per-side
 				// collapse, so reset the flag.
 				this.hidingEntirePanel = false;
+
+				// If the Panel was hidden while *both* sides were empty (no active
+				// view container on either side), remember this so the NEXT Toggle
+				// Panel restores an *empty* Panel (drop target) instead of letting
+				// `layout.ts#setPanelHidden(false)` reopen a random view
+				// (getLastActivePaneCompositeId / first container with views).
+				//
+				// This must be decided on the hide side (not only in
+				// `autoHidePanelIfEmpty`) because a Panel that was shown empty by a
+				// previous Toggle, then hidden again by another Toggle, takes the
+				// plain `setPanelHidden(true)` path — `autoHidePanelIfEmpty` is not
+				// re-entered, so its flag would have been consumed already and the
+				// next show would wrongly open a view.
+				//
+				// GUARD: only after `initialized` is true AND the startup async-open
+				// window is over. During startup the Panel may momentarily report
+				// zero active containers (the async default view restore has not
+				// resolved yet); without this guard we would wrongly flag the Panel
+				// as empty and suppress the default view, leaving TERMINAL / DEBUG
+				// CONSOLE as dead tabs.
+				if (this.initialized && !this.pendingInitialOpen && this.activeContainerBySide.size === 0) {
+					this.lastAutoHideWasEmpty = true;
+				}
 			} else if (!panelWasVisible && isVisibleNow) {
 				// Restore the persisted dual-panel layout so the same number of
 				// panels (one or two) re-appears, no matter how many times the
@@ -873,159 +1053,164 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// side's default). Without this guard, repeated Toggle Panel
 				// cycles corrupt the persisted `leftActive`/`rightActive` until
 				// both sides converge to the same view.
-			this.suppressLayoutSave = true;
-			const savedLayout = this.loadDualPanelLayout();
+				this.suppressLayoutSave = true;
+				const savedLayout = this.loadDualPanelLayout();
 
-			if (savedLayout) {
-				this.hiddenSides = new Set(savedLayout.hiddenSides);
-				// Reconcile the actual SplitView views with the saved layout
-				// instead of trusting the `rightInSplit` boolean. After many
-				// Toggle Panel cycles the boolean can disagree with the real
-				// view count, which is what made the empty-half drop a no-op.
-				//
-				// IMPORTANT: only re-add the right side to the split when we
-				// have a meaningful container to restore (or the user had
-				// explicitly opened the right side before). A stale
-				// `rightInSplit: true` from a previous session where the
-				// right side was never actually populated must NOT cause an
-				// empty right half to appear on every Toggle Panel.
-				const shouldHaveRightSplit = savedLayout.rightInSplit && !!savedLayout.rightActive;
-				if (shouldHaveRightSplit && !this.rightViewInSplit) {
-					this.addRightToSplit();
-				} else if (!shouldHaveRightSplit && this.rightViewInSplit) {
-					this.removeRightFromSplit();
-				}
-
-				// Re-open each side's previously-active view container so the
-				// same views come back verbatim. The left side is normally
-				// re-opened by `paneCompositeService.openPaneComposite` (the
-				// default `panelToOpen` path in `layout.ts#setPanelHidden`), but
-				// we still re-apply it here if the restored container differs or
-				// the left side was the one hidden. The right side is NOT opened
-				// by that path, so without this explicit restore the second panel
-				// would re-appear as an empty drop area and its view would be
-				// lost across every Toggle Panel cycle.
-				//
-				// We open with `skipExclusion=true` (system restore) so the two
-				// restored containers are not treated as a mutual-exclusion
-				// violation even if they legitimately share a view, mirroring the
-				// `restore()`/`enforceViewUniquenessAfterRestore` contract.
-				//
-				// 但必须前置检查：若两侧持久化的容器共享同一 view（如 OUTPUT 与
-				// DEBUG CONSOLE 都含 TERMINAL），则跳过右侧打开并清除其持久化 key，
-				// 从写入侧根治"Toggle Panel 后两栏显示相同视图"的 bug。
-				let rightToOpen = savedLayout.rightActive;
-				const leftToOpen = savedLayout.leftActive;
-		if (rightToOpen && leftToOpen && this.containersShareView(leftToOpen, rightToOpen)) {
-			// Only a *different* container that shares a view with the left side
-			// is a genuine mutual-exclusion conflict (showing the same view twice).
-			// A *same-container* split is intentional (e.g. two Terminals) and is
-			// now permitted — `containersShareView` returns false for `a === b`,
-			// so this branch no longer wipes the right panel for that case.
-				this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
-			rightToOpen = undefined;
-		}
-		// When the persisted right container can't be opened (it was cleared
-		// above, or `savedLayout.rightActive` was empty), the dual layout must
-		// collapse to a single panel — otherwise the right side would re-appear
-		// as an empty drop area and every Toggle Panel would toggle between
-		// "two halves, right empty" and "hidden", which looks like the right
-		// panel "disappeared".
-		if (!rightToOpen && this.rightViewInSplit) {
-			this.removeRightFromSplit();
-		}
-		// NOTE: a "same id on both sides" (rightToOpen === leftToOpen) is no
-		// longer treated as an error. The user can legitimately split a single
-		// container across the two panels, and both sides render it independently.
-
-				// Synchronously seed `activeContainerBySide` BEFORE any
-				// `openPaneComposite` call. The open events are asynchronous: when
-				// the *first* one fires (typically the left side), it would run
-				// `saveDualPanelLayout()` with the other side still `undefined`,
-				// overwriting the persisted `rightActive` with `undefined`. On
-				// the next Toggle Panel cycle `hasDualPanelSnapshot()` then
-				// returns false, the dual-layout restore branch is skipped, and
-				// the right panel is permanently lost. Pre-seeding both sides
-				// eliminates the unfilled window so the eventual save writes the
-				// correct two-container state.
-				if (leftToOpen && !this.isSideHidden('left')) {
-					this.activeContainerBySide.set('left', leftToOpen);
-				}
-				if (rightToOpen && savedLayout.rightInSplit && !this.isSideHidden('right')) {
-					this.activeContainerBySide.set('right', rightToOpen);
-				}
-
-				if (leftToOpen && !this.isSideHidden('left') && this.leftPart.getActivePaneComposite()?.getId() !== leftToOpen) {
-					this.leftPart.openPaneComposite(leftToOpen, false, true, true);
-				}
-				// 在 reopen 右侧之前，再次用左侧*当前实际*激活的容器做互斥检查，
-				// 因为上面的 left open 可能改变了左侧状态（或 layout.ts 的 open
-				// 已经设好了左侧容器）。
-			const actualLeftId = this.leftPart.getActivePaneComposite()?.getId();
-		// NOTE: Do NOT skip when `rightPart.getActivePaneComposite()?.getId() === rightToOpen`.
-		// Hiding the panel via Toggle Panel only calls `hideActiveComposite()`
-		// (which hides the content but keeps the active reference), so on the
-		// next show `getActivePaneComposite()` still returns `rightToOpen`. The
-		// `!== rightToOpen` guard therefore evaluated to false and silently
-		// skipped re-opening the right side on every Toggle Panel cycle after
-		// the first, making the right panel "disappear". `openPaneComposite` is
-		// idempotent for an already-active container, so re-opening is safe.
-		if (rightToOpen && savedLayout.rightInSplit && !this.isSideHidden('right')) {
-				// Only block the right side when it would show a *different*
-				// container that nonetheless shares a view with the left side.
-				// A *same-container* split (e.g. dragging the Terminal onto the
-				// other half so two Terminals sit side-by-side) is a legitimate
-				// user action and must NOT be wiped — both sides are independent
-				// AbstractPaneCompositePart instances, so no double-highlight /
-				// empty-body corruption occurs. (Previously `rightToOpen ===
-				// actualLeftId` also blocked this case, which is what made
-				// `Toggle Panel` drop the right panel on every cycle.)
-				if (actualLeftId && this.containersShareView(actualLeftId, rightToOpen)) {
-					this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
-					// The two sides cannot co-exist with this container, so the
-					// right side must collapse to keep the invariant "never show a
-					// view in two places at once". Without this collapse the
-					// `rightToOpen` value lingers in `workbench.panel.dualLayout`
-					// and the next Toggle Panel re-evaluates the same share
-					// check, silently dropping the right panel forever.
-					if (this.rightViewInSplit) {
+				if (savedLayout) {
+					// 右栏不可被永久隐藏：历史上若某次 `hideSide('right')` 把它写进了
+					// `hiddenSides`（旧逻辑的 bug），这里主动剔除 `right`，避免它永远
+					// 挡住右栏重建。左栏的永久隐藏意图（`hiddenSides` 含 `left`）仍保留。
+					const restoredHidden = new Set(savedLayout.hiddenSides);
+					restoredHidden.delete('right');
+					this.hiddenSides = restoredHidden;
+					// Reconcile the actual SplitView views with the saved layout
+					// instead of trusting the `rightInSplit` boolean. After many
+					// Toggle Panel cycles the boolean can disagree with the real
+					// view count, which is what made the empty-half drop a no-op.
+					//
+					// IMPORTANT: only re-add the right side to the split when we
+					// have a meaningful container to restore (or the user had
+					// explicitly opened the right side before). A stale
+					// `rightInSplit: true` from a previous session where the
+					// right side was never actually populated must NOT cause an
+					// empty right half to appear on every Toggle Panel.
+					const shouldHaveRightSplit = savedLayout.rightInSplit && !!savedLayout.rightActive;
+					if (shouldHaveRightSplit && !this.rightViewInSplit) {
+						this.addRightToSplit();
+					} else if (!shouldHaveRightSplit && this.rightViewInSplit) {
 						this.removeRightFromSplit();
 					}
+
+					// Re-open each side's previously-active view container so the
+					// same views come back verbatim. The left side is normally
+					// re-opened by `paneCompositeService.openPaneComposite` (the
+					// default `panelToOpen` path in `layout.ts#setPanelHidden`), but
+					// we still re-apply it here if the restored container differs or
+					// the left side was the one hidden. The right side is NOT opened
+					// by that path, so without this explicit restore the second panel
+					// would re-appear as an empty drop area and its view would be
+					// lost across every Toggle Panel cycle.
+					//
+					// We open with `skipExclusion=true` (system restore) so the two
+					// restored containers are not treated as a mutual-exclusion
+					// violation even if they legitimately share a view, mirroring the
+					// `restore()`/`enforceViewUniquenessAfterRestore` contract.
+					//
+					// 但必须前置检查：若两侧持久化的容器共享同一 view（如 OUTPUT 与
+					// DEBUG CONSOLE 都含 TERMINAL），则跳过右侧打开并清除其持久化 key，
+					// 从写入侧根治"Toggle Panel 后两栏显示相同视图"的 bug。
+					let rightToOpen = savedLayout.rightActive;
+					const leftToOpen = savedLayout.leftActive;
+					if (rightToOpen && leftToOpen && this.containersShareView(leftToOpen, rightToOpen)) {
+						// Only a *different* container that shares a view with the left side
+						// is a genuine mutual-exclusion conflict (showing the same view twice).
+						// A *same-container* split is intentional (e.g. two Terminals) and is
+						// now permitted — `containersShareView` returns false for `a === b`,
+						// so this branch no longer wipes the right panel for that case.
+						this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
+						rightToOpen = undefined;
+					}
+					// When the persisted right container can't be opened (it was cleared
+					// above, or `savedLayout.rightActive` was empty), the dual layout must
+					// collapse to a single panel — otherwise the right side would re-appear
+					// as an empty drop area and every Toggle Panel would toggle between
+					// "two halves, right empty" and "hidden", which looks like the right
+					// panel "disappeared".
+					if (!rightToOpen && this.rightViewInSplit) {
+						this.removeRightFromSplit();
+					}
+					// NOTE: a "same id on both sides" (rightToOpen === leftToOpen) is no
+					// longer treated as an error. The user can legitimately split a single
+					// container across the two panels, and both sides render it independently.
+
+					// Synchronously seed `activeContainerBySide` BEFORE any
+					// `openPaneComposite` call. The open events are asynchronous: when
+					// the *first* one fires (typically the left side), it would run
+					// `saveDualPanelLayout()` with the other side still `undefined`,
+					// overwriting the persisted `rightActive` with `undefined`. On
+					// the next Toggle Panel cycle `hasDualPanelSnapshot()` then
+					// returns false, the dual-layout restore branch is skipped, and
+					// the right panel is permanently lost. Pre-seeding both sides
+					// eliminates the unfilled window so the eventual save writes the
+					// correct two-container state.
+					if (leftToOpen && !this.isSideHidden('left')) {
+						this.activeContainerBySide.set('left', leftToOpen);
+					}
+					if (rightToOpen && savedLayout.rightInSplit && !this.isSideHidden('right')) {
+						this.activeContainerBySide.set('right', rightToOpen);
+					}
+
+					if (leftToOpen && !this.isSideHidden('left') && this.leftPart.getActivePaneComposite()?.getId() !== leftToOpen) {
+						this.leftPart.openPaneComposite(leftToOpen, false, true, true);
+					}
+					// 在 reopen 右侧之前，再次用左侧*当前实际*激活的容器做互斥检查，
+					// 因为上面的 left open 可能改变了左侧状态（或 layout.ts 的 open
+					// 已经设好了左侧容器）。
+					const actualLeftId = this.leftPart.getActivePaneComposite()?.getId();
+					// NOTE: Do NOT skip when `rightPart.getActivePaneComposite()?.getId() === rightToOpen`.
+					// Hiding the panel via Toggle Panel only calls `hideActiveComposite()`
+					// (which hides the content but keeps the active reference), so on the
+					// next show `getActivePaneComposite()` still returns `rightToOpen`. The
+					// `!== rightToOpen` guard therefore evaluated to false and silently
+					// skipped re-opening the right side on every Toggle Panel cycle after
+					// the first, making the right panel "disappear". `openPaneComposite` is
+					// idempotent for an already-active container, so re-opening is safe.
+					if (rightToOpen && savedLayout.rightInSplit && !this.isSideHidden('right')) {
+						// Only block the right side when it would show a *different*
+						// container that nonetheless shares a view with the left side.
+						// A *same-container* split (e.g. dragging the Terminal onto the
+						// other half so two Terminals sit side-by-side) is a legitimate
+						// user action and must NOT be wiped — both sides are independent
+						// AbstractPaneCompositePart instances, so no double-highlight /
+						// empty-body corruption occurs. (Previously `rightToOpen ===
+						// actualLeftId` also blocked this case, which is what made
+						// `Toggle Panel` drop the right panel on every cycle.)
+						if (actualLeftId && this.containersShareView(actualLeftId, rightToOpen)) {
+							this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
+							// The two sides cannot co-exist with this container, so the
+							// right side must collapse to keep the invariant "never show a
+							// view in two places at once". Without this collapse the
+							// `rightToOpen` value lingers in `workbench.panel.dualLayout`
+							// and the next Toggle Panel re-evaluates the same share
+							// check, silently dropping the right panel forever.
+							if (this.rightViewInSplit) {
+								this.removeRightFromSplit();
+							}
+						} else {
+							// `addRightToSplit` above already inserted the right view into
+							// the split; now populate it with its saved container.
+							this.rightPart.openPaneComposite(rightToOpen, false, true, true);
+						}
+					} else {
+						// (no right container to open / right side configured hidden)
+					}
 				} else {
-					// `addRightToSplit` above already inserted the right view into
-					// the split; now populate it with its saved container.
-					this.rightPart.openPaneComposite(rightToOpen, false, true, true);
+					// No persisted state (first show or restored session): do NOT
+					// blindly add a right split from a stale `activepanelid` key.
+					// The right side is only added when the user explicitly drags
+					// a view there (via `registerSplitDropTarget`).
+					this.hiddenSides.clear();
 				}
-			} else {
-				// (no right container to open / right side configured hidden)
+				this.updateSideVisibility();
+				// Do NOT re-persist the layout here with the current (still-incomplete)
+				// `activeContainerBySide`. The left/right `openPaneComposite` calls above
+				// are asynchronous: their `onDidPaneCompositeOpen` has not fired yet, so
+				// `activeContainerBySide` still holds `undefined` for both sides. A
+				// `saveDualPanelLayout()` at this point would overwrite the faithful
+				// pre-hide snapshot (written by `captureLayoutBeforeHide`) with
+				// `rightActive: undefined`, and the very next Toggle Panel would then
+				// evaluate `shouldHaveRightSplit = rightInSplit && !!rightActive` as
+				// false and silently drop the right panel, leaving only the left one.
+				//
+				// The hide-time `captureLayoutBeforeHide()` already persisted the correct
+				// two-panel layout, so here we only need to clear the suppress flag;
+				// later user actions (open/hide side, split changes) each trigger their
+				// own correct save. We still defer un-suppressing to the next tick so any
+				// fire-and-forget open from `layout.ts#setPanelHidden(false)` cannot
+				// clobber anything in the meantime.
+				this.suppressLayoutSave = false;
+				this.updateSideMaximizedContextKeys();
 			}
-			} else {
-				// No persisted state (first show or restored session): do NOT
-				// blindly add a right split from a stale `activepanelid` key.
-				// The right side is only added when the user explicitly drags
-				// a view there (via `registerSplitDropTarget`).
-				this.hiddenSides.clear();
-			}
-		this.updateSideVisibility();
-		// Do NOT re-persist the layout here with the current (still-incomplete)
-		// `activeContainerBySide`. The left/right `openPaneComposite` calls above
-		// are asynchronous: their `onDidPaneCompositeOpen` has not fired yet, so
-		// `activeContainerBySide` still holds `undefined` for both sides. A
-		// `saveDualPanelLayout()` at this point would overwrite the faithful
-		// pre-hide snapshot (written by `captureLayoutBeforeHide`) with
-		// `rightActive: undefined`, and the very next Toggle Panel would then
-		// evaluate `shouldHaveRightSplit = rightInSplit && !!rightActive` as
-		// false and silently drop the right panel, leaving only the left one.
-		//
-		// The hide-time `captureLayoutBeforeHide()` already persisted the correct
-		// two-panel layout, so here we only need to clear the suppress flag;
-		// later user actions (open/hide side, split changes) each trigger their
-		// own correct save. We still defer un-suppressing to the next tick so any
-		// fire-and-forget open from `layout.ts#setPanelHidden(false)` cannot
-		// clobber anything in the meantime.
-		this.suppressLayoutSave = false;
-		this.updateSideMaximizedContextKeys();
-		}
 			panelWasVisible = isVisibleNow;
 		}));
 
@@ -1058,40 +1243,47 @@ export class PanelPart extends AbstractPaneCompositePart {
 			for (let i = 1; i < pinnedViews.length; i++) {
 				this.leftPart.pinPaneComposite(pinnedViews[i]);
 			}
-			// `restore()` opens the composite asynchronously, typically before the
-			// workbench has laid the Panel out. Re-run our layout once the side
-			// has its composite so it is actually sized instead of staying at zero.
-			this.relayoutSides();
-			// 确保左侧容器内"第一个视图"处于工作状态（可见 + 展开 + body 已渲染）。
-			this.leftPart.ensureFirstViewWorking();
-			// 兜底不变式：初始 restore 后两侧绝不能出现共享同一 view 的可见项。
-			this.enforceViewUniquenessAfterRestore();
+			// 注意：这里**不要**直接裸调 `ensureFirstViewWorking` / `relayoutSides`。
+			// `restore()` 仅在 `layoutService.whenRestored` 之后打开容器，它既不保证
+			// 扩展视图已注册（`whenInstalledExtensionsRegistered`），也不保证 Panel
+			// 已被 `layout()` 量过尺寸（`sideWidth/sideHeight` 可能仍是 0）。而
+			// `ensureFirstViewWorking` 依赖"容器已可见且侧尺寸非 0"才会真正展开首视图
+			// （否则 `openFirst()` 因不可见直接 return，`relayoutSides` 因尺寸为 0
+			// 直接 SKIP）。这两者在 `restore().then()` 这一竞态窗口里是否就绪，完全
+			// 取决于 `whenRestored` 与 `whenInstalledExtensionsRegistered` 谁先谁后、
+			// 以及 `layout()` 是否已在之前跑过 —— 正是"Panel 时好时坏、偶尔停在
+			// 'Drag a view here'"的根因。真正的收口统一交给下方的
+			// `scheduleInitialEnsureWorking()`，它在两个 Promise 都完成后才执行。
 		});
 
-		// 二次兜底：等所有扩展（含 `ForwardedPortsView` 这类动态注册视图的贡献点）
-		// 注册完成后再补一次 `ensureFirstViewWorking`。
+		// 初始"确保首视图工作状态"的**统一收口点**。
 		//
-		// 像 Ports（TUNNEL_VIEW_CONTAINER_ID）这种视图，其 descriptor 由
-		// `ForwardedPortsView.enableForwardedPortsFeatures()` 在扩展/贡献点就绪后
-		// *异步* `registerViews` 进容器 model；而上面的 `restore()` + `relayoutSides`
-		// 链路在 descriptor 还没注册时就已经跑完，`ensureFirstViewWorking` 当时读到
-		// `allViewDescriptors` 为空而提前 return（见 PanelSidePart 内的"descriptor 未
-		// 就绪"分支）。虽然那里挂了监听等 descriptor 到达，但为防止任何时序竞态
-		// （例如 descriptor 在监听注册前的那一拍就变好、或 `onDidChangeActiveView
-		// Descriptors` 未触发），这里在扩展全就绪这一确定时点再补一次，确保刷新后
-		// Ports 这类视图稳定处于工作状态，而不是停在 "Drag a view here to display"。
-		this.panelExtensionService.whenInstalledExtensionsRegistered().then(() => {
-			// 扩展全部注册完成后，视图容器的 descriptor 才真正就绪。此时再隐藏
-			// 非固定视图才有效——`create()` 同步阶段调用时动态注册的容器
-			// （Output/Problems/Test/Ports 等）的 descriptor 尚未到达，`activeView
-			// Descriptors` 为空导致隐藏空转、未生效，正是"重新编译后 Panel 仍显示
-			// 其他视图"的根因。
-			this.hideOtherPanelViews();
-			this.leftPart.ensureFirstViewWorking();
-			// 动态注册视图（Ports 等）就绪后，若用户已把视图拖成双栏，再补一次不变式
-			// 兜底，确保两侧不显示共享同一 view 的容器。
-			this.enforceViewUniquenessAfterRestore();
-		});
+		// 把原来散落在 `restore().then()` 与 `whenInstalledExtensionsRegistered().then()`
+		// 中的两处竞态裸调用合并到"布局就绪（whenRestored）+ 扩展就绪
+		// （whenInstalledExtensionsRegistered）两者都完成"之后的唯一确定时点：
+		//   - 到此时点，Panel 必然已被 `layout()` 量过尺寸，所以 `sideWidth/sideHeight`
+		//     一定 > 0，`relayoutSides()` 不会再 SKIP；
+		//   - 动态注册的视图 descriptor（Ports 等）也已全部就绪，`allViewDescriptors`
+		//     不会再为空，首视图能稳定展开并渲染 body，而不是停在 "Drag a view here"。
+		// 由于 Frame 是 `RunOnceScheduler(0)`，即使两处 Promise 在 `create()` 早已
+		// resolve（热路径），也只会在下一个微任务合并执行一次，杜绝重复展开/闪烁。
+		this.scheduleInitialEnsureWorking();
+
+		// NOTE: `this.initialized` is intentionally NOT set here. It must only be
+		// set once the default view(s) have actually been restored and the Panel
+		// laid out — i.e. inside `runInitialEnsureWorking()`. `restore()` /
+		// `whenInstalledExtensionsRegistered()` are asynchronous, so at this
+		// synchronous point of `create()` the `activeContainerBySide` map is
+		// still empty (TERMINAL has not been opened yet). Setting `initialized =
+		// true` now would defeat the guard in `autoHidePanelIfEmpty` /
+		// `onDidChangePartVisibility`'s hide branch: a stray `autoHidePanelIfEmpty`
+		// call during init (or the very first Toggle Panel / Ctrl+R after a
+		// startup flicker) would see `activeContainerBySide.size === 0` +
+		// `initialized === true` and wrongly flag the Panel as "empty-auto-hidden",
+		// hiding it on first load and then suppressing the default TERMINAL /
+		// DEBUG CONSOLE view forever (because `layout.ts#setPanelHidden(false)`
+		// sees `isShowingEmptyPanel() === true` and opens nothing). See the
+		// assignment in `runInitialEnsureWorking()`.
 
 		// 关闭拖出的浮动窗口（或关掉编辑器区里的该 tab）后，视图经
 		// `ViewEditorInput` 的归位逻辑 `moveViewToLocation(view, Panel)` 回到
@@ -1228,6 +1420,94 @@ export class PanelPart extends AbstractPaneCompositePart {
 	}
 
 	/**
+	 * 安排在"布局就绪 + 扩展就绪"两者都完成后的唯一确定时点，统一执行初始化收口
+	 * （重布局 + 确保首视图工作状态 + 不变式兜底）。详见 `runInitialEnsureWorking`。
+	 *
+	 * 必须在 `create()` 末尾调用一次以触发。用 `RunOnceScheduler(0)` 把真正的执行
+	 * 推到下一微任务：即使 `whenRestored` 与 `whenInstalledExtensionsRegistered` 在
+	 * `create()` 期间早已 resolve，也只会在下一帧合并执行一次，避免重复展开/闪烁。
+	 */
+	private scheduleInitialEnsureWorking(): void {
+		// `restore()` 内部已 `await whenRestored` 并打开了 Terminal 容器；这里再
+		// 等 `whenInstalledExtensionsRegistered`，到此时点 Panel 必然已被 `layout()`
+		// 量过尺寸（sideWidth/sideHeight > 0），且动态注册视图（Ports 等）descriptor
+		// 全部就绪——这正是之前两处裸调用各自竞态、谁先谁后不确定所缺失的保证。
+		Promise.all([
+			this.layoutService.whenRestored,
+			this.panelExtensionService.whenInstalledExtensionsRegistered(),
+		]).then(() => {
+			this.initialEnsureScheduler.schedule();
+		});
+	}
+
+	/**
+	 * 初始化收口的实际执行体。所有"确保 Panel 初始有工作视图"的逻辑集中在此：
+	 *   1) `relayoutSides()` —— 此时 sideWidth/sideHeight 必然 > 0，不会再因尺寸为 0
+	 *      而 SKIP，让已打开的 composite body 真正获得尺寸。
+	 *   2) 左/右两侧各 `ensureFirstViewWorking()` —— 此时容器已可见、descriptor 已就绪，
+	 *      首视图能稳定展开并渲染，而不是停在 "Drag a view here to display"。
+	 *   3) `hideOtherPanelViews()` —— 扩展就绪后非固定视图的 descriptor 才存在，隐藏
+	 *      才真正生效（修复"编译后 Panel 仍显示其他视图"）。
+	 *   4) `enforceViewUniquenessAfterRestore()` —— 兜底不变式，两侧不显示共享视图。
+	 *
+	 * 注意：步骤 1-4 是同步的，但它们可能触发异步的 close/open/fallback（例如
+	 * visibility restore 的 close+reopen、`onDidPaneCompositeClose` 的 fallback 重开）。
+	 * 这些异步操作在后续微任务/帧里才 settle，所以步骤 2 的 `ensureFirstViewWorking`
+	 * 可能在 terminal 被 fallback 重开**之前**就执行了——导致 terminal 有 tab 但 body
+	 * 未展开（"Drag a view here to display"）。因此真正的"最终确保"被推迟到
+	 * `finalizeInitialEnsureWorking` 里，在所有异步 churn settle 之后再跑一次。
+	 */
+	private runInitialEnsureWorking(): void {
+		this.relayoutSides();
+		this.hideOtherPanelViews();
+		this.leftPart.ensureFirstViewWorking();
+		if (this.rightInSplit) {
+			this.rightPart.ensureFirstViewWorking();
+		}
+		this.enforceViewUniquenessAfterRestore();
+
+		// Mark the initialization closure as done so `onDidPaneCompositeOpen` may
+		// start clearing `pendingInitialOpen`. But do NOT clear `pendingInitialOpen`
+		// or set `initialized = true` yet — those are deferred to
+		// `finalizeInitialEnsureWorking` which runs one tick later, after all
+		// async close/open/fallback from the steps above have settled.
+		this.initialEnsureDone = true;
+
+		// Defer the final "ensure view is actually working + clear guards" pass by
+		// one tick so that any async fallout from the synchronous steps above
+		// (fallback re-open, visibility restore close+reopen, etc.) has settled.
+		// Without this deferral, `ensureFirstViewWorking` runs before the fallback
+		// has re-opened TERMINAL, leaving a tab with no rendered body.
+		this.finalizeInitialEnsureScheduler.schedule();
+	}
+
+	/**
+	 * Final pass of the startup closure, deferred by one tick after
+	 * `runInitialEnsureWorking` so all async close/open/fallback churn has settled.
+	 * At this point the default view (TERMINAL) is in its final state — either it
+	 * survived the churn or it was re-opened by fallback — and one last
+	 * `ensureFirstViewWorking` guarantees its body is expanded and rendering.
+	 */
+	private readonly finalizeInitialEnsureScheduler = this._register(new RunOnceScheduler(() => {
+		this.leftPart.ensureFirstViewWorking();
+		if (this.rightInSplit) {
+			this.rightPart.ensureFirstViewWorking();
+		}
+
+		// Now safe to consider the part initialized: the default view(s) have
+		// settled through all async churn and their bodies are guaranteed expanded.
+		this.initialized = true;
+		this.lastAutoHideWasEmpty = false;
+
+		// If the default view is active, drop the startup guard; otherwise keep
+		// it until a real open event fires (it will clear the guard because
+		// `initialEnsureDone === true`).
+		if (this.activeContainerBySide.size > 0) {
+			this.pendingInitialOpen = false;
+		}
+	}, 0));
+
+	/**
 	 * The set of view ids currently contributed by a panel container.
 	 */
 	private getContainerViewIds(containerId: string): Set<string> {
@@ -1262,10 +1542,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 			return false;
 		}
 		const viewsA = this.getContainerViewIds(a);
+		const viewsB = this.getContainerViewIds(b);
 		if (viewsA.size === 0) {
 			return false;
 		}
-		const viewsB = this.getContainerViewIds(b);
 		for (const view of viewsB) {
 			if (viewsA.has(view)) {
 				return true;
@@ -1356,23 +1636,32 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * to zero width and the other side fills the whole Panel area. The side's
 	 * active composite is cleared so re-opening a view on it starts fresh.
 	 */
-		hideSide(side: PanelSide): void {
+	hideSide(side: PanelSide): void {
 		if (this.hiddenSides.has(side)) {
 			return;
 		}
-		this.hiddenSides.add(side);
 
 		const part = side === 'left' ? this.leftPart : this.rightPart;
 		part.clearActivePaneComposite();
 		this.activeContainerBySide.delete(side);
 
-		// Closing the right side removes it from the split entirely so the Panel
-		// returns to a single area (the left side fills it). The left side can
-		// never be removed (it is the baseline single-area Panel), so we just
-		// collapse it via `updateSideVisibility`.
 		if (side === 'right') {
+			// 关闭右栏：只是把它从 split 移除，Panel 回到单栏（左侧填充）。
+			// **关键点**：右栏不可永久隐藏——它只是双栏布局里的一个分栏，用户关掉
+			// 它只是"当前不要右栏"，不应像左栏那样被钉死在 `hiddenSides` 里。一旦
+			// 把 `right` 写进 `hiddenSides`，restore 的 `!this.isSideHidden('right')`
+			// 检查就会永远挡住右栏重建，导致右栏（连同其 Problems 视图）在每次
+			// Toggle Panel 后都恢复不了、永久消失。
+			//
+			// 因此右栏关闭**不**加入 `hiddenSides`，只移出 split。这样之后 Toggle /
+			// 再次拖入视图时右栏能正常重新出现。
 			this.removeRightFromSplit();
 		} else {
+			// 关闭左栏（基线单栏 Panel）= 关闭整个 Panel 区，属于"用户永久意图"，
+			// 才加入 `hiddenSides`，restore 时据此跳过左栏重建。
+			this.hiddenSides.add(side);
+			// The left side can never be removed (it is the baseline single-area
+			// Panel), so we just collapse it via `updateSideVisibility`.
 			this.updateSideVisibility();
 		}
 		// Persist so a later Toggle Panel off/on restores this exact layout.
@@ -1620,6 +1909,24 @@ export class PanelPart extends AbstractPaneCompositePart {
 	}
 
 	/**
+	 * 跨 location 拖拽（Sidebar / Auxiliary Bar / Activity Bar / Editor 的视图
+	 * 拖到某侧 Panel）在打开目标容器之前，主动清掉**另一侧**所有与之"同 id 或共享
+	 * view"的 pinned tab。这样无论拖入的是容器本身还是容器内某个 view（例如把
+	 * VARIABLES 拖到右栏会连同 DEBUG CONSOLE 一起激活 debug 容器
+	 * `workbench.panel.repl`，而左栏默认就 pin 着该容器），另一侧都不会残留同一
+	 * 容器的副本。只 unpin 冲突 tab、不清整侧，避免误伤另一侧其它视图。
+	 */
+	unpinConflictingContainersOnOtherSide(side: PanelSide, containerId: string): void {
+		const otherPart = this.getOtherSidePart(side);
+		for (const id of otherPart.getVisiblePaneCompositeIds()) {
+			if (id === containerId || this.containersShareView(containerId, id)) {
+				otherPart.unpinPaneComposite(id);
+			}
+		}
+		otherPart.refreshCompositeBar();
+	}
+
+	/**
 	 * Defensive invariant net run once after both sides have been restored.
 	 *
 	 * Guarantees that the two Panel sides never show a container that shares a
@@ -1674,9 +1981,11 @@ export class PanelPart extends AbstractPaneCompositePart {
 				this.leftPart.unpinPaneComposite(conflictingId);
 				this.leftPart.refreshCompositeBar();
 			} else {
-				// 两侧都激活或都没激活：按基线规则强制释放右侧。
-				this.clearAndUnpinSide('right');
-				this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE);
+				// 两侧都激活同一个 container id：视图必须单一归属，不能同时出现在
+				// 两个 Panel 中。右侧是主 Panel 区域（也是用户把视图拖回的目标侧），
+				// 所以保留右侧、强制释放左侧的副本（而非旧实现的清右侧）。
+				this.clearAndUnpinSide('left');
+				this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('left'), StorageScope.WORKSPACE);
 			}
 			return;
 		}
@@ -1719,17 +2028,17 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const fromPart = toSide === 'left' ? this.rightPart : this.leftPart;
 		const targetPart = toSide === 'left' ? this.leftPart : this.rightPart;
 		try {
-		// If the view is currently active in the source side, clear it there
-		// first so the mutual-exclusion check allows it to open on the target.
-		// MUST use `clearActivePaneComposite` (not `hideActivePaneComposite`):
-		// the latter calls `setPartHidden(true, PANEL_PART)` and would hide the
-		// ENTIRE dual-panel layout - including the target side we are about to
-		// open on - and the subsequent re-show leaves the dragged container's
-		// content/tab stale on the source side ("leftover after drag"). Clearing
-		// only the source side keeps the Panel visible and removes the leftover.
-		if (fromPart.getActivePaneComposite()?.getId() === id) {
-			fromPart.clearActivePaneComposite();
-		}
+			// If the view is currently active in the source side, clear it there
+			// first so the mutual-exclusion check allows it to open on the target.
+			// MUST use `clearActivePaneComposite` (not `hideActivePaneComposite`):
+			// the latter calls `setPartHidden(true, PANEL_PART)` and would hide the
+			// ENTIRE dual-panel layout - including the target side we are about to
+			// open on - and the subsequent re-show leaves the dragged container's
+			// content/tab stale on the source side ("leftover after drag"). Clearing
+			// only the source side keeps the Panel visible and removes the leftover.
+			if (fromPart.getActivePaneComposite()?.getId() === id) {
+				fromPart.clearActivePaneComposite();
+			}
 
 			// Move the tab from the source side to the target side so the view does
 			// not remain visible in the side it was dragged from.
@@ -1755,13 +2064,13 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// 左侧都能得到一致的行为。
 			const sourceActiveId = fromPart.getActivePaneComposite()?.getId();
 			if (sourceActiveId === id || !sourceActiveId) {
-			// 兜底：极端情况下源侧当前激活的仍是被拖走的容器（例如 `hide`
-			// 因互斥在更早的路径之外执行），先清空它，确保下面的激活补偿
-			// 不会在一个已被拖走的容器上操作。同样只能用 `clearActivePaneComposite`
-			// 而非 `hideActivePaneComposite`，原因同上（后者会隐藏整个 Panel）。
-			if (sourceActiveId === id) {
-				fromPart.clearActivePaneComposite();
-			}
+				// 兜底：极端情况下源侧当前激活的仍是被拖走的容器（例如 `hide`
+				// 因互斥在更早的路径之外执行），先清空它，确保下面的激活补偿
+				// 不会在一个已被拖走的容器上操作。同样只能用 `clearActivePaneComposite`
+				// 而非 `hideActivePaneComposite`，原因同上（后者会隐藏整个 Panel）。
+				if (sourceActiveId === id) {
+					fromPart.clearActivePaneComposite();
+				}
 
 				const targetActiveId = targetPart.getActivePaneComposite()?.getId();
 
@@ -1829,38 +2138,38 @@ export class PanelPart extends AbstractPaneCompositePart {
 				}
 			}
 
-		return result;
-	} finally {
-		// Final safety net: regardless of which code path executed above, the
-		// dragged container must NOT remain visible/pinned on the source side.
-		// Some timing (e.g. `onDidViewContainerVisible` re-pinning the container,
-		// or the fallback opening it back) can leave a stale tab behind. Force it
-		// gone here so the source side never shows the view we just moved out.
-		if (fromPart.getActivePaneComposite()?.getId() === id) {
-			fromPart.clearActivePaneComposite();
-		}
-		fromPart.unpinPaneComposite(id);
-		// 兜底：上述 `unpin` 在 `setPinned(id, false)` 返回 false（模型从未把该
-		// 容器记为 pinned，例如初始固定视图经过 `hideOtherPanelViews` 之外的其它
-		// 路径粘在了 bar 上）时会静默 no-op，但 DOM 里残留的标签页仍会出现为
-		// "源侧 pinned + 目标侧 active"的重复。这里主动从源侧可见集合里把该
-		// id 强行清出，确保跨 side 拖拽后源侧绝不留该视图的标签。
-		const fromVisible = fromPart.getVisiblePaneCompositeIds();
-		if (fromVisible.includes(id)) {
+			return result;
+		} finally {
+			// Final safety net: regardless of which code path executed above, the
+			// dragged container must NOT remain visible/pinned on the source side.
+			// Some timing (e.g. `onDidViewContainerVisible` re-pinning the container,
+			// or the fallback opening it back) can leave a stale tab behind. Force it
+			// gone here so the source side never shows the view we just moved out.
+			if (fromPart.getActivePaneComposite()?.getId() === id) {
+				fromPart.clearActivePaneComposite();
+			}
 			fromPart.unpinPaneComposite(id);
-			fromPart.refreshCompositeBar();
+			// 兜底：上述 `unpin` 在 `setPinned(id, false)` 返回 false（模型从未把该
+			// 容器记为 pinned，例如初始固定视图经过 `hideOtherPanelViews` 之外的其它
+			// 路径粘在了 bar 上）时会静默 no-op，但 DOM 里残留的标签页仍会出现为
+			// "源侧 pinned + 目标侧 active"的重复。这里主动从源侧可见集合里把该
+			// id 强行清出，确保跨 side 拖拽后源侧绝不留该视图的标签。
+			const fromVisible = fromPart.getVisiblePaneCompositeIds();
+			if (fromVisible.includes(id)) {
+				fromPart.unpinPaneComposite(id);
+				fromPart.refreshCompositeBar();
+			}
+			this.isInCrossSideMove = false;
+
+			// 跨 side 拖拽完成后强制检查一次"同一 view 不重复显示"不变量。
+			// 某些竞态下（两侧同时处于打开中的中间态）源侧可能没有被及时清空，
+			// 这里作为最终兜底释放冲突侧，避免 Terminal 等视图在左右两侧同时出现。
+			this.enforceViewUniquenessAfterRestore();
+
+			// 跨 side 拖拽后源侧可能变空；若整个 Panel 已空则自动隐藏（延迟一帧，
+			// 等待 open 事件把目标侧 active 写回后再判定，避免误判整 Panel 为空）。
+			this.emptyPanelCheckScheduler.schedule();
 		}
-		this.isInCrossSideMove = false;
-
-		// 跨 side 拖拽完成后强制检查一次"同一 view 不重复显示"不变量。
-		// 某些竞态下（两侧同时处于打开中的中间态）源侧可能没有被及时清空，
-		// 这里作为最终兜底释放冲突侧，避免 Terminal 等视图在左右两侧同时出现。
-		this.enforceViewUniquenessAfterRestore();
-
-		// 跨 side 拖拽后源侧可能变空；若整个 Panel 已空则自动隐藏（延迟一帧，
-		// 等待 open 事件把目标侧 active 写回后再判定，避免误判整 Panel 为空）。
-		this.emptyPanelCheckScheduler.schedule();
-	}
 	}
 
 	private loadSplitRatio(): number {
@@ -1885,7 +2194,34 @@ export class PanelPart extends AbstractPaneCompositePart {
 	// ----- Composite (active view) accessors ---------------------------------
 
 	override openPaneComposite(id?: string, focus?: boolean) {
-		// Default to the left side for legacy/API callers.
+		// Legacy / API callers (commands, View menu, `paneCompositeService.openPaneComposite`)
+		// address the Panel by its single `Panel` location and therefore cannot name a
+		// side. By default every such open landed on `leftPart`, so two views opened by
+		// two commands both piled into the left side — the user saw "one Panel with
+		// several working views" instead of the intended "two views split across the
+		// left and right panels".
+		//
+		// Smart side dispatch: if the left side already hosts an *active* container whose
+		// views do NOT overlap with the one being opened, and the right side is currently
+		// empty (no active container / not yet in the split), route the new open to the
+		// right side so the two different views show side-by-side. Otherwise fall back to
+		// the left side (original behaviour). Drag-and-drop never reaches this method — it
+		// calls `PanelSidePart.openPaneComposite` directly — so this dispatch only affects
+		// command/API opens and cannot disturb the drag split logic.
+		if (typeof id === 'string') {
+			const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
+			const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
+			const leftOccupied = !!leftActiveId;
+			const rightEmpty = !rightActiveId;
+			const noViewOverlap = !leftActiveId || !this.containersShareView(leftActiveId, id);
+			if (leftOccupied && rightEmpty && noViewOverlap) {
+				// The right side is not in the split yet -> create it, then open there.
+				if (!this.rightViewInSplit) {
+					this.addRightToSplit();
+				}
+				return this.rightPart.openPaneComposite(id, focus);
+			}
+		}
 		return this.leftPart.openPaneComposite(id, focus);
 	}
 
@@ -2177,13 +2513,86 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const rightActive = this.activeContainerBySide.has('right');
 
 		if (!leftActive && !this.isSideHidden('left')) {
-			// 左侧变空：收起左侧，右侧自动填充整个 Panel。
-			this.hideSide('left');
+			// 左侧是基线单栏 Panel：即使其 `activeContainerBySide` 暂时为空（例如
+			// Terminal 与 Ports 合并成动态容器 `workbench.views.service.panel.<uuid>`，
+			// 而该动态容器在视图状态变化时被短暂清空），也**绝不能**调用 `hideSide`。
+			// `hideSide` 会把 `left` 写进 `hiddenSides`——那是"用户主动关闭"的永久
+			// 意图标记——并在落盘时把 `leftActive` 抹掉。一旦 `hiddenSides` 含 `left`，
+			// 之后每一次 Toggle Panel 恢复都会因 `isSideHidden('left') === true` 而
+			// 跳过左侧重新打开，导致含 Terminal 的左栏永久消失、再也显示不了。
+			//
+			// 正确做法：保留左侧为可见的空拖拽目标（单栏本就允许空占位），由
+			// `createSide` 里的 fallback scheduler 在下一帧自动重开用户曾打开过的
+			// 容器，既不污染 `hiddenSides`，也不会丢失可恢复的布局。
+			// （仅当该侧确无任何可恢复容器时，才交给 `autoHidePanelIfEmpty` 处理整 Panel。）
 		}
 		if (!rightActive && this.rightViewInSplit) {
-			// 右侧变空：把右栏从 split 移除，Panel 回到单栏（左侧填充）。
-			this.removeRightFromSplit();
+			// 右侧变空。这里必须区分"过渡态假空"与"真空气"：
+			//
+			//  - 过渡态假空：用户把视图拖入右栏 / 恢复 / Problems 重开等过程中，
+			//    右栏 active 会在极短的一帧内被 `onDidPaneCompositeClose` 清成
+			//    undefined，但 `rightViewInSplit` 仍为 true。若此刻急着 `removeRightFromSplit`，
+			//    会把右栏彻底移出 split 并落盘 `rightInSplit=false, rightActive=undefined`，
+			//    之后每一次 Toggle Panel 恢复读到的都是空右栏，导致右栏（连同 Problems）
+			//    永久消失、再也显示不了。这正是"拖入 Problems 后多次 Toggle 右栏丢失"的根因。
+			//
+			//  - 真空气：右栏确实没有任何可恢复的容器了（用户关闭了右栏所有视图，
+			//    且该侧从未打开过任何容器、存储里也没有 rightActive）。
+			//
+			// 修复：仅当右栏"确无可恢复容器"时才收起右栏；否则保留右栏为可见的空
+			// 拖拽目标，由 `createSide` 的 fallback scheduler 在下一帧自动重开用户曾
+			// 打开过的容器（如 Problems），既不污染 `rightInSplit`/`rightActive` 的
+			// 持久化状态，也不会在 Toggle 后丢失右栏。
+			const recoverable = this.hasRecoverableContainer('right');
+			if (!recoverable) {
+				// 右栏真的空了：把右栏从 split 移除，Panel 回到单栏（左侧填充）。
+				// `removeRightFromSplit` 不会把 `right` 写进 `hiddenSides`（只移出
+				// split 视图），因此不会像 `hideSide` 那样造成"永久消失"，可安全调用。
+				this.removeRightFromSplit();
+			}
 		}
+	}
+
+	/**
+	 * 某一侧是否还有"可恢复的容器"：即曾经在该侧打开过视图，或存储里仍记录着该侧
+	 * 的有效 active 容器。用于 `autoCollapseEmptySides` 区分"过渡态假空"与"真空气"——
+	 * 仅当两侧都无任何可恢复容器时才收起空侧，避免一次拖入/恢复过程中的瞬时清空把
+	 * 右栏（连同其 Problems 视图）永久移除。
+	 *
+	 * 关键排除：刚刚从该侧关闭/拖出的容器不再视为"可恢复"。否则用户把右栏唯一
+	 * 视图拖走后，`openedContainersBySide` 里还留着该容器，会让空右栏永远被判定为
+	 * "可恢复"，导致空 Panel 无法自动收起。
+	 */
+	private hasRecoverableContainer(side: PanelSide): boolean {
+		const justClosed = this.lastClosedContainerBySide.get(side);
+
+		// 1) 该侧曾经打开过的容器集合（拖入/点击过即记录，见 createSide 的 open 回调）。
+		const opened = this.openedContainersBySide.get(side);
+		if (opened) {
+			for (const id of opened) {
+				if (id !== justClosed) {
+					return true;
+				}
+			}
+		}
+
+		// 2) 存储里仍记录着该侧的有效 active 容器（未被用户显式丢弃）。
+		const stored = this.loadDualPanelLayout();
+		if (side === 'right' && stored?.rightActive && stored.rightActive !== justClosed) {
+			return true;
+		}
+		if (side === 'left' && stored?.leftActive && stored.leftActive !== justClosed) {
+			return true;
+		}
+
+		// 3) 最近活跃的容器归属记录指向该侧（拖出/恢复的兜底）。
+		for (const [containerId, s] of this.lastActiveSideByContainer) {
+			if (containerId !== justClosed && s === side) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -2196,7 +2605,103 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * - 视图正在拖出到独立窗口的过渡期间；
 	 * - 仍有某侧持有激活容器。
 	 */
+	/**
+	 * Whether the most recent "hide the whole Panel" action was triggered by
+	 * `autoHidePanelIfEmpty()` because BOTH sides had become empty (no active
+	 * view container on either side). This is distinct from a user-driven
+	 * Toggle Panel / Ctrl+J hide, where the Panel still held one or more views
+	 * that should be restored on the next show.
+	 *
+	 * When the empty-auto-hide flag is set, the next `setPanelHidden(false)`
+	 * must NOT reopen any view — the user expects an *empty* Panel showing the
+	 * "Drag a view to display here" drop target, not a random view pulled from
+	 * `getLastActivePaneCompositeId` / `getViewContainersByLocation` (which is
+	 * what `layout.ts#setPanelHidden` does for a Panel with no dual snapshot).
+	 * See the consumer in `layout.ts` and `consumeEmptyAutoHide()`.
+	 */
+	private lastAutoHideWasEmpty = false;
+
+	/**
+	 * Set to `true` once `create()` has finished the initial restore of the
+	 * default view(s) (TERMINAL / DEBUG CONSOLE). The empty-auto-hide flag
+	 * (`lastAutoHideWasEmpty`) must NOT be touched before this point: during
+	 * startup the Panel can briefly report "no active container" (the async
+	 * `restore()` of the default view has not resolved yet) and the
+	 * `onDidChangePartVisibility` hide branch would otherwise wrongly mark the
+	 * Panel as empty, which then makes `layout.ts#setPanelHidden(false)` skip
+	 * opening the default view — leaving TERMINAL / DEBUG CONSOLE as dead,
+	 * non-working tabs. See `isShowingEmptyPanel()` consumer.
+	 */
+	private initialized = false;
+
+	/**
+	 * `true` while the initial default-view open is still in flight — i.e. from
+	 * the moment `create()` schedules the startup restore until `runInitialEnsureWorking`
+	 * has actually opened the default view(s) AND the asynchronous
+	 * `openPaneComposite` (kicked off by `layout.ts#setPanelHidden(false)` /
+	 * `restore()`) has resolved and written the container back into
+	 * `activeContainerBySide`.
+	 *
+	 * This guards `autoHidePanelIfEmpty`: the deferred `emptyPanelCheckScheduler`
+	 * fires one tick after `openPaneComposite` is *called* but (because the open
+	 * is async) *before* the container is recorded as active, so
+	 * `activeContainerBySide.size === 0` temporarily even though a view is being
+	 * opened. Without this guard, `autoHidePanelIfEmpty` would see
+	 * `initialized === true` + empty map and wrongly `setPartHidden(true)` the
+	 * Panel the very first time it is shown — which is exactly the
+	 * "first load hides the Panel / Ctrl+R shows nothing" bug. While this flag
+	 * is set, `autoHidePanelIfEmpty` must NOT hide the Panel nor flag it empty.
+	 *
+	 * The flag is cleared ONLY once BOTH of the following hold:
+	 *   1. `runInitialEnsureWorking()` has finished its entire startup closure
+	 *      (all `ensureFirstViewWorking` / `hideOtherPanelViews` calls that may
+	 *      cause close/open churn have settled) — tracked by `initialEnsureDone`;
+	 *   2. a real `onDidPaneCompositeOpen` has fired, proving the default view is
+	 *      genuinely active (not just *called* to open).
+	 * This two-gate design prevents clearing the guard mid-churn (which would let
+	 * a transient empty map hide the Panel) while still allowing a *genuinely*
+	 * empty Panel to be auto-hidden after startup.
+	 */
+	private pendingInitialOpen = true;
+
+	/**
+	 * `true` only after `runInitialEnsureWorking()` has run to completion — i.e.
+	 * the startup closure (relayout + ensure-first-view + hide-other-views +
+	 * uniqueness enforcement) is done and no further initialization-driven
+	 * close/open churn is expected. Until then, `onDidPaneCompositeOpen` must NOT
+	 * clear `pendingInitialOpen`, because an open event during the churn is not
+	 * proof that startup is over.
+	 */
+	private initialEnsureDone = false;
+
+	/**
+	 * Returns whether the Panel should be (re)shown as an *empty* Panel (drop
+	 * target, no view opened). This is true whenever the Panel was last hidden
+	 * while BOTH sides were empty, and stays true across repeated Toggle Panel
+	 * cycles until a view is actually opened on either side.
+	 *
+	 * IMPORTANT: this is a pure *query* — it does NOT clear the flag. The flag is
+	 * only cleared in `onDidPaneCompositeOpen` when a real view is opened. This
+	 * is deliberate: `layout.ts#setPanelHidden(false)` can fire the show branch
+	 * more than once per Toggle (the hide→show sequence triggers the visibility
+	 * handler twice), and a read-and-clear would return `true` on the first fire
+	 * and `false` on the second, letting the second fire wrongly open a random
+	 * view. A stable query avoids that race entirely.
+	 */
+	isShowingEmptyPanel(): boolean {
+		return this.lastAutoHideWasEmpty;
+	}
+
 	private autoHidePanelIfEmpty(): void {
+		// GUARD (startup): while the initial default-view open is still async-in-flight,
+		// `activeContainerBySide` transiently reports zero containers even though a view
+		// is being opened (the `emptyPanelCheckScheduler` ticks before the async
+		// `openPaneComposite` writes the active container back). Hiding now would kill the
+		// Panel on first load and set `lastAutoHideWasEmpty`, permanently suppressing the
+		// default TERMINAL / DEBUG CONSOLE view. Never hide or flag-empty during this window.
+		if (this.pendingInitialOpen) {
+			return;
+		}
 		if (this.activeContainerBySide.size !== 0) {
 			return;
 		}
@@ -2211,6 +2716,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 		if (this.isDragInProgress) {
 			return;
+		}
+
+		// The Panel is being hidden solely because it became empty. Remember this
+		// so the next Toggle Panel restores an *empty* Panel (drop target) rather
+		// than letting `layout.ts` reopen a random view.
+		// GUARD: never during startup — the default view restore is async and the
+		// Panel briefly looks empty; flagging it then would suppress the default
+		// TERMINAL / DEBUG CONSOLE view and leave them dead.
+		if (this.initialized) {
+			this.lastAutoHideWasEmpty = true;
 		}
 
 		this.layoutService.setPartHidden(true, Parts.PANEL_PART);
@@ -2259,25 +2774,42 @@ export class PanelPart extends AbstractPaneCompositePart {
 			const leftActive = this.activeContainerBySide.has('left');
 			const rightActive = this.activeContainerBySide.has('right');
 
+			// An empty side only needs a visible drop target while the user is
+			// actively dragging a view. When no drag is in progress, collapse the
+			// empty side to zero so it does not leave a "Drag a view here"
+			// placeholder after a view has been dragged out or closed.
+			// During a drag we keep a minimum width so the empty half is still
+			// a valid drop target.
+			//
+			// NOTE: `CompositeDragAndDropObserver` does not always set
+			// `isDragInProgress` for every kind of view drag (e.g. a view dragged
+			// out of the Panel itself, or certain internal drags, fire
+			// `dragenter`/`dragover` without the observer having marked the
+			// drag as "in progress" on this part). When the split preview is
+			// currently showing a side (the user is hovering its empty half),
+			// that side MUST keep a minimum width regardless of `isDragInProgress`
+			// - otherwise `updateSideVisibility` collapses it to zero the instant
+			// `ensureSideInSplit` adds it, leaving only a 1px sash as a drop
+			// target (the "right side has almost no hot zone" bug).
+			const previewingRight = this.splitPreviewSide === 'right';
+			const previewingLeft = this.splitPreviewSide === 'left';
+			const emptyDropWidth = (this.isDragInProgress || previewingRight || previewingLeft) ? 150 : 0;
+
 			if (leftActive && !rightActive) {
-				// Left shows a view, right is empty (e.g. mid drag-preview): give
-				// the right side a minimum drop width and let the left fill the rest.
-				this.splitView.resizeView(1, 150);
-				this.splitView.resizeView(0, this.sideWidth - 150);
+				// Left shows a view, right is empty: give the right side a minimum
+				// drop width (while dragging / previewing it) and let the left fill.
+				this.splitView.resizeView(1, emptyDropWidth);
+				this.splitView.resizeView(0, this.sideWidth - emptyDropWidth);
 			} else if (rightActive && !leftActive) {
-				// Only the right side has a view. Keep the empty left side at a
-				// minimum visible width (a drop target) unless it was explicitly
-				// closed, in which case collapse it so the right side fills the
-				// panel. Mirrors the `leftActive && !rightActive` branch above so
-				// the two areas behave symmetrically - otherwise dragging the only
-				// view off the left side would make the left area disappear
-				// entirely (zero width) and it could never receive another view.
+				// Only the right side has a view. Keep the empty left side at the
+				// same minimum drop width unless it was explicitly closed, in which
+				// case collapse it to zero so the right side fills the panel.
 				if (this.isSideHidden('left')) {
 					this.splitView.resizeView(0, 0);
 					this.splitView.resizeView(1, this.sideWidth);
 				} else {
-					this.splitView.resizeView(0, 150);
-					this.splitView.resizeView(1, this.sideWidth - 150);
+					this.splitView.resizeView(0, emptyDropWidth);
+					this.splitView.resizeView(1, this.sideWidth - emptyDropWidth);
 				}
 			} else {
 				// Both sides host a view: split by the persisted ratio.
@@ -2388,7 +2920,24 @@ export class PanelPart extends AbstractPaneCompositePart {
 				|| (this.rightViewInSplit && this.splitView.getViewSize(0) <= 0);
 			let splitX: number;
 			if (this.rightViewInSplit && !leftCollapsed) {
-				splitX = rect.left + this.splitView.getViewSize(0);
+				// When the right side was just pulled into the split (e.g. by a
+				// drag-over onto the empty half) but has not been given a view yet,
+				// `updateSideVisibility` collapses it to ZERO width (see the
+				// `leftActive && !rightActive` branch). At that moment
+				// `getViewSize(0)` is the *whole* container width, so using it as
+				// the split boundary would pin the boundary to the container's
+				// right edge and make the entire right half resolve to `left`
+				// (which already hosts a view) -> `getSplitTargetSide` returns
+				// `undefined` and the right half gets NO drop zone at all (only
+				// the sash line reacts). Fall back to the container MIDPOINT while
+				// the right side is still zero-width so the right half is a real
+				// drop target.
+				const rightSize = this.splitView.getViewSize(1);
+				if (rightSize <= 0) {
+					splitX = rect.left + rect.width / 2;
+				} else {
+					splitX = rect.left + this.splitView.getViewSize(0);
+				}
 			} else {
 				splitX = rect.left + rect.width / 2;
 			}
@@ -2397,7 +2946,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// view - if it already has a container the side's own handler should
 			// deal with the drop (e.g. re-ordering / focusing), and we must not
 			// steal it.
-			if (this.activeContainerBySide.has(targetSide)) {
+			const hasTarget = this.activeContainerBySide.has(targetSide);
+			if (hasTarget) {
 				return undefined;
 			}
 			return targetSide;
@@ -2428,6 +2978,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 					// no-op when the side is already in the split.
 					this.ensureSideInSplit(side);
 				}
+			} else {
 			}
 		}, true));
 

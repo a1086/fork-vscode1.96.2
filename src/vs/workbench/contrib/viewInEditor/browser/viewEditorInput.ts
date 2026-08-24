@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -99,8 +99,26 @@ export function restoreViewEditorInputToOriginalLocation(
 		return;
 	}
 
-	const targetLocation = input.originalLocation ?? ViewContainerLocation.Panel;
 	const currentLocation = viewDescriptorService.getViewLocationById(input.viewId);
+	// 归位语义："从哪个区域拖出独立窗口，关闭窗口就回到哪个区域"。
+	//
+	// 区分两条拖出窗口路径：
+	// 1) 从 Panel/Aux 直接拖出窗口（compositeBar.ts）：input 保留
+	//    `originalContainerId` / `originalLocation`（指向原栏）。关窗时视图虽已被
+	//    move 进 Editor 区，但仍应归位回原栏 → 用 `originalLocation`。
+	// 2) 先拖入 Editor 区、再从 Editor 拖出窗口：辅助窗口关闭时 VS Code 会用一份
+	//    **重建**的 ViewEditorInput（`originalContainerId` 为 undefined，因为该字段
+	//    是运行时构造参数、不随序列化传递）。此时视图确实是从 Editor 拖出的，应
+	//    留在 Editor 区 → 归位目标取 `currentLocation`。
+	//
+	// 判定：当 input 没有有效的 originalContainerId（即属于路径 2 的重建实例）
+	// 时，归位目标回退到 currentLocation（留在当前所在的 Editor 区）；否则用
+	// originalLocation（回原栏）。
+	const hasOriginalContainer = !!input.originalContainerId;
+	const targetLocation = hasOriginalContainer
+		? (input.originalLocation ?? ViewContainerLocation.Panel)
+		: (currentLocation ?? input.originalLocation ?? ViewContainerLocation.Panel);
+	let movedOutOfEditor = false;
 	if (currentLocation === null || currentLocation !== targetLocation) {
 		// 优先把视图移回它原本所属的容器（保持原栏、原容器分组），
 		// 而不是用 moveViewToLocation（会生成一个新容器并放到最顶部）。
@@ -112,6 +130,7 @@ export function restoreViewEditorInputToOriginalLocation(
 		} else {
 			viewDescriptorService.moveViewToLocation(descriptor, targetLocation, 'restore-view-editor');
 		}
+		movedOutOfEditor = true;
 	}
 
 	// 恢复容器内的原始顺序位置。moveViewsToContainer 默认把视图 Append 到
@@ -119,8 +138,15 @@ export function restoreViewEditorInputToOriginalLocation(
 	// 关闭窗口归位后会跑到容器顶部。这里用 originalIndex 把视图插回原位。
 	restoreViewIndex(input, viewDescriptorService);
 
-	// 关闭承载该视图的 editor tab，避免主窗口 editor 区残留副本。
-	closeEditor?.();
+	// 仅当视图确实被移出了 Editor 区（回到原栏）时才关闭承载它的 editor tab，
+	// 避免主窗口 editor 区残留副本。
+	// 若视图本就留在 Editor 区（例如"先从 Editor 拖出窗口、关窗应回 Editor"的
+	// 路径：targetLocation === currentLocation === Editor，未触发上面的 move），
+	// 则**不能**关闭 editor tab——否则没有 editor 承载该视图，它会直接"消失"。
+	// 此时由辅助窗口关闭时的 mergeGroupsToMainPart 把 editor 搬回主窗口继续承载。
+	if (movedOutOfEditor) {
+		closeEditor?.();
+	}
 }
 
 /**

@@ -569,7 +569,7 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					this.pendingSinglePaneDrop = undefined;
 					overlay?.dispose();
 					overlay = undefined;
-				if (pending) {
+					if (pending) {
 					if (pending.type === 'composite') {
 							const container = this.viewDescriptorService.getViewContainerById(pending.id)!;
 							const sameLocation = this.viewDescriptorService.getViewContainerLocation(container) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
@@ -770,7 +770,8 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	 */
 	protected get isSinglePaneContainer(): boolean {
 		const location = this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
-		return location === ViewContainerLocation.Panel;
+		const result = location === ViewContainerLocation.Panel;
+		return result;
 	}
 
 
