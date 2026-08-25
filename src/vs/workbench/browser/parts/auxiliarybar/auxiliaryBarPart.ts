@@ -291,13 +291,10 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 
 		container.style.color = this.getColor(SIDE_BAR_FOREGROUND) || '';
 
-		container.style.borderLeftColor = borderColor ?? '';
 		container.style.borderRightColor = borderColor ?? '';
 
-		container.style.borderLeftStyle = borderColor && !isPositionLeft ? 'solid' : 'none';
 		container.style.borderRightStyle = borderColor && isPositionLeft ? 'solid' : 'none';
 
-		container.style.borderLeftWidth = borderColor && !isPositionLeft ? borderWidth : '0px';
 		container.style.borderRightWidth = borderColor && isPositionLeft ? borderWidth : '0px';
 	}
 

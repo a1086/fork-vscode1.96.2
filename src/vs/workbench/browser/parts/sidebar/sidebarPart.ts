@@ -146,9 +146,6 @@ export class SidebarPart extends AbstractPaneCompositePart {
 		const borderColor = spacingColor || this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder);
 		const borderWidth = spacingColor ? `${PART_SPACING_SIZE}px` : (borderColor ? '1px' : '');
 		const isPositionLeft = this.layoutService.getSideBarPosition() === SideBarPosition.LEFT;
-		container.style.borderRightWidth = borderColor && isPositionLeft ? borderWidth : '';
-		container.style.borderRightStyle = borderColor && isPositionLeft ? 'solid' : '';
-		container.style.borderRightColor = isPositionLeft ? borderColor || '' : '';
 		container.style.borderLeftWidth = borderColor && !isPositionLeft ? borderWidth : '';
 		container.style.borderLeftStyle = borderColor && !isPositionLeft ? 'solid' : '';
 		container.style.borderLeftColor = !isPositionLeft ? borderColor || '' : '';
