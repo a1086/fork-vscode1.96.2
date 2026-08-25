@@ -16,6 +16,7 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService, IViewDescriptor, ViewContainerLocation } from '../../../common/views.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
 import { ViewEditorInput, restoreViewEditorInputToOriginalLocation } from './viewEditorInput.js';
@@ -34,6 +35,7 @@ export class ViewEditorPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
+		@IViewsService private readonly viewsService: IViewsService,
 	) {
 		super(ViewEditorPane.ID, group, telemetryService, themeService, storageService);
 		this.container = document.createElement('div');
@@ -63,57 +65,59 @@ export class ViewEditorPane extends EditorPane {
 			throw new Error('No view descriptor found for view id: ' + input.viewId);
 		}
 
-		// 视图必须归属于某个 container 才能被承载。reload 后 `deserialize` 兜底的
-		// `moveViewToLocation(..., Editor)` 是异步的，可能在 `setInput` 这一同步点
-		// 还没把视图挂回 Editor container，导致此处短暂为 undefined。等一拍让
-		// move 完成后再取一次，避免误报 "No view container found"。
-		let viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
-		if (!viewContainer) {
-			await timeout(50);
-			viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
-		}
+		// 视图必须归属于某个 container 才能被承载。`openInAuxiliaryWindow` 在
+		// `openEditor` 之后才 `await moveViewToLocation(..., Editor)`，而 `setInput`
+		// 由 `openEditor` 内部并发触发。等一拍让 move 完成（原生 editor 区 viewlet
+		// 创建好 pane 并注册命令），再取 container 与原生 pane 实例，避免 self-new
+		// 造成命令重复注册。
+		await timeout(50);
+		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(input.viewId);
 		if (!viewContainer) {
 			throw new Error('No view container found for view id: ' + input.viewId);
 		}
 
 		const paneTitle = descriptor.name?.value ?? descriptor.id;
-		let pane: ViewPane;
-		try {
-			pane = this.instantiationService.createInstance(
-				descriptor.ctorDescriptor.ctor,
-				...(descriptor.ctorDescriptor.staticArguments || []),
-				{
-					...descriptor,
-					id: descriptor.id,
-					// `ViewPane` reads its header title from `options.title` (not `options.name`).
-					// `descriptor.name` is an `ILocalizedString`; forwarding it directly would put
-					// the object into `Pane._title` and the header `<h3>` would render the string
-					// `"UNDEFINED"` (or `"[object Object]"`). Pass the localized value, and fall
-					// back to the view id so the header never shows `UNDEFINED`.
-					title: paneTitle,
-					container: viewContainer,
-					viewContainerLocation: ViewContainerLocation.Editor,
-					canToggleVisibility: false,
-					overrideAriaLabel: paneTitle,
-					overrideAriaDescription: paneTitle,
-				}
-			) as ViewPane;
-		} catch (error) {
-			// Some views (e.g. the Explorer) are tightly coupled to their side-bar
-			// container and cannot be hosted inside the editor area / an auxiliary
-			// window. Fail soft: do not let a single unsupported view crash the
-			// whole floating window.
-			throw new Error(`View "${input.viewId}" cannot be opened in a floating window: ${error}`);
+
+		// 优先复用原生视图系统里已存在的 pane 实例（由 `moveViewToLocation(Editor)`
+		// 触发 editor 区 viewlet 创建）。部分视图（如 Timeline）会在实例构造函数里向
+		// 全局 `CommandsRegistry` 注册命令；若这里再 self-new 一个实例，就会触发
+		// "Cannot register two commands with the same id" 而白屏。复用同一实例可避免
+		// 重复注册，且保证视图只被渲染一次。
+		let pane: ViewPane | undefined = this.viewsService.getViewWithId<ViewPane>(input.viewId) ?? undefined;
+
+		// 复用原生 pane 时，该实例归位时由原生 viewlet 销毁，本 pane 不拥有它。
+		this._ownsPane = !pane;
+
+		if (!pane) {
+			try {
+				pane = this.instantiationService.createInstance(
+					descriptor.ctorDescriptor.ctor,
+					...(descriptor.ctorDescriptor.staticArguments || []),
+					{
+						...descriptor,
+						id: descriptor.id,
+						title: paneTitle,
+						container: viewContainer,
+						viewContainerLocation: ViewContainerLocation.Editor,
+						canToggleVisibility: false,
+						overrideAriaLabel: paneTitle,
+						overrideAriaDescription: paneTitle,
+					}
+				) as ViewPane;
+			} catch (error) {
+				throw new Error(`View "${input.viewId}" cannot be opened in a floating window: ${error}`);
+			}
+
+			try {
+				pane.render();
+			} catch (error) {
+				throw new Error(`View "${input.viewId}" failed to render in floating window: ${error}`);
+			}
 		}
 
 		// Panel views default to HORIZONTAL orientation; force vertical in the editor area.
 		pane.orientation = Orientation.VERTICAL;
 
-		try {
-			pane.render();
-		} catch (error) {
-			throw new Error(`View "${input.viewId}" failed to render in floating window: ${error}`);
-		}
 		this.container.appendChild(pane.element);
 		this._editorView = pane;
 		this.layoutPane(pane);
@@ -133,6 +137,12 @@ export class ViewEditorPane extends EditorPane {
 	 * leaving the view both in the panel and in the editor area.
 	 */
 	private _restored = false;
+
+	// 标记当前 `_editorView` 是否由本 pane 自己 new 出来（需自行 dispose）。
+	// 若为 false，说明是复用原生视图系统的 pane 实例（由 `moveViewToLocation`
+	// 触发的 editor 区 viewlet 创建），归位时由原生 viewlet 负责销毁，本 pane
+	// 不可 dispose 它，否则会破坏归位后原栏里那个唯一的视图实例。
+	private _ownsPane = false;
 
 	private registerReverseDrag(input: ViewEditorInput, descriptor: IViewDescriptor, pane: ViewPane): void {
 		const draggableProvider = () => ({ type: 'view' as const, id: input.viewId });
@@ -227,7 +237,12 @@ export class ViewEditorPane extends EditorPane {
 
 	private disposePane(): void {
 		if (this._editorView) {
-			this._editorView.dispose();
+			this.container.replaceChildren();
+			// 复用的原生 pane 实例归位时由原生 viewlet 负责销毁，这里不能 dispose，
+			// 否则会破坏归位后原栏里那个唯一的视图实例（表现为"回到原栏但不可用"）。
+			if (this._ownsPane) {
+				this._editorView.dispose();
+			}
 			this._editorView = undefined;
 		}
 	}

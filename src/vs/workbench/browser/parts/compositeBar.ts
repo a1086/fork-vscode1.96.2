@@ -355,20 +355,6 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				return;
 			}
 
-			// 只对来源于 Panel / Auxiliary Bar 的视图开窗。Side Bar（如 Explorer 资源
-			// 管理器）和 Editor 区的视图走各自的原生链路（Side Bar 视图由
-			// `editorPart.ts` 的拖入 editor 区逻辑承载，Editor 区视图已在编辑器内）。
-			// 关键：Explorer 等 Side Bar 视图强耦合其侧边栏容器与 `ExplorerService`，
-			// 一旦被 `moveViewToLocation(Editor)` 并塞进 `ViewEditorPane`，
-			// `ExplorerService.refresh()` 会在 `findProvider` 尚未初始化时访问它，
-			// 抛出 "Cannot read properties of undefined (reading 'isShowingFilterResults')"
-			// （即截图中的报错），导致浮动窗口白屏。因此这里直接跳过非
-			// Panel / AuxiliaryBar 的视图，避免崩溃。
-			const sourceLocation = this.viewDescriptorService.getViewLocationById(descriptor.id);
-			if (sourceLocation !== ViewContainerLocation.Panel && sourceLocation !== ViewContainerLocation.AuxiliaryBar) {
-				return;
-			}
-
 			// 取当前光标屏幕坐标作为新窗口 bounds（参照 editorTabsControl#maybeCreateAuxiliaryEditorPartAt）。
 			const screenPoint = await this.hostService.getCursorScreenPoint();
 
