@@ -196,6 +196,13 @@
 	height: 100%;
 }
 
+.monaco-workbench .part.editor > .content .monaco-split-view2.horizontal > .monaco-scrollable-element > .split-view-container > .split-view-view:not(:first-child) .pane-header {
+	margin-left: 4px;
+}
+.monaco-workbench .part.editor > .content .monaco-split-view2.horizontal > .monaco-scrollable-element > .split-view-container > .split-view-view:not(:first-child) .pane-body {
+	margin-left: 4px;
+}
+
 /* 4px gap between editor groups/views that shows the editor background color.
 	 * The gap is rendered by the split-view separator line colored to match the editor background. */
 .monaco-workbench .part.editor > .content .monaco-split-view2.separator-border.horizontal > .monaco-scrollable-element > .split-view-container > .split-view-view:not(:first-child)::before {
