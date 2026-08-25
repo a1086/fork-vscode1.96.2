@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../base/common/event.js';
-import { assertIsDefined } from '../../../base/common/types.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { IProgressIndicator } from '../../../platform/progress/common/progress.js';
@@ -47,15 +46,18 @@ export class PaneCompositePartService extends Disposable implements IPaneComposi
 	}
 
 	openPaneComposite(id: string | undefined, viewContainerLocation: ViewContainerLocation, focus?: boolean): Promise<IPaneComposite | undefined> {
-		return this.getPartByLocation(viewContainerLocation).openPaneComposite(id, focus);
+		return this.getPartByLocation(viewContainerLocation)?.openPaneComposite(id, focus) ?? Promise.resolve(undefined);
 	}
 
 	getActivePaneComposite(viewContainerLocation: ViewContainerLocation): IPaneComposite | undefined {
-		return this.getPartByLocation(viewContainerLocation).getActivePaneComposite();
+		return this.getPartByLocation(viewContainerLocation)?.getActivePaneComposite();
 	}
 
 	getActivePaneCompositeForContainer(id: string, viewContainerLocation: ViewContainerLocation): IPaneComposite | undefined {
 		const part = this.getPartByLocation(viewContainerLocation);
+		if (!part) {
+			return undefined;
+		}
 		// The dual-panel layout backs `Panel` with two independent side parts.
 		// Ask the concrete part (which knows about its sides) to resolve the id
 		// so a view shown on the non-focused side is still found.
@@ -68,37 +70,41 @@ export class PaneCompositePartService extends Disposable implements IPaneComposi
 	}
 
 	getPaneComposite(id: string, viewContainerLocation: ViewContainerLocation): PaneCompositeDescriptor | undefined {
-		return this.getPartByLocation(viewContainerLocation).getPaneComposite(id);
+		return this.getPartByLocation(viewContainerLocation)?.getPaneComposite(id);
 	}
 
 	getPaneComposites(viewContainerLocation: ViewContainerLocation): PaneCompositeDescriptor[] {
-		return this.getPartByLocation(viewContainerLocation).getPaneComposites();
+		return this.getPartByLocation(viewContainerLocation)?.getPaneComposites() ?? [];
 	}
 
 	getPinnedPaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[] {
-		return this.getPartByLocation(viewContainerLocation).getPinnedPaneCompositeIds();
+		return this.getPartByLocation(viewContainerLocation)?.getPinnedPaneCompositeIds() ?? [];
 	}
 
 	getVisiblePaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[] {
-		return this.getPartByLocation(viewContainerLocation).getVisiblePaneCompositeIds();
+		return this.getPartByLocation(viewContainerLocation)?.getVisiblePaneCompositeIds() ?? [];
 	}
 
 	getPaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[] {
-		return this.getPartByLocation(viewContainerLocation).getPaneCompositeIds();
+		return this.getPartByLocation(viewContainerLocation)?.getPaneCompositeIds() ?? [];
 	}
 
 	getProgressIndicator(id: string, viewContainerLocation: ViewContainerLocation): IProgressIndicator | undefined {
-		return this.getPartByLocation(viewContainerLocation).getProgressIndicator(id);
+		return this.getPartByLocation(viewContainerLocation)?.getProgressIndicator(id);
 	}
 
 	hideActivePaneComposite(viewContainerLocation: ViewContainerLocation): void {
-		this.getPartByLocation(viewContainerLocation).hideActivePaneComposite();
+		this.getPartByLocation(viewContainerLocation)?.hideActivePaneComposite();
 	}
 
 	hidePaneComposite(id: string, viewContainerLocation: ViewContainerLocation): void {
-		const part = this.getPartByLocation(viewContainerLocation) as IPaneCompositePart & { hidePaneComposite?: (id: string) => void };
-		if (typeof part.hidePaneComposite === 'function') {
-			part.hidePaneComposite(id);
+		const part = this.getPartByLocation(viewContainerLocation);
+		if (!part) {
+			return;
+		}
+		const hideFn = (part as IPaneCompositePart & { hidePaneComposite?: (id: string) => void }).hidePaneComposite;
+		if (typeof hideFn === 'function') {
+			hideFn.call(part, id);
 		}
 	}
 
@@ -134,11 +140,17 @@ export class PaneCompositePartService extends Disposable implements IPaneComposi
 
 
 	getLastActivePaneCompositeId(viewContainerLocation: ViewContainerLocation): string {
-		return this.getPartByLocation(viewContainerLocation).getLastActivePaneCompositeId();
+		return this.getPartByLocation(viewContainerLocation)?.getLastActivePaneCompositeId() ?? '';
 	}
 
-	private getPartByLocation(viewContainerLocation: ViewContainerLocation): IPaneCompositePart {
-		return assertIsDefined(this.paneCompositeParts.get(viewContainerLocation));
+	/**
+	 * Returns the part backing the given location, or `undefined` when the
+	 * location has no part (e.g. `ViewContainerLocation.Editor`, which is hosted
+	 * by the editor service rather than a pane composite part). Callers must
+	 * handle the `undefined` case instead of assuming a part always exists.
+	 */
+	private getPartByLocation(viewContainerLocation: ViewContainerLocation): IPaneCompositePart | undefined {
+		return this.paneCompositeParts.get(viewContainerLocation);
 	}
 
 }

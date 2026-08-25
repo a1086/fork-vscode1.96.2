@@ -298,12 +298,33 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	// `openView` -> `_initializeTerminal` long after the view had settled.
 	private readonly ensureFirstViewWorkingSubscriptions = this._register(new DisposableStore());
 
+	// Re-entrancy guard: `panelPart.ts` registers `ensureFirstViewWorking()` as a
+	// `onDidPaneCompositeOpen` listener, which fires *synchronously* inside
+	// `compositePart.doOpenComposite()`. When this method then takes the `NO`
+	// branch (no active composite) it calls `openPaneComposite` itself, whose
+	// `onDidPaneCompositeOpen` fire synchronously re-enters this method — and
+	// because the new composite is still being constructed the `NO` branch
+	// fires again, opening yet another composite, ad infinitum, until
+	// `Maximum call stack size exceeded`. The guard short-circuits any re-entrant
+	// call from the same call stack; the outer call's subscriptions + scheduler
+	// will retry naturally once the async open completes.
+	private _isEnsuringFirstView = false;
 	ensureFirstViewWorking(): void {
-		const composite = this.getActivePaneComposite() as PaneComposite | undefined;
-		const viewPaneContainer = composite?.getViewPaneContainer();
-		if (!viewPaneContainer || !composite) {
+		if (this._isEnsuringFirstView) {
 			return;
 		}
+		this._isEnsuringFirstView = true;
+		try {
+			const composite = this.getActivePaneComposite() as PaneComposite | undefined;
+			const viewPaneContainer = composite?.getViewPaneContainer();
+			if (!viewPaneContainer || !composite) {
+				console.error('NO');
+				const firstId = this.getPinnedPaneCompositeIds()[0];
+				if (firstId) {
+					void this.openPaneComposite(firstId, false, true);
+				}
+				return;
+			}
 		// `viewContainerModel` 是 ViewPaneContainer 的 protected 字段，外部不可直接
 		// 访问；这里改用公开的 IViewDescriptorService.getViewContainerModel 拿到同一
 		// 个 model 实例（按 container id 查）。
@@ -391,38 +412,79 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// 4) 覆盖竞态的关键：视图列表在扩展就绪 / 视图被创建后会再变，对应那次
 		//    `updateViewHeaders` 可能把首视图折回。用一次性 scheduler 合并连续变化，
 		//    在"最终态"再补一次 `openView`，确保首视图最终稳定在工作状态。
+		//
+		// 重要：`openFirst` 内 `getView(...)` 返回 `undefined` 时（即 pane 还没建
+		// 出来）旧实现会无脑 `openFirstScheduler.schedule()` 再试，下一 tick 又
+		// `NP` 又 schedule……导致 `console.error('NP')` 被狂刷几千次并最终撑爆
+		// 调用栈。修正：
+		//   (a) 给重试加一个硬上限 `MAX_OPEN_FIRST_RETRIES`，超过即放弃并打
+		//       `console.warn`，让监听器自然清理；
+		//   (b) `onDidChangeActiveViewDescriptors` 必须先确认 `firstDescriptor`
+		//       仍属于本容器且 pane 已存在才 schedule，避免描述符变更（拖拽
+		//       移走首视图 / 容器被切走）时无止境地重试一个不存在的 pane。
+		//   (c) `onDidChangeVisibility` 不要再同时 `openFirst()` + `schedule()`，
+		//       选其一即可——`schedule()` 会在下一 tick 调 `openFirst()`，且
+		//       `openFirst` 自身在容器不可见时（`IV` 分支）会再 schedule，所以
+		//       同步调一次已经足够。
+		const MAX_OPEN_FIRST_RETRIES = 20;
+		let openFirstRetries = 0;
 		const openFirstScheduler = new RunOnceScheduler(() => openFirst(), 0);
 		this.ensureFirstViewWorkingSubscriptions.add(openFirstScheduler);
 
 		const openFirst = () => {
-			// 容器尚未可见时展开无意义（body 不会渲染），等它可见再补。
-			if (!viewPaneContainer.isVisible()) {
-				return;
-			}
 			const pane = viewPaneContainer.getView(firstDescriptor.id);
 			if (!pane) {
+				if (++openFirstRetries > MAX_OPEN_FIRST_RETRIES) {
+					console.warn(`[panelSidePart] give up expanding first view '${firstDescriptor.id}': pane never appeared after ${MAX_OPEN_FIRST_RETRIES} retries`);
+					return;
+				}
+				console.error('NP');
+				openFirstScheduler.schedule();
 				return;
 			}
-		// 对当前已存在的 pane 挂一次监听，覆盖"启动时 OUTPUT 已存在但一直折叠"的情况。
 		watchPaneBody(pane);
-		// 已是工作状态则无需任何操作，避免无谓的 body 重渲染/闪烁。
-		// 关键修复：仅看 pane 的 isVisible/isExpanded 不可靠——容器被"切换激活"
-		// （而非首次打开）时，pane 的同步状态可能领先于 body 的真实渲染，导致
-		// 内容区仍显示 "Drag a view here" 占位符。因此必须同时确认该视图在容器
-		// model 层面也处于可见（isVisible(id)），两者都为真才跳过；否则强制
-		// composite.openView 真正把 body 渲染出来。
-		const modelVisible = viewContainerModel.isVisible(firstDescriptor.id);
-		if (pane.isVisible() && pane.isExpanded() && modelVisible) {
+		// 首次加载 / 刷新时，即使 pane 状态看起来已展开，容器 body 也可能因
+		// "切换激活"而非首次打开的渲染竞态未真正渲染（停在 "Drag a view here"）。
+		// 因此不再依赖 pane 状态判断跳过，统一强制 composite.openView 把首视图
+		// 置为工作状态——openView 对已展开视图幂等，不会引起闪烁。
+		if (viewPaneContainer.isVisible() === false) {
+			if (++openFirstRetries > MAX_OPEN_FIRST_RETRIES) {
+				console.warn(`[panelSidePart] give up expanding first view '${firstDescriptor.id}': container never became visible after ${MAX_OPEN_FIRST_RETRIES} retries`);
+				return;
+			}
+			console.error('IV');
+			openFirstScheduler.schedule();
 			return;
 		}
-			composite.openView(firstDescriptor.id, false);
+		// 成功路径：重置重试计数（容器后续被切走再切回时能重新进入重试循环）。
+		openFirstRetries = 0;
+		composite.openView(firstDescriptor.id, false);
+		console.error('OV');
 		};
 
 		// 先立即尝试一次（容器此刻已可见时直接展开）。
 		openFirst();
+		// 确定性兜底：拖拽后刷新时 Panel 可能本就可见，导致 openFirst 此刻因
+		// 容器不可见直接 return 且 onDidChangeVisibility 不再 fire；用 scheduler
+		// 在下一 tick 保证再补一次展开，彻底消除 "Drag a view here" 偶现。
+		console.error('EV');
+		openFirstScheduler.schedule();
 
 		this.ensureFirstViewWorkingSubscriptions.add(viewContainerModel.onDidChangeActiveViewDescriptors(() => {
-			openFirstScheduler.schedule();
+			// 仅当本容器当前就是本 side 激活的容器、且首视图仍属于本容器、且
+			// pane 已存在时再 schedule：拖拽把首视图移走后 `firstDescriptor`
+			// 不再在视图列表中，重复 schedule 一个已不存在的 pane 只会无意义
+			// 地把 `openFirstRetries` 顶到上限并打满 NP 日志。pane 创建由
+			// `onDidAddVisibleViewDescriptors` 负责。
+			if (this.getActivePaneComposite() !== composite) {
+				return;
+			}
+			if (!viewContainerModel.allViewDescriptors.some(d => d.id === firstDescriptor.id)) {
+				return;
+			}
+			if (viewPaneContainer.getView(firstDescriptor.id)) {
+				openFirstScheduler.schedule();
+			}
 		}));
 		// `setVisible(true)` 触发的是 `onDidAddVisibleViewDescriptors` 而不是
 		// `onDidChangeActiveViewDescriptors`。首视图之前被隐藏时，上面的立即
@@ -446,15 +508,19 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			}
 		}));
 
-		// 5) 兜底：若容器此刻尚未可见（罕见，例如 Panel 整体还没 laid out），等它变
-		//    可见的那一拍补齐，保证 body 真正渲染出来。
-		if (!viewPaneContainer.isVisible()) {
-			this.ensureFirstViewWorkingSubscriptions.add(viewPaneContainer.onDidChangeVisibility(visible => {
-				if (visible) {
-					openFirst();
-					openFirstScheduler.schedule();
-				}
-			}));
+		this.ensureFirstViewWorkingSubscriptions.add(viewPaneContainer.onDidChangeVisibility(visible => {
+			if (visible) {
+				// 旧实现同时 `openFirst()` + `schedule()`，导致同一 tick 内
+				// openFirst 走 NP/IV 分支后再次 schedule，等价于双倍触发。现
+				// 统一只 schedule 一次，scheduler 下一 tick 会调 `openFirst()`。
+				openFirstScheduler.schedule();
+			}
+		}));
+		} finally {
+			// Always release the re-entrancy guard, even on the NO/early-return
+			// paths, so future invocations (open, restore, relayoutSides, drag
+			// move) can still run.
+			this._isEnsuringFirstView = false;
 		}
 	}
 

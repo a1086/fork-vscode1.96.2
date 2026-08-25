@@ -973,7 +973,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 			if (!this.layoutService.isVisible(Parts.PANEL_PART) && this.lastAutoHideWasEmpty) {
 				console.log('sh');
 				this.layoutService.setPartHidden(false, Parts.PANEL_PART);
-				console.log('sv', this.layoutService.isVisible(Parts.PANEL_PART));
+				console.log('sv');
 			}
 			const target = e.eventData.target as HTMLElement;
 			if (isAncestor(target, this.leftPart.sideElement)) {
@@ -986,23 +986,11 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}));
 		this._register(CompositeDragAndDropObserver.INSTANCE.onDragEnd(() => {
 			this.dragSourceSide = undefined;
-			// 当一次拖拽结束时，任何因拖拽导致侧变空而排队的 "兜底重开" 调度器都应
-			// 被取消。否则拖动视图到 Editor / 辅助栏 / 侧栏 / 独立窗口等"拖出"场景会
-			// 让源侧在拖拽过程中短暂变空，下一帧的 fallback 就会把一个带默认 active
-			// 视图、且此前被记录过的容器（如 Problems、Debug Console）重新打开，表现
-			// 为"明明没打开过、拖拽时却自己冒出来"。
-			//
-			// 拖出后源侧保持为空拖拽目标是预期结果；只有用户用关闭按钮"非拖拽"关闭
-			// 时，才需要保留 fallback 给该侧补一个视图（那种情况不会触发 dragend，
-			// 故不受影响）。
 			this.sideFallbackSchedulers.forEach(scheduler => scheduler.cancel());
-			// 拖拽收尾可能晚于一帧：close 事件（及 fallback 调度）有时在 dragend
-			// 之后才派发。先清掉已排队的调度器（上面），再把标志延迟到下一 tick
-			// 才复位，作为第二道保险，确保这段窗口内的 fallback 同样被拦下。
 			setTimeout(() => {
 				this.isDragInProgress = false;
 				console.log('de');
-				// drag 完全结束后重新检查 Panel 是否已空，若已空则自动隐藏。
+				this.endDragState();
 				if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
 					return;
 				}
@@ -2728,7 +2716,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		} else {
 			const leftActive = this.activeContainerBySide.has('left') || !!this.leftPart.getActivePaneComposite();
 			const rightActive = this.activeContainerBySide.has('right') || !!this.rightPart.getActivePaneComposite();
-			console.log('pa', leftActive, rightActive, !!this.leftPart.getActivePaneComposite(), !!this.rightPart.getActivePaneComposite(), this.activeContainerBySide.has('left'), this.activeContainerBySide.has('right'), this.splitView.length, this.splitPreviewSide, this.isDragInProgress);
+			console.log('pa');
 
 			// An empty side only needs a visible drop target while the user is
 			// actively dragging a view. When no drag is in progress, collapse the
