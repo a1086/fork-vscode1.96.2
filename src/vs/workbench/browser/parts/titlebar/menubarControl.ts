@@ -42,6 +42,7 @@ import { getFlatContextMenuActions } from '../../../../platform/actions/browser/
 import { defaultMenuStyles } from '../../../../platform/theme/browser/defaultStyles.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { ActivityBarPosition } from '../../../services/layout/browser/layoutService.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 
 export type IOpenRecentAction = IAction & { uri: URI; remoteAuthority?: string };
 
@@ -169,7 +170,9 @@ function register8600Submenu(submenu: MenuId, submenuTitle: string, order: numbe
 					title: { value: leaf.title, original: leaf.title }
 				});
 			}
-			run(): void {
+			async run(accessor: ServicesAccessor): Promise<void> {
+				const commandService = accessor.get(ICommandService);
+				await commandService.executeCommand(leaf.commandId);
 			}
 		});
 	}
