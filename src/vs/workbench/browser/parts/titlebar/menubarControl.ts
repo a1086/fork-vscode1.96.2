@@ -106,13 +106,23 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 });
 
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
+	submenu: MenuId.Menubar8600Menu,
+	title: {
+		value: '8600',
+		original: '8600',
+		mnemonicTitle: localize({ key: 'm8600', comment: ['&& denotes a mnemonic'] }, "&&8600")
+	},
+	order: 11
+});
+
+MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	submenu: MenuId.MenubarHelpMenu,
 	title: {
 		value: 'Help',
 		original: 'Help',
 		mnemonicTitle: localize({ key: 'mHelp', comment: ['&& denotes a mnemonic'] }, "&&Help")
 	},
-	order: 8
+	order: 9
 });
 
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
@@ -123,8 +133,80 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 		mnemonicTitle: localize({ key: 'mPreferences', comment: ['&& denotes a mnemonic'] }, "Preferences")
 	},
 	when: IsMacNativeContext,
-	order: 9
+	order: 10
 });
+
+interface I8600Leaf {
+	commandId: string;
+	title: string;
+}
+
+function register8600Submenu(submenu: MenuId, submenuTitle: string, order: number, leaves: I8600Leaf[]): void {
+	MenuRegistry.appendMenuItem(MenuId.Menubar8600Menu, {
+		submenu: submenu,
+		title: {
+			value: submenuTitle,
+			original: submenuTitle,
+			mnemonicTitle: submenuTitle
+		},
+		order
+	});
+
+	for (let i = 0; i < leaves.length; i++) {
+		const leaf = leaves[i];
+		MenuRegistry.appendMenuItem(submenu, {
+			command: {
+				id: leaf.commandId,
+				title: { value: leaf.title, original: leaf.title }
+			},
+			order: i + 1
+		});
+
+		registerAction2(class extends Action2 {
+			constructor() {
+				super({
+					id: leaf.commandId,
+					title: { value: leaf.title, original: leaf.title }
+				});
+			}
+			run(): void {
+			}
+		});
+	}
+}
+
+register8600Submenu(MenuId.Menubar8600SetupToolsMenu, 'Setup Tools', 1, [
+	{ commandId: '8600.setup.levelExplorer', title: 'Level Explorer' },
+	{ commandId: '8600.setup.timingExplorer', title: 'Timing Explorer' },
+	{ commandId: '8600.setup.patternExplorer', title: 'Pattern Explorer' }
+]);
+
+register8600Submenu(MenuId.Menubar8600ExecutionToolsMenu, 'Execution Tools', 2, [
+	{ commandId: '8600.execution.testflowEditor', title: 'Testflow Editor' },
+	{ commandId: '8600.execution.testTableEditor', title: 'Test Table Editor' },
+	{ commandId: '8600.execution.limitEditor', title: 'Limit Editor' },
+	{ commandId: '8600.execution.profileEditor', title: 'Profile Editor' }
+]);
+
+register8600Submenu(MenuId.Menubar8600ResultToolsMenu, 'Result Tools', 3, [
+	{ commandId: '8600.result.siteResult', title: 'Site Result' },
+	{ commandId: '8600.result.datalogReport', title: 'Datalog Report' },
+	{ commandId: '8600.result.resultView', title: 'Result View' }
+]);
+
+register8600Submenu(MenuId.Menubar8600DebugToolsMenu, 'Debug Tools', 4, [
+	{ commandId: '8600.debug.errorMap', title: 'Error Map' },
+	{ commandId: '8600.debug.signalAnalyzer', title: 'Signal Analyzer' },
+	{ commandId: '8600.debug.signalDebug', title: 'Signal Debug' },
+	{ commandId: '8600.debug.waveformScope', title: 'Waveform Scope' },
+	{ commandId: '8600.debug.hardwareDebug', title: 'Hardware Debug' }
+]);
+
+register8600Submenu(MenuId.Menubar8600AnalysisToolsMenu, 'Analysis Tools', 5, [
+	{ commandId: '8600.analysis.resourceProfiler', title: 'Resource Profiler' },
+	{ commandId: '8600.analysis.vectorMemory', title: 'Vector Memory' },
+	{ commandId: '8600.analysis.testTime', title: 'Test Time' }
+]);
 
 export abstract class MenubarControl extends Disposable {
 
@@ -210,13 +292,37 @@ export abstract class MenubarControl extends Disposable {
 		this.menus = {};
 		this.topLevelTitles = {};
 
-		const [, mainMenuActions] = this.mainMenu.getActions()[0];
-		for (const mainMenuAction of mainMenuActions) {
-			if (mainMenuAction instanceof SubmenuItemAction && typeof mainMenuAction.item.title !== 'string') {
-				this.menus[mainMenuAction.item.title.original] = this.mainMenuDisposables.add(this.menuService.createMenu(mainMenuAction.item.submenu, this.contextKeyService, { emitEventsForSubmenuChanges: true }));
-				this.topLevelTitles[mainMenuAction.item.title.original] = mainMenuAction.item.title.mnemonicTitle ?? mainMenuAction.item.title.value;
+		const groups = this.mainMenu.getActions();
+		const collected: typeof this.menus = {};
+		const titles: typeof this.topLevelTitles = {};
+		let lastKey: string | undefined;
+
+		for (const [, actions] of groups) {
+			for (const mainMenuAction of actions) {
+				if (mainMenuAction instanceof SubmenuItemAction && typeof mainMenuAction.item.title !== 'string') {
+					const original = mainMenuAction.item.title.original;
+					if (!collected[original]) {
+						collected[original] = this.mainMenuDisposables.add(this.menuService.createMenu(mainMenuAction.item.submenu, this.contextKeyService, { emitEventsForSubmenuChanges: true }));
+						titles[original] = mainMenuAction.item.title.mnemonicTitle ?? mainMenuAction.item.title.value;
+						if (mainMenuAction.item.submenu === MenuId.Menubar8600Menu) {
+							lastKey = original;
+						}
+					}
+				}
 			}
 		}
+
+		if (lastKey) {
+			const menu = collected[lastKey];
+			const title = titles[lastKey];
+			delete collected[lastKey];
+			delete titles[lastKey];
+			collected[lastKey] = menu;
+			titles[lastKey] = title;
+		}
+
+		this.menus = collected;
+		this.topLevelTitles = titles;
 	}
 
 	protected updateMenubar(): void {
@@ -664,7 +770,11 @@ export class CustomMenubarControl extends MenubarControl {
 			}
 		};
 
-		for (const title of Object.keys(this.topLevelTitles)) {
+		const titleKeys = Object.keys(this.topLevelTitles).filter(t => t !== '8600');
+		if (this.topLevelTitles['8600'] !== undefined) {
+			titleKeys.push('8600');
+		}
+		for (const title of titleKeys) {
 			const menu = this.menus[title];
 			if (firstTime && menu) {
 				this.reinstallDisposables.add(menu.onDidChange(() => {

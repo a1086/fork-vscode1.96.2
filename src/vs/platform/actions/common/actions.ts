@@ -110,6 +110,12 @@ export class MenuId {
 	static readonly MenubarTerminalMenu = new MenuId('MenubarTerminalMenu');
 	static readonly MenubarViewMenu = new MenuId('MenubarViewMenu');
 	static readonly MenubarHomeMenu = new MenuId('MenubarHomeMenu');
+	static readonly Menubar8600Menu = new MenuId('Menubar8600Menu');
+	static readonly Menubar8600SetupToolsMenu = new MenuId('Menubar8600SetupToolsMenu');
+	static readonly Menubar8600ExecutionToolsMenu = new MenuId('Menubar8600ExecutionToolsMenu');
+	static readonly Menubar8600ResultToolsMenu = new MenuId('Menubar8600ResultToolsMenu');
+	static readonly Menubar8600DebugToolsMenu = new MenuId('Menubar8600DebugToolsMenu');
+	static readonly Menubar8600AnalysisToolsMenu = new MenuId('Menubar8600AnalysisToolsMenu');
 	static readonly OpenEditorsContext = new MenuId('OpenEditorsContext');
 	static readonly OpenEditorsContextShare = new MenuId('OpenEditorsContextShare');
 	static readonly ProblemsPanelContext = new MenuId('ProblemsPanelContext');
