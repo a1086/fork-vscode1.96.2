@@ -211,5 +211,9 @@
 	border-left: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
 }
 
+.monaco-workbench .part.panel .panel-split .monaco-sash.vertical {
+	margin-left: calc(var(--vscode-sash-size) / 2);
+}
+
 
 
