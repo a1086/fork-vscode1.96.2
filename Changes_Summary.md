@@ -1147,3 +1147,20 @@ return (this.instantiationService as any).createInstance(
 ### 47.2 验证方式
 - 重新编译后，顶部菜单栏出现「8600」菜单（位于 Help 右侧），展开可见 Setup / Execution / Result / Debug / Analysis Tools 五个子菜单及各自命令项。
 - Panel 双栏布局下，左右分区的竖直分割线位置与滚动条对齐。
+
+---
+
+## 48. 8600 子菜单叶子项改为通过 commandService 执行命令（2026-08-26，commit 5a9c63e5490）
+
+**需求**：第 47 节新增的「8600」菜单（`register8600Submenu`）中，各子菜单的叶子项需要执行对应的命令。原实现叶子 `Action2` 的 `run()` 为空实现，需改为真正通过 `ICommandService` 执行 `leaf.commandId` 对应的命令。
+
+### 48.1 改动文件
+`src/vs/workbench/browser/parts/titlebar/menubarControl.ts`
+- 新增 import：`ServicesAccessor`（来自 `platform/instantiation/common/instantiation.js`）。
+- `register8600Submenu` 中叶子命令的 `Action2` 由 `run(): void` 改为 `async run(accessor: ServicesAccessor): Promise<void>`：
+  - 在 `run` 内通过 `accessor.get(ICommandService)` 取得命令服务；
+  - `await commandService.executeCommand(leaf.commandId)` 执行该叶子项对应的命令。
+
+### 48.2 验证方式
+- 顶部菜单栏「8600」下各子菜单的叶子项点击后，对应命令被正确执行（如 Setup / Execution / Result / Debug / Analysis Tools 下注册的具体命令）。
+- `tsc` 编译通过，`npm run precommit` hygiene 检查通过。
