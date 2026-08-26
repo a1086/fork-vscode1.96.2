@@ -1027,3 +1027,123 @@ return (this.instantiationService as any).createInstance(
 ### 41.2 说明
 - 至此，所有顶层 Part（Activity Bar / Sidebar / Auxiliary Bar / Panel / Editor / Status Bar 等）之间的视觉分隔统一为 margin 间隙方案，取代了早期第 16 节的 transparent border 方案。
 - 本次提交已通过 `npm run precommit` hygiene 检查（0 错误）。
+
+---
+
+## 42. 删除视图拖拽相关调试日志打印（2026-08-21，commit 548528e777f）
+
+**需求**：清理视图拖拽 / 拖出独立窗口 / 编辑器承载视图（viewEditorPane）实现中遗留的 `console.log` / `console.warn` / `console.error` 调试打印，避免污染运行期控制台。
+
+### 42.1 改动文件
+- `src/vs/workbench/browser/layout.ts`（`showPanel` 双栏快照分支里的一条 `console.log` 删除）。
+- `src/vs/workbench/browser/parts/compositeBar.ts`（`openInAuxiliaryWindow` 中 `no descriptor` 的 `console.warn`、`FAILED` 的 `console.error` 改为静默 swallow 注释）。
+- `src/vs/workbench/browser/parts/compositeBarActions.ts`（`onDragStart` 里 `[viewDrag]` 的 `console.log` 删除）。
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`、`viewDragSession.ts`（拖拽会话相关 `console.log` 删除）。
+- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`（创建 / 渲染视图 pane 的多处 `console.log` / `console.error` 删除，失败改为直接 `throw` 带说明的 `Error`）。
+
+### 42.2 验证方式
+- `npm run precommit` / `tsc` 通过，运行期工作台控制台不再出现 `[Layout][show]` / `[viewDrag]` / `[viewEditorPane]` 等调试日志。
+
+---
+
+## 43. 视图拖出独立窗口后的归位与重启恢复逻辑（2026-08-24，commit bc9a2ce98f0）
+
+**需求**：区分「视图从 Panel / Aux 直接拖出独立窗口」与「视图先从 Editor 拖出窗口」两条路径，关闭辅助窗口时分别归位回原栏或保留在 Editor 区，避免视图消失或残留副本；并修复重启恢复后打开编辑器抛出 `No view container found for view id` 的问题，以及 Panel 空态（两侧均无视图）再次展开时误拉起某视图的问题。
+
+### 43.1 核心修复点
+- **归位路径区分**：视图从 Panel / Aux 直接拖出窗口 → 关闭辅助窗口时归位回原栏；视图先从 Editor 拖出窗口 → 关闭时保留在 Editor 区。
+- **移除错误序列化调用**：移除序列化 / 反序列化时错误的 `moveViewToLocation` 调用，修复刷新编辑器后抛出 `No view container found for view id` 的问题。
+- **Panel 空态再展开展示占位区**：Panel 两侧均无视图时自动隐藏，再次展开不再错误地拉起某个视图，改为展示空的「拖放占位区」（drag-and-drop placeholder），对齐 `editorTabsControl` 的开窗判定。
+- **消除栏内跨侧拖拽重复视图**：修正栏内跨侧拖拽产生重复视图的问题，并修正 `compositeBar` 拖出窗口的复合视图（如 Debug）解析与开窗顺序。
+
+### 43.2 改动文件清单
+- `src/vs/workbench/browser/layout.ts`（+40）：空 Panel 重新展开时，若 `panelPart.isShowingEmptyPanel()` 为真则保持空态、展示占位区，不再从 `getLastActivePaneCompositeId` 拉起随机视图。
+- `src/vs/workbench/browser/parts/compositeBar.ts`（+302/-）：复合视图拖出窗口的解析与开窗顺序修正、跨侧拖拽去重。
+- `src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts`（+37）、`editorTabsControl.ts`、`multiEditorTabsControl.ts`（+15）：编辑器区承载视图的拖出 / 归位链路。
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`（+1239/-）、`panelSidePart.ts`（+41）：双栏 Panel 空态、占位区与归位逻辑。
+- `src/vs/workbench/browser/parts/viewDragSession.ts`、`views/viewPaneContainer.ts`、`contrib/viewInEditor/*`（input / pane / contribution）：拖拽会话、视图承载与序列化修正。
+
+### 43.3 验证方式
+- 从 Panel / Aux 直接把视图拖出独立窗口，关闭窗口后视图归位回原栏；先从 Editor 拖出窗口，关闭后视图保留在 Editor 区，不消失、不残留副本。
+- 拖出窗口的视图，重启编辑器后不再抛出 `No view container found for view id`。
+- Panel 拖空后再次展开显示空占位区，不再误拉起某视图。
+
+---
+
+## 44. 修复 Panel 视图为空时应自动隐藏的 bug（2026-08-24，commit eefde95def6）
+
+**需求**：当 Panel 分区里某一侧（side）的最后一个视图被拖走 / 关闭后，Panel 应正确地自动隐藏或回退到另一侧，而不是残留一个空壳或错误地把不相关的视图拉回。
+
+### 44.1 根因与修复
+- **fallback 容器选择错误**：原逻辑用 `getViewContainersByLocation` 全量过滤来挑选「对侧 fallback 容器」，会把未在本 side 打开、或与该 side 共享同一视图的容器也算进来。修复（`panelPart.ts`）：改用 `openedContainersBySide` 记录本 side 真正打开过的容器，过滤掉 `containersShareViewOnSide` 共享视图的容器，并按 `order` 排序取第一个作为 fallback，使关闭最后一个视图时回退到正确的对侧容器。
+- **拖拽结束状态卡死**：跨侧拖拽时 `dragend` 事件不可靠，旧的 `clearSplitPreview` 未能复位 `isDragInProgress`，导致拖拽状态卡在 `true`，残留一个 150px 空占位 Panel。修复：新增 `endDragState()` 统一复位 `isDragInProgress` / `splitPreviewSide` / 移除 `panel-split-preview` 类 / 取消兜底调度 / 调用 `updateSideVisibility()`，在 `drop` 与 `dragend` 两处都调用它。
+
+### 44.2 改动文件
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`（+105/-120）：fallback 容器选择修正、`endDragState()` 新增、`updateSideVisibility` 联动。
+- `src/vs/workbench/browser/parts/panel/panelSidePart.ts`（+12）：配合拖拽结束状态复位。
+
+### 44.3 验证方式
+- 把某 side 的最后一个视图拖走，确认 Panel 正确隐藏或回退到对侧有内容的容器，不残留空壳。
+- 跨侧拖拽后确认 `isDragInProgress` 复位，不再留下 150px 空占位 Panel。
+
+---
+
+## 45. 视图在编辑器、Aux、左 Sidebar 中的样式优化（2026-08-25，commit f24b6ac2688）
+
+**需求**：优化视图在编辑器区、Auxiliary Bar、左侧 Sidebar 中承载时的显示位置与选中样式。
+
+### 45.1 改动文件
+- `src/vs/workbench/browser/parts/editor/media/editorgroupview.css`（+7）：编辑器区水平 `split-view` 中，非首个 `split-view-view` 的 `.pane-header` / `.pane-body` 增加 `margin-left: 4px`，使并列视图之间留出 4px 间隙、对齐编辑器背景色。
+- `src/vs/workbench/contrib/debug/browser/media/repl.css`（+13/-1）：REPL 输入框容器 `.repl-input-wrapper` 改为 `position: relative`；`repl-input-chevron` 去掉 `height: 100%` 改为 flex 居中；`.monaco-editor` 占满剩余空间并垂直居中，修复 repl 输入区在编辑器承载下的布局错位。
+- `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts`（-3）、`sidebar/sidebarPart.ts`（-3）：移除与样式调整相关的冗余逻辑。
+
+### 45.2 验证方式
+- 将视图拖入编辑器区（多视图并列）确认相邻视图间有 4px 间隙。
+- 在编辑器区承载 Debug Console（REPL）时，输入区布局正常、与 chevron 对齐。
+
+---
+
+## 46. 修正视图拖出窗口 / 拖拽归位与 Panel 空态的多处问题（2026-08-25，commit 2d2aabdf40d）
+
+**需求**：在 43 / 44 节基础上，进一步修正视图拖出独立窗口的归位、拖拽归位与 Panel 空态的多处问题，并新增 Timeline 视图的若干交互能力。
+
+### 46.1 核心改动
+- **compositeBar 开窗限制放宽**：移除对非 Panel / AuxiliaryBar 视图开窗的硬限制，允许 Explorer 等侧栏视图以及 Editor 视图走各自原生开窗链路（避免拖出窗口时被错误拦截）。
+- **viewEditorPane 实例复用修正**：区分本 pane 自建与复用原生 pane 实例，归位时不再误 `dispose` 原生实例（修复「回原栏但视图不可用」）；调整 pane 创建与 render 顺序，并补齐异常提示。
+- **paneCompositePartService 空安全**：对可能为 `undefined` 的 part 做空安全处理（`openPaneComposite` / `getActivePaneComposite` / `getActivePaneCompositeForContainer` 用 `?.` 与 `?? Promise.resolve(undefined)` / `return undefined` 兜底）。
+- **Panel 拖拽兜底调度精简**：`panelPart.ts` 统一走 `endDragState`，移除冗余日志与注释。
+- **首个视图确保逻辑去重**：`panelSidePart.ts` 修正「同时 `openFirst()` + `schedule()` 导致双倍触发」的问题，统一只 `schedule` 一次；并在 `finally` 中释放 `_isEnsuringFirstView` 重入守卫，保证后续 open / restore / relayout / 拖拽移动都能再次执行。
+- **Timeline 视图增强**（`contrib/timeline/timelinePane.ts`，+151/-）：新增 follow / unpin 当前编辑器命令与标题栏菜单项；source 过滤器按 provider 变化动态重建。
+
+### 46.2 改动文件清单
+| 文件 | 改动 |
+|------|------|
+| `src/vs/workbench/browser/parts/compositeBar.ts` | -14，放宽开窗限制 |
+| `src/vs/workbench/browser/parts/paneCompositePartService.ts` | +44/-，空安全处理 |
+| `src/vs/workbench/browser/parts/panel/panelPart.ts` | +18/-，拖拽兜底统一 `endDragState` |
+| `src/vs/workbench/browser/parts/panel/panelSidePart.ts` | +120/-，首个视图去重与守卫释放 |
+| `src/vs/workbench/contrib/timeline/browser/timelinePane.ts` | +151/-，follow/unpin 命令与菜单、source 过滤器重建 |
+| `src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts` | +99/-，自建/复用实例区分、归位修正 |
+
+### 46.3 验证方式
+- 将 Explorer / Editor 视图拖出独立窗口，确认走原生开窗链路、关闭后正确归位。
+- 视图从编辑器归位回原栏后确认仍可用（原生实例未被误 dispose）。
+- Timeline 视图标题栏出现 follow / unpin 菜单项，source 过滤器随 provider 动态更新。
+
+---
+
+## 47. 新增 8600 菜单 + Panel 左右分区分割线包裹在滚动条内（2026-08-26，commit 814d76b8687）
+
+**需求**：在顶部菜单栏新增「8600」主菜单及其子菜单（Setup Tools / Execution Tools / Result Tools / Debug Tools / Analysis Tools），并把该菜单固定排在右侧（Help 之后）；同时调整 Panel 左右分区的竖直分割线，使其包裹在滚动条内（视觉对齐）。
+
+### 47.1 改动文件
+- `src/vs/platform/actions/common/actions.ts`（+6）：新增 `MenuId.Menubar8600Menu` 及其 5 个子菜单 `MenuId`（SetupTools / ExecutionTools / ResultTools / DebugTools / AnalysisTools）。
+- `src/vs/workbench/browser/parts/titlebar/menubarControl.ts`（+126/-8）：
+  - 在 `MenubarMainMenu` 注册 `Menubar8600Menu`（title `8600`，order 11，置于 Help(9) / Preferences(10) 之后）。
+  - 新增 `register8600Submenu(submenu, title, order, leaves)` 辅助函数，批量注册子菜单与叶子命令（`I8600Leaf[]` 形式的 commandId / title），并为每个叶子命令动态生成 `Action2`。
+  - `updateMenubar`（CustomMenubarControl）中，将 `8600` 菜单键固定排到 `titleKeys` 末尾（始终显示在右侧）。
+- `src/vs/workbench/browser/parts/panel/media/panelpart.css`（+4）：为 `.part.panel .panel-split .monaco-sash.vertical` 增加 `margin-left: calc(var(--vscode-sash-size) / 2)`，使左右分区的竖直分割线视觉上包裹在滚动条内。
+
+### 47.2 验证方式
+- 重新编译后，顶部菜单栏出现「8600」菜单（位于 Help 右侧），展开可见 Setup / Execution / Result / Debug / Analysis Tools 五个子菜单及各自命令项。
+- Panel 双栏布局下，左右分区的竖直分割线位置与滚动条对齐。
