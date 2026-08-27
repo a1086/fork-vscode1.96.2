@@ -1164,3 +1164,23 @@ return (this.instantiationService as any).createInstance(
 ### 48.2 验证方式
 - 顶部菜单栏「8600」下各子菜单的叶子项点击后，对应命令被正确执行（如 Setup / Execution / Result / Debug / Analysis Tools 下注册的具体命令）。
 - `tsc` 编译通过，`npm run precommit` hygiene 检查通过。
+
+---
+
+## 49. Panel 显隐状态持久化，Ctrl+R 后记住上次状态（2026-08-27，332e6f6e2fe）
+
+**需求**：Panel 隐藏/显示后，按 Ctrl+R 重新加载窗口，应保持上一次的操作结果——上次隐藏则仍隐藏，上次显示则仍显示，而不是每次都默认显示。
+
+**问题**：隐藏 Panel 时只隐藏了视图，但 `PanelPart.activePanelSettingsKey`（如 Terminal id）仍保留在 storage 中；同时打开 side view 的路径（`panelSidePart.ts`）会强制把父 Panel 显示出来。于是窗口重新加载后，启动恢复流程依据保留的 active panel id 再次打开 Panel，导致「隐藏」状态无法被记住。
+
+**修复**：
+- `src/vs/workbench/browser/layout.ts`
+  - `setPanelHidden`：把显隐状态写入 workspace storage 键 `panel.lastHidden`；隐藏时额外清除 `PanelPart.activePanelSettingsKey`，避免下次启动自动恢复。保留两字符调试日志 `ph`。
+  - `initLayoutState`：启动时若 `panel.lastHidden` 为 true，强制设置 `PANEL_HIDDEN` 为 true 并清除 active panel 存储。
+  - `restoreParts`：Panel 恢复阶段若 `panel.lastHidden` 为 true，清空待恢复的 panel 并直接返回，保持隐藏。
+- `src/vs/workbench/browser/parts/panel/panelSidePart.ts`
+  - 打开 side view 时，若 `panel.lastHidden` 为 true，则不强制显示父 Panel。
+
+**验证方式**：
+- 隐藏 Panel → 控制台出现 `ph`；Ctrl+R → Panel 保持隐藏，不再出现 `ps`（显示）日志。
+- 显示 Panel → Ctrl+R → Panel 保持显示。
