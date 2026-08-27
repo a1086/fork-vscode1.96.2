@@ -732,7 +732,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		}
 
 		// Panel View Container To Restore
-		if (this.isVisible(Parts.PANEL_PART)) {
+		if (this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE)) {
+			this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, true);
+			this.storageService.remove(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE);
+		} else if (this.isVisible(Parts.PANEL_PART)) {
 			const viewContainerToRestore = this.storageService.get(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE, this.viewDescriptorService.getDefaultViewContainer(ViewContainerLocation.Panel)?.id);
 
 			if (viewContainerToRestore) {
@@ -1078,6 +1081,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			// Restoring views could mean that panel already
 			// restored, as such we need to test again
 			await restoreDefaultViewsPromise;
+			if (this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE)) {
+				this.state.initialization.views.containerToRestore.panel = undefined;
+				return;
+			}
 			if (!this.state.initialization.views.containerToRestore.panel) {
 				return;
 			}
@@ -1943,6 +1950,9 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, hidden);
 
+		this.storageService.store('panel.lastHidden', hidden, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+		console.log('ph');
+
 		const isPanelMaximized = this.isPanelMaximized();
 
 		// Adjust CSS
@@ -1967,6 +1977,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		let focusEditor = false;
 		if (hidden && this.paneCompositeService.getActivePaneComposite(ViewContainerLocation.Panel)) {
 			this.paneCompositeService.hideActivePaneComposite(ViewContainerLocation.Panel);
+			this.storageService.remove(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE);
 			focusEditor = isIOS ? false : true; // Do not auto focus on ios #127832
 		}
 
