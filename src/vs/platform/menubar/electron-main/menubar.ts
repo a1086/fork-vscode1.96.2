@@ -316,11 +316,19 @@ export class Menubar extends Disposable {
 		}
 
 		// View
+		let viewMenuItem: MenuItem | undefined;
 		if (this.shouldDrawMenu('View')) {
 			const viewMenu = new Menu();
-			const viewMenuItem = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'mView', comment: ['&& denotes a mnemonic'] }, "&&View")), submenu: viewMenu });
+			viewMenuItem = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'mView', comment: ['&& denotes a mnemonic'] }, "&&View")), submenu: viewMenu });
 			this.setMenuById(viewMenu, 'View');
 			menubar.append(viewMenuItem);
+		}
+
+		if (this.shouldDrawMenu('8600')) {
+			const m8600 = new Menu();
+			const m8600Item = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'm8600', comment: ['&& denotes a mnemonic'] }, "&&8600")), submenu: m8600 });
+			this.setMenuById(m8600, '8600');
+			menubar.append(m8600Item);
 		}
 
 		// Go

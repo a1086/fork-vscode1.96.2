@@ -113,7 +113,7 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 		original: '8600',
 		mnemonicTitle: localize({ key: 'm8600', comment: ['&& denotes a mnemonic'] }, "&&8600")
 	},
-	order: 11
+	order: 4.5
 });
 
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
@@ -228,6 +228,8 @@ export abstract class MenubarControl extends Disposable {
 
 	protected topLevelTitles: { [menu: string]: string } = {};
 
+	protected menuKeys: string[] = [];
+
 	protected readonly mainMenuDisposables: DisposableStore;
 
 	protected recentlyOpened: IRecentlyOpened = { files: [], workspaces: [] };
@@ -298,7 +300,7 @@ export abstract class MenubarControl extends Disposable {
 		const groups = this.mainMenu.getActions();
 		const collected: typeof this.menus = {};
 		const titles: typeof this.topLevelTitles = {};
-		let lastKey: string | undefined;
+		const order: string[] = [];
 
 		for (const [, actions] of groups) {
 			for (const mainMenuAction of actions) {
@@ -307,25 +309,26 @@ export abstract class MenubarControl extends Disposable {
 					if (!collected[original]) {
 						collected[original] = this.mainMenuDisposables.add(this.menuService.createMenu(mainMenuAction.item.submenu, this.contextKeyService, { emitEventsForSubmenuChanges: true }));
 						titles[original] = mainMenuAction.item.title.mnemonicTitle ?? mainMenuAction.item.title.value;
-						if (mainMenuAction.item.submenu === MenuId.Menubar8600Menu) {
-							lastKey = original;
-						}
+						order.push(original);
 					}
 				}
 			}
 		}
 
-		if (lastKey) {
-			const menu = collected[lastKey];
-			const title = titles[lastKey];
-			delete collected[lastKey];
-			delete titles[lastKey];
-			collected[lastKey] = menu;
-			titles[lastKey] = title;
+		const viewIndex = order.indexOf('View');
+		const existing8600 = order.indexOf('8600');
+		if (existing8600 !== -1) {
+			order.splice(existing8600, 1);
+		}
+		if (viewIndex !== -1) {
+			order.splice(viewIndex + 1, 0, '8600');
+		} else {
+			order.push('8600');
 		}
 
 		this.menus = collected;
 		this.topLevelTitles = titles;
+		this.menuKeys = order;
 	}
 
 	protected updateMenubar(): void {
@@ -773,10 +776,7 @@ export class CustomMenubarControl extends MenubarControl {
 			}
 		};
 
-		const titleKeys = Object.keys(this.topLevelTitles).filter(t => t !== '8600');
-		if (this.topLevelTitles['8600'] !== undefined) {
-			titleKeys.push('8600');
-		}
+		const titleKeys = this.menuKeys;
 		for (const title of titleKeys) {
 			const menu = this.menus[title];
 			if (firstTime && menu) {
