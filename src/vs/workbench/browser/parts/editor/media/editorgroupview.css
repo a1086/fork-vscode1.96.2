@@ -22,6 +22,11 @@
 
 .monaco-workbench .part.editor > .content .editor-group-container.empty  {
 	opacity: 0.5; /* dimmed to indicate inactive state */
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container.empty.active,
@@ -41,9 +46,12 @@
 
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark  {
 	display: flex;
-	height: 100%;
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: 100%;
 	max-width: 290px;
-	margin: auto;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
@@ -56,7 +64,6 @@
 .monaco-workbench .part.editor > .content:not(.empty) .editor-group-container.empty > .editor-group-watermark,
 .monaco-workbench .part.editor > .content.auxiliary .editor-group-container.empty > .editor-group-watermark {
 	max-width: 200px;
-	height: calc(100% - 70px);
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark > .letterpress {
@@ -130,7 +137,7 @@
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container.empty > .editor-group-close-button {
-	display: block;
+	display: none;
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-close-button:hover {
