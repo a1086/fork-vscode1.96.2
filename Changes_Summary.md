@@ -1184,3 +1184,35 @@ return (this.instantiationService as any).createInstance(
 **验证方式**：
 - 隐藏 Panel → 控制台出现 `ph`；Ctrl+R → Panel 保持隐藏，不再出现 `ps`（显示）日志。
 - 显示 Panel → Ctrl+R → Panel 保持显示。
+
+---
+
+## 50. 将「8600」菜单从最右侧移动到「View」之后（2026-08-27，commit acc4d63ea7df9e0ae07938aa3eb95a0403d1ee86）
+
+**需求**：第 47 / 48 节新增的「8600」主菜单原先固定排在菜单栏最右侧（Help 之后，order 11）。本次将其调整为排在「View」菜单之后，使其更贴近常用视图相关操作。
+
+### 50.1 改动文件
+
+**`src/vs/workbench/browser/parts/titlebar/menubarControl.ts`**
+- `MenubarMainMenu` 注册 `8600` 菜单的 `order` 由 `11` 改为 `4.5`（View 为 4，其后即 4.5，Help 为 9、Preferences 为 10）。
+- 新增受保护字段 `menuKeys: string[]`，用于记录顶层菜单的最终排序。
+- `setupMainMenu()` 中收集菜单时不再用 `lastKey` 把 `8600` 单独移到末尾，而是把每个顶层菜单按出现顺序 `push` 进 `order` 数组。收集完成后：
+  - 从 `order` 中移除已有的 `8600`；
+  - 若 `View` 存在（`viewIndex !== -1`），在 `View` 之后插入 `8600`（`order.splice(viewIndex + 1, 0, '8600')`）；否则 `push` 到末尾。
+  - 将排序结果写入 `this.menuKeys`。
+- `CustomMenubarControl.updateMenubar()` 中 `titleKeys` 不再用 `Object.keys(topLevelTitles).filter(... !== '8600')` + 末尾补 `8600` 的旧逻辑，改为直接使用 `this.menuKeys`，保证「8600 紧跟 View」的稳定排序。
+
+**`src/vs/workbench/electron-sandbox/parts/titlebar/menubarControl.ts`**
+- `NativeMenubarControl` 的两处遍历（`setupMainMenu` 订阅 `onDidChange`、`getMenubarMenus` 构建原生菜单数据）由 `Object.keys(this.topLevelTitles)` 改为 `this.menuKeys`，使原生（Electron）菜单栏同样遵循「8600 在 View 之后」的排序。
+
+**`src/vs/platform/menubar/electron-main/menubar.ts`**
+- 在 Electron 主进程菜单构建中，**新增**了 `8600` 菜单的追加逻辑：在「View」菜单之后、`Go` 菜单之前，若 `shouldDrawMenu('8600')` 为真，则创建 `8600` 子菜单并 `menubar.append(m8600Item)`。
+- 为此把原本 `const viewMenuItem` 改为 `let viewMenuItem`，以便在 View 之后插入 8600 菜单项。
+
+### 50.2 说明
+- 此次调整统一了三种菜单渲染路径（自定义标题栏 `CustomMenubarControl`、原生 `NativeMenubarControl`、Electron 主进程 `menubar.ts`）中「8600」菜单位置，均稳定排在「View」之后。
+- 排序逻辑由「硬编码末尾追加」改为「基于 `menuKeys` 显式排序」，更易于后续调整菜单位置。
+
+### 50.3 验证方式
+- 重新编译后，顶部菜单栏的「8600」菜单出现在「View」之后、「Go」之前（而非原先 Help 右侧）。
+- 自定义标题栏与 Electron 原生菜单栏（如 Windows/Linux 原生 menubar）下位置一致。
