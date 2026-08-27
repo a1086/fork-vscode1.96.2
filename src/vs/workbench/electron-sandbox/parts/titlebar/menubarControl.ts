@@ -61,7 +61,7 @@ export class NativeMenubarControl extends MenubarControl {
 	protected override setupMainMenu(): void {
 		super.setupMainMenu();
 
-		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
+		for (const topLevelMenuName of this.menuKeys) {
 			const menu = this.menus[topLevelMenuName];
 			if (menu) {
 				this.mainMenuDisposables.add(menu.onDidChange(() => this.updateMenubar()));
@@ -89,7 +89,7 @@ export class NativeMenubarControl extends MenubarControl {
 		}
 
 		menubarData.keybindings = this.getAdditionalKeybindings();
-		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
+		for (const topLevelMenuName of this.menuKeys) {
 			const menu = this.menus[topLevelMenuName];
 			if (menu) {
 				const menubarMenu: IMenubarMenu = { items: [] };
