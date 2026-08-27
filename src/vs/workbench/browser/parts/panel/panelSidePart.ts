@@ -579,7 +579,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// Otherwise dropping a view onto the panel would unexpectedly blow the
 		// panel up to its maximized width/height (the "drag a panel view and the
 		// panel suddenly becomes widest" bug).
-		if (typeof id === 'string' && !this.layoutService.isVisible(Parts.PANEL_PART)) {
+		if (typeof id === 'string' && !this.layoutService.isVisible(Parts.PANEL_PART) && !this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE)) {
 			this.layoutService.setPartHidden(false, Parts.PANEL_PART, mainWindow, skipMaximizeOnShow);
 		}
 
