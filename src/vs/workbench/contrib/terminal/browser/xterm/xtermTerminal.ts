@@ -767,6 +767,14 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 		this._onDidRequestRefreshDimensions.fire();
 	}
 
+	recycleRenderer(): void {
+		console.log('xr');
+		this._disposeOfWebglRenderer();
+		if (this._shouldLoadWebgl()) {
+			this._enableWebglRenderer();
+		}
+	}
+
 	getXtermTheme(theme?: IColorTheme): ITheme {
 		if (!theme) {
 			theme = this._themeService.getColorTheme();

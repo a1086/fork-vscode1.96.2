@@ -160,6 +160,7 @@ class SplitPaneContainer extends Disposable {
 	}
 
 	layout(width: number, height: number): void {
+		console.log('sl', width, height);
 		this._width = width;
 		this._height = height;
 		if (this.orientation === Orientation.HORIZONTAL) {
@@ -169,6 +170,17 @@ class SplitPaneContainer extends Disposable {
 			this._children.forEach(c => c.orthogonalLayout(width));
 			this._splitView.layout(height);
 		}
+	}
+
+	forceReattachInstances(): void {
+		this._children.forEach(c => {
+			c.instance.detachFromElement();
+			c.instance.attachToElement(c.element);
+		});
+		if (this._width && this._height) {
+			this.layout(this._width, this._height);
+		}
+		this._children.forEach(c => c.instance.xterm?.forceRedraw());
 	}
 
 	setOrientation(orientation: Orientation): void {
@@ -535,6 +547,10 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 				this._groupElement.classList.add('terminal-group');
 			}
 			element.appendChild(this._groupElement);
+			if (this._splitPaneContainer) {
+				this._splitPaneContainer.forceReattachInstances();
+				this.terminalInstances.forEach(i => i.xterm?.forceRedraw());
+			}
 			if (!this._splitPaneContainer) {
 				this._panelPosition = this._layoutService.getPanelPosition();
 				this._terminalLocation = this._viewDescriptorService.getViewLocationById(TERMINAL_VIEW_ID)!;
@@ -649,6 +665,7 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 	}
 
 	layout(width: number, height: number): void {
+		console.log('gl', width, height, !!this._splitPaneContainer, this._splitPaneContainer?.orientation);
 		if (this._splitPaneContainer) {
 			// Check if the panel position changed and rotate panes if so
 			const newPanelPosition = this._layoutService.getPanelPosition();

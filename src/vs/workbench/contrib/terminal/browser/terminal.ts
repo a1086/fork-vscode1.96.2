@@ -536,7 +536,7 @@ export interface ITerminalGroupService extends ITerminalInstanceHost {
 	 * (which fires when the terminal view body becomes visible on a side) keeps
 	 * the live xterm canvas on whatever side currently hosts the view.
 	 */
-	setPrimaryContainer(container: HTMLElement): void;
+	setPrimaryContainer(container: HTMLElement, force?: boolean): void;
 
 	showPanel(focus?: boolean): Promise<void>;
 	hidePanel(): void;
@@ -967,6 +967,11 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	 * Detaches the terminal instance from the terminal editor DOM element.
 	 */
 	detachFromElement(): void;
+
+	/**
+	 * Recreate the xterm terminal, useful when the underlying document has changed.
+	 */
+	recreateXterm(container?: HTMLElement): Promise<void>;
 
 	/**
 	 * Layout the terminal instance.

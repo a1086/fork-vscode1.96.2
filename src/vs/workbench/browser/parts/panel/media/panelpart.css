@@ -237,9 +237,9 @@
  * match it. Using a side-anchored class keeps the dashed drop border visible
  * on the left/right panel while that side is maximized, so the drag hot zone
  * still shows. */
-.monaco-workbench .panel-side.panel-side-drop-preview {
+/* .monaco-workbench .panel-side.panel-side-drop-preview {
 	border: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
-}
+} */
 
 /* When the other (filled) side is maximized, the empty half the user is
  * dropping onto is the remaining bottom-strip side; keep its preview border

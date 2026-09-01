@@ -180,8 +180,16 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	 *
 	 * Idempotent when `container` is already the primary.
 	 */
-	setPrimaryContainer(container: HTMLElement): void {
+	setPrimaryContainer(container: HTMLElement, force?: boolean): void {
 		if (this._primaryContainer === container) {
+			if (!force) {
+				return;
+			}
+			for (const group of this.groups) {
+				group.detachFromContainer(container);
+				group.attachToElement(container, true);
+			}
+			this.updateVisibility();
 			return;
 		}
 
@@ -219,9 +227,18 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 		// `_groupElement` / xterm canvas into it (browsers move, not copy, on
 		// appendChild), so the terminal is now live on the side the user just
 		// dragged it to.
+		const crossDocument = !!oldPrimary && oldPrimary.ownerDocument !== container.ownerDocument;
+		console.log('cd', crossDocument);
 		this._primaryContainer = container;
 		for (const group of this.groups) {
 			group.attachToElement(container, true);
+		}
+		if (crossDocument) {
+			for (const group of this.groups) {
+				for (const instance of group.terminalInstances) {
+					instance.recreateXterm();
+				}
+			}
 		}
 
 		// The new primary may have a brand-new size, so re-apply visibility and
@@ -646,6 +663,11 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 			visible = this._viewsService.isViewVisible(TERMINAL_VIEW_ID);
 		}
 
+		if (!visible && this._primaryContainer?.isConnected) {
+			visible = true;
+		}
+		console.log('uv', location, visible, this._primaryContainer?.isConnected, this.groups.length, this.activeGroupIndex);
+
 		// When there is exactly one group (the overwhelmingly common case: a
 		// single terminal, or the only terminal in a dual-panel side), force it
 		// visible whenever the view is visible. Relying solely on
@@ -663,7 +685,8 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 			this.groups[0].setVisible(visible);
 			return;
 		}
-		this.groups.forEach((g, i) => g.setVisible(visible && i === this.activeGroupIndex));
+		const activeIndex = this.activeGroupIndex >= 0 ? this.activeGroupIndex : 0;
+		this.groups.forEach((g, i) => g.setVisible(visible && i === activeIndex));
 	}
 }
 
