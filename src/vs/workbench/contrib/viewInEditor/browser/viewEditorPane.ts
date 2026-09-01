@@ -17,6 +17,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService, IViewDescriptor, ViewContainerLocation } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { TerminalViewPane } from '../../../contrib/terminal/browser/terminalView.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
 import { ViewEditorInput, restoreViewEditorInputToOriginalLocation } from './viewEditorInput.js';
@@ -121,6 +122,15 @@ export class ViewEditorPane extends EditorPane {
 		this.container.appendChild(pane.element);
 		this._editorView = pane;
 		this.layoutPane(pane);
+
+		if (!this._ownsPane) {
+			pane.setVisible(false);
+			pane.setVisible(true);
+		}
+
+		if (pane instanceof TerminalViewPane) {
+			pane.forceRelocateTerminalContainer();
+		}
 
 		this.registerReverseDrag(input, descriptor, pane);
 

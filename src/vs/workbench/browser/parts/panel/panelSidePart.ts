@@ -7,7 +7,7 @@ import { localize } from '../../../../nls.js';
 import { IAction, Separator, SubmenuAction, toAction } from '../../../../base/common/actions.js';
 import { ActionsOrientation } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { ActivePanelContext, PanelFocusContext, ActivePanelLeftContext, ActivePanelRightContext, PanelLeftFocusContext, PanelRightFocusContext } from '../../../common/contextkeys.js';
-import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWorkbenchLayoutService, Parts, Position, SINGLE_WINDOW_PARTS } from '../../../services/layout/browser/layoutService.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
@@ -318,7 +318,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			const composite = this.getActivePaneComposite() as PaneComposite | undefined;
 			const viewPaneContainer = composite?.getViewPaneContainer();
 			if (!viewPaneContainer || !composite) {
-				console.error('NO');
 				const firstId = this.getPinnedPaneCompositeIds()[0];
 				if (firstId) {
 					void this.openPaneComposite(firstId, false, true);
@@ -403,9 +402,9 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			registeredBodyListeners.add(pane.id);
 			this.ensureFirstViewWorkingSubscriptions.add(pane.onDidChangeBodyVisibility(visible => {
 				// 仅当本 side 仍激活该 composite 时才补展开，避免关闭侧时误触发。
-				if (!visible && this.getActivePaneComposite() === composite) {
-					openFirstScheduler.schedule();
-				}
+			if (!visible && this.getActivePaneComposite() === composite) {
+				openFirstScheduler.schedule();
+			}
 			}));
 		};
 
@@ -438,7 +437,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 					console.warn(`[panelSidePart] give up expanding first view '${firstDescriptor.id}': pane never appeared after ${MAX_OPEN_FIRST_RETRIES} retries`);
 					return;
 				}
-				console.error('NP');
 				openFirstScheduler.schedule();
 				return;
 			}
@@ -452,22 +450,57 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				console.warn(`[panelSidePart] give up expanding first view '${firstDescriptor.id}': container never became visible after ${MAX_OPEN_FIRST_RETRIES} retries`);
 				return;
 			}
-			console.error('IV');
 			openFirstScheduler.schedule();
 			return;
 		}
 		// 成功路径：重置重试计数（容器后续被切走再切回时能重新进入重试循环）。
 		openFirstRetries = 0;
+		// 幂等守卫：首视图已经展开且容器可见时，openView 只会再次 fire
+		// onDidChangeActiveViewDescriptors / onDidChangeVisibility，进而经
+		// onDidPaneCompositeOpen -> ensureFirstViewWorking 再次进入本函数，形成
+		// 自激回环（拖拽过程中高频刷出海量 OF 即此）。已处于工作状态时直接返回，
+		// 本侧容器里剩下的视图，是否每一个都已经在另一侧激活容器中显示了？
+		// 若是，本侧没有"独有"视图，不应重复展开（例如右侧的调试容器在 Call
+		// Stack 被拖到 aux bar 后，只剩已在左侧显示的 DEBUG CONSOLE），应清空本侧。
+		//
+		// 重要：必须放在下面的"幂等 return"之前。否则当本侧首视图恰好已展开时，
+		// 幂等 return 会直接 return，导致 `oc` 永不执行——表现为右侧明明只剩与
+		// 左侧重叠的视图，却仍被当作"有 active 视图"而 `acLR` 后无法收起（DEBUG
+		// CONSOLE 被错误地保留在右侧）。先判定"是否全在另一侧"，命中即清空本侧，
+		// 不再进入展开/幂等分支。
+		const otherPart = this.panelPart.getOtherSidePart(this.side);
+		const otherActiveId = otherPart.getActivePaneComposite()?.getId();
+		const otherModel = otherActiveId ? this.viewDescriptorService.getViewContainerModel(this.viewDescriptorService.getViewContainerById(otherActiveId)!) : undefined;
+		const otherViewIds = new Set(otherModel ? otherModel.allViewDescriptors.map(d => d.id) : []);
+		const allOnOtherSide = viewContainerModel.allViewDescriptors.length > 0
+			&& viewContainerModel.allViewDescriptors.every(d => otherViewIds.has(d.id));
+		if (allOnOtherSide) {
+			console.log('oc' + this.side);
+			if (this.getActivePaneComposite()?.getId() === composite.getId()) {
+				this.clearActivePaneComposite();
+			}
+			this.unpinPaneComposite(composite.getId());
+			this.refreshCompositeBar();
+			return;
+		}
+		// 幂等守卫：首视图已经展开且容器可见时，openView 只会再次 fire
+		// onDidChangeActiveViewDescriptors / onDidChangeVisibility，进而经
+		// onDidPaneCompositeOpen -> ensureFirstViewWorking 再次进入本函数，形成
+		// 自激回环（拖拽过程中高频刷出海量 OF 即此）。已处于工作状态时直接返回，
+		// 不再 openView；仅当首视图被异步 updateViewHeaders 折回（body 可见性变
+		// false）时，onDidChangeBodyVisibility 回调里的 scheduler 仍会补展开。
+		if (pane.isExpanded() && viewPaneContainer.isVisible()) {
+			return;
+		}
+		console.log('ov' + this.side + ':' + firstDescriptor.id);
 		composite.openView(firstDescriptor.id, false);
-		console.error('OV');
-		};
+	};
 
 		// 先立即尝试一次（容器此刻已可见时直接展开）。
 		openFirst();
 		// 确定性兜底：拖拽后刷新时 Panel 可能本就可见，导致 openFirst 此刻因
 		// 容器不可见直接 return 且 onDidChangeVisibility 不再 fire；用 scheduler
 		// 在下一 tick 保证再补一次展开，彻底消除 "Drag a view here" 偶现。
-		console.error('EV');
 		openFirstScheduler.schedule();
 
 		this.ensureFirstViewWorkingSubscriptions.add(viewContainerModel.onDidChangeActiveViewDescriptors(() => {
@@ -483,6 +516,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				return;
 			}
 			if (viewPaneContainer.getView(firstDescriptor.id)) {
+				console.log('AV');
 				openFirstScheduler.schedule();
 			}
 		}));
@@ -525,16 +559,19 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	}
 
 	override async openPaneComposite(id?: string, focus?: boolean, skipMaximizeOnShow?: boolean, skipExclusion?: boolean): Promise<IPaneComposite | undefined> {
+		console.log('PC' + this.side[0] + (skipExclusion ? 's' : 'u') + ':' + id);
 		// 单一容器归属（视图不能同时在左右两个 Panel 中显示）：
-		// 当另一侧已经激活了与 `id` 相同的 container 时，本侧不再打开它，
-		// 直接返回。这能拦住所有"把视图拖回右侧 Panel 后左侧出现副本"的
-		// 路径（例如 drop 走 `_onRequestOpenCompositeForView` 在右侧打开、
-		// 而某兜底/还原逻辑又在左侧对同一 container id 再次 open 的情形），
-		// 避免左侧 Panel 出现同一视图的副本。
+		// 当另一侧已经激活了与 `id` 相同的 container 时，非还原场景下把它
+		// 移动到本侧，确保拖拽/点击等用户操作能正确完成容器换侧；系统还原
+		// 期间保持返回 undefined，避免覆盖另一侧的恢复状态。
 		if (typeof id === 'string') {
 			const otherPart = this.panelPart.getOtherSidePart(this.side);
 			const otherActiveId = otherPart.getActivePaneComposite()?.getId();
 			if (otherActiveId === id) {
+				console.log('oe');
+				if (!skipExclusion) {
+					return this.panelPart.movePaneCompositeToSide(id, this.side);
+				}
 				return undefined;
 			}
 		}
@@ -579,7 +616,12 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// Otherwise dropping a view onto the panel would unexpectedly blow the
 		// panel up to its maximized width/height (the "drag a panel view and the
 		// panel suddenly becomes widest" bug).
-		if (typeof id === 'string' && !this.layoutService.isVisible(Parts.PANEL_PART) && !this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE)) {
+		if (typeof id === 'string' && !this.layoutService.isVisible(Parts.PANEL_PART)) {
+			// 打开一个视图即代表 Panel 不再处于"用户主动隐藏（空态）"，清除该
+			// 标志，否则拖回/归位等场景会因 `panel.lastHidden` 仍为 true 而跳过
+			// 重新显示，导致 Panel 一直隐藏、视图停留在隐藏态。
+			this.storageService.store('panel.lastHidden', false, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+			console.log('sv');
 			this.layoutService.setPartHidden(false, Parts.PANEL_PART, mainWindow, skipMaximizeOnShow);
 		}
 
@@ -615,7 +657,25 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		if (!container) {
 			return false;
 		}
-		return this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors.length > 0;
+		const viewContainerModel = this.viewDescriptorService.getViewContainerModel(container);
+		if (viewContainerModel.allViewDescriptors.length === 0) {
+			return false;
+		}
+		// 本侧容器里的视图若全部已在另一侧显示，则本侧实际上没有"独有"视图
+		// （典型场景：Call Stack 从右侧调试容器拖出后，右侧 DEBUG CONSOLE 容器里
+		// 剩的视图已全部在左侧某 container 中显示）。这种情况应被视为"无 active"，
+		// 让 `autoCollapseEmptySides` 走 `acLr` 自动收起右侧，而不是仍把右侧算作
+		// 有 active 视图而保留。`ensureFirstViewWorking` 里的 `oc` 分支也会真正
+		// 清空本侧（之前它在拖拽过程中不一定被调用）。
+		const otherPart = this.panelPart.getOtherSidePart(this.side);
+		const otherActiveId = otherPart.getActivePaneComposite()?.getId();
+		const otherContainer = otherActiveId ? this.viewDescriptorService.getViewContainerById(otherActiveId) : undefined;
+		const otherModel = otherContainer ? this.viewDescriptorService.getViewContainerModel(otherContainer) : undefined;
+		const otherViewIds = new Set(otherModel ? otherModel.allViewDescriptors.map(d => d.id) : []);
+		const allOnOtherSide = otherViewIds.size > 0 && viewContainerModel.allViewDescriptors.every(d => otherViewIds.has(d.id));
+		const result = !allOnOtherSide;
+		console.log(`[hAV ${this.side}] composite=${composite.getId()} views=[${viewContainerModel.allViewDescriptors.map(d => d.id).join(' | ')}] otherActive=${otherActiveId} otherViews=[${[...otherViewIds].join(' | ')}] allOnOtherSide=${allOnOtherSide} => ${result}`);
+		return result;
 	}
 
 	/**
@@ -720,9 +780,11 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				)
 				: undefined);
 		if (!composite || !viewContainerModel || !viewPaneContainer) {
+			console.log('we');
 			return;
 		}
 		const firstRemaining = viewContainerModel.allViewDescriptors[0];
+		console.log('wf' + this.side + (firstRemaining ? '1' : '0'));
 
 		if (firstRemaining) {
 			// The container still has views. Two sub-cases matter:
@@ -1088,6 +1150,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	 */
 	handleEmptyAreaDrop(e: DragEvent, dragAndDropData: CompositeDragAndDropData): boolean {
 		const dragData = dragAndDropData.getData();
+		console.log('hd' + this.side[0] + dragData.type + ':' + dragData.id);
 
 		if (this.paneCompositeBar.value && dragData.id) {
 			// A bare `view` drag (e.g. dragging the PROBLEMS tab, whose title is
@@ -1097,6 +1160,41 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			const containerId = dragData.type === 'view'
 				? this.viewDescriptorService.getViewContainerByViewId(dragData.id)?.id ?? dragData.id
 				: dragData.id;
+
+			// 拖的是单个 view：必须打开它"自己的容器"，不能交给 bar 的默认 dnd
+			// handler。
+			//
+			// `CompositeDragAndDrop.drop` 对 view 拖拽执行
+			// `moveViewToLocation(view, location)`，未指定目标容器时视图会落进该
+			// location 的**默认容器**，随后打开那个默认容器。实测后果：把 CALL
+			// STACK 拖到右侧空白区，它被塞进 `workbench.panel.testResults`（与
+			// `workbench.panel.testResults.view` 并列），而它本应打开自己的
+			// `workbench.panel.repl`。默认容器由 `getDefaultViewContainer` 决定、
+			// 随环境变化，行为不可预期。
+			//
+			// 这与下方原本存在的 `dragData.type === 'view'` 分支（1206 行）意图
+			// 一致，但那段因 `paneCompositeBar.value` 恒为真而永远到不了。
+			if (dragData.type === 'view') {
+				const viewToMove = this.viewDescriptorService.getViewDescriptorById(dragData.id);
+				if (viewToMove && viewToMove.canMoveView) {
+					if (this.panelPart.releaseOtherSideIfViewOverlap(this.side, containerId)) {
+						// 另一侧与本容器共享 view，已在上面释放，继续在本侧打开。
+					}
+					this.viewDescriptorService.moveViewToLocation(viewToMove, this.location, 'dnd');
+					const newContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id);
+					if (newContainer) {
+						// 跨 location 拖入：清掉另一侧同 id / 共享 view 的 pinned tab。
+						this.panelPart.unpinConflictingContainersOnOtherSide(this.side, newContainer.id);
+						// This open is the side effect of a drag-and-drop, so skip the
+						// panel's auto-maximize-on-show (dropping a view must not blow
+						// the panel to widest).
+						this.openPaneComposite(newContainer.id, true, true).then(composite => {
+							composite?.openView(viewToMove.id, true);
+						});
+						return true;
+					}
+				}
+			}
 
 			// In-location Panel drag (the data id is known). If the dragged
 			// container is already active in the OTHER side of the dual-panel

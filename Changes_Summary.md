@@ -1216,3 +1216,183 @@ return (this.instantiationService as any).createInstance(
 ### 50.3 验证方式
 - 重新编译后，顶部菜单栏的「8600」菜单出现在「View」之后、「Go」之前（而非原先 Help 右侧）。
 - 自定义标题栏与 Electron 原生菜单栏（如 Windows/Linux 原生 menubar）下位置一致。
+
+## 51. Panel 双栏按侧最大化（Maximize 单侧：宽度不变、占满整列高度）
+
+**需求**：Panel 双栏（split）布局下，"Maximize Panel Size" 改为**按侧**生效：最大化某一侧时，该侧宽度保持不变、高度占满编辑器整列（从活动栏/侧栏边界到状态栏），另一侧完全不受影响（宽度、高度、位置均不变）。
+
+### 51.1 核心实现（panelPart.ts）
+
+`src/vs/workbench/browser/parts/panel/panelPart.ts`
+- `isSideMaximized(side)` / `toggleSideMaximized(side)` 重写：仅当处于双栏布局（split 存在）且 Panel 位于底部时按侧最大化；两侧互斥（最大化左侧会先还原右侧）；整个 Panel 的最大化（原 `toggleMaximizedPanel`）优先；经典单栏布局回落为原整体最大化。
+- 新增 `enterSideFullHeight(side)` / `exitSideFullHeight(side)`：
+  - 进入：记录该侧当前宽度（`fullHeightSideWidth`），`splitView.removeView` 把它从水平 split 中摘出，构造 `getMaximizedSideGridView` 适配器（`minimumWidth = maximumWidth = 原宽度` 固定宽、`priority: High`、`toJSON` 名义实现），经 `ILayoutService.addPanelSideFullHeightView` 插入 workbench grid 的 `editorPartView` 左/右整列。
+  - 退出：从 grid 移除并以原宽度插回 split 原索引（left→0 / right→1），恢复原比例。
+- 守卫改造：`relayoutSides`、`updateSideVisibility`、`saveSplitRatio`（最大化期间不保存比例）、`captureLayoutBeforeHide`（隐藏整个 Panel 前先退出全高状态）、`hideSide`、`getSplitTargetSide`、`resolveSideByPosition`（最大化期间禁止拖拽落点）、`layout()`（全高侧不再由 split 布局，注意摘出后剩余侧索引偏移）。
+- 字段：`fullHeightSide`（'left' | 'right' | undefined）、`fullHeightSideWidth`、`fullHeightGridViews`（Map<PanelSide, ISerializableView>）。
+
+### 51.2 layout.ts grid 接入
+
+`src/vs/workbench/browser/layout.ts`
+- `panelSideFullHeightViews = new Set<ISerializableView>()` 跟踪动态插入的视图（替代此前误改 `hasView` 的方案）。
+- `addPanelSideFullHeightView(direction, view, size)`：`workbenchGrid.addView(view, size, editorPartView, Direction.Left/Right)` —— 以编辑器区为参照，在左/右插入整高列；`removePanelSideFullHeightView(view)` 对称移除。
+- 说明：workbench grid 布局持久化走 `createGridDescriptor()`（仅状态键），不会 serialize 运行时 grid，因此动态视图不进存储、重启后最大化状态自然还原为双栏。
+
+### 51.3 命令与菜单（panelActions.ts）
+
+`src/vs/workbench/browser/parts/panel/panelActions.ts`
+- 新增 `workbench.action.toggleMaximizedPanelLeft` / `workbench.action.toggleMaximizedPanelRight`（类别 View），分别以 `PanelLeftMaximizedContext` / `PanelRightMaximizedContext` 作为 toggled 状态。
+- Panel 标题左/右键菜单中移除整体最大化项，替换为上述按侧命令。
+
+### 51.4 样式（panelpart.css）
+
+`src/vs/workbench/browser/parts/panel/media/panelpart.css`
+- 侧栏 DOM 被摘出 `.part.panel` 子树，故将 6 条 `.part.panel .panel-side ...` 选择器放宽为 `.panel-side ...`（侧栏自身类为 `panel-side panel-side-{left|right}`）。
+- 新增全高态样式：`.panel-side-full-height`（列方向 flex 填满）、`.panel-side-full-height-left/right`（以 1px `panel-border` 画与编辑器区分隔线）、全高态下 maximize/restore 图标旋转补偿（原先继承自 `.part.basepanel.left/right` 祖先）。
+- 背景无需处理：`PanelSidePart.updateStyles` 以内联样式应用 `PANEL_BACKGROUND`，与 DOM 位置无关。
+
+### 51.5 其他
+
+- `src/vs/workbench/services/layout/browser/layoutService.ts`：`ILayoutService` 声明两个新方法。
+- `src/vs/workbench/test/browser/workbenchTestServices.ts`：测试服务 no-op 桩。
+
+### 51.6 验证
+
+1. `watch-client` 增量编译 0 errors（修复过一处 `ISerializableView` 缺 `toJSON` 的编译错误）。
+2. 双栏布局下分别最大化左/右侧：宽度不变、占满整列高度，另一侧完全不动。
+3. 两侧互斥：最大化左侧后直接最大化右侧，左侧先还原。
+4. 最大化期间隐藏整个 Panel 再恢复（`captureLayoutBeforeHide` 路径）不残留全高列。
+5. 重启后最大化状态不保留（设计使然），双栏按原比例恢复。
+
+
+## 52. 按侧最大化三项缺陷修复（列高不满 / 另一侧宽度被改 / 还原图标错误）
+
+**缺陷现象**：① 最大化的一侧没有占满整列高度，只到面板条上沿（新列实际在中间列内部，面板条仍在其下方）；② 另一侧宽度被改变（被摘出侧的宽度经 `Sizing.Distribute` 全部给了剩余侧，面板条拉满后终端变宽）；③ Panel 在底部时，全高侧的 maximize/restore 图标被错误旋转 ±90°（还原图标显示为侧向箭头）。
+
+### 52.1 根因
+
+- `addPanelSideFullHeightView` 原以 `workbenchGrid.addView(view, size, editorPartView, Direction)` 相对插入。`getRelativeLocation` 对正交方向返回 `[...referenceLocation, 0]`：以编辑器为参照会解析到编辑器叶子内部（默认布局中编辑器位于中间区 `[编辑器, 面板条]` 纵向子分支内），`GridView.addView` 走 else 分支把新视图与编辑器包成一个横向子分支 —— 新列实际落在中间列内部（`branchV[[编辑器|新列], 面板条]`）：传入的 `size` 成为新列宽度，其高度只是「中间列高 − 面板条高」，全高语义完全落空。
+- 图标：§51.4 的旋转补偿规则 `.panel-side-full-height-left/right`（±90°）无条件生效；但 Panel 在底部时原 `.part.basepanel.left/right/top` 规则本就不旋转图标，补偿属于多余。
+
+### 52.2 修复（layout.ts · addPanelSideFullHeightView）
+
+初始 `addView` 注册后，立即用 `workbenchGrid.moveViewTo(view, [中间区索引, 插入索引])` 正规化位置：
+
+- 插入索引动态取自 `getViewLocation(editorPartView)`：`location[1]` 为编辑器列在中间区的索引，Left 插在其前、Right 插在其后（守卫 `length >= 3`）。
+- `Grid.moveViewTo` 跨父移动 = `removeView + addViewAt`；`GridView.removeView` 在父分支只剩单子时自动扁平化（编辑器提升回原位），`addViewAt` 的落点是中间区 BranchNode —— 最终拓扑为中间区直属全高列：`[活动栏, 侧栏, [编辑器, 面板条], 新列, 辅助边栏(隐藏槽)]`（Right 时）。
+- 新列宽度由适配器 `minimumWidth === maximumWidth === size` 钳制，挤缩只落在中间列（编辑器吸收差值），面板条宽度不变 → 另一侧宽度、内容完全不动。
+- 该技巧与面板位置切换对辅助边栏使用的 `moveViewTo([2,-1] / [2,0])` 同源（layout.ts L1882-L1892）。
+- `removePanelSideFullHeightView` 无需改动（新列已是中间区直属子节点，`removeView` 即可；本节取代 §51.2 中「addView 直接得到整高列」的描述）。
+
+### 52.3 修复（panelPart.ts + panelpart.css · 图标）
+
+- `enterSideFullHeight`：为全高侧元素追加 `panel-side-full-height-pos-{left|right|top|bottom}` 类（取 `positionToString(layoutService.getPanelPosition())`）；`exitSideFullHeight` 对称移除全部 pos 类。
+- panelpart.css：旋转补偿改为仅按位置类生效 —— `pos-right` → -90°、`pos-left` → +90°、`pos-top` → 180°，与原 `.part.basepanel.left/right/top` 规则一一对应；`bottom`（当前唯一允许按侧最大化的位置）不补偿 → maximize=chevron-up、restore=chevron-down 朝向正确。
+
+### 52.4 验证
+
+1. `tsc --noResolve --noEmit` 单文件检查 layout.ts / panelPart.ts：无语法错误（仅 noResolve 引入的模块解析/基类成员噪音，均不在本次修改区域）。
+2. 网格库语义逐一核实：`Grid.moveViewTo` 跨父路径（grid.ts L504-522）、`GridView.removeView` 单子分支扁平化（gridview.ts L1290-1349）、`Grid.moveViewTo/addViewAt`、`positionToString` 导出。
+3. 待重载 dev 实例人工复核：左/右侧分别最大化（占满整列高、宽度不变）、另一侧完全不动、还原后比例复原、底部位置图标朝向正确、隐藏/重启路径不残留全高列。
+
+### 52.5 追补（§52 修复未生效的真实原因：watch 编译失败导致产物停滞 + grid.ts 可见性修复）
+
+- 症状：重载后 ①② 无改善、③ 还原图标仍是侧向箭头。
+- 根因：§52.2 的 `getViewLocation(editorPartView)` 调用的是 `Grid` 的 **private** 方法（grid.ts L698），watch-client 全量类型检查报「Property 'getViewLocation' is private」编译失败，`out/` 产物自该改动起一直停滞在旧版——用户重载运行的仍是修复前代码。§52.4.1 的 `tsc --noResolve` 抓不到访问级别错误（noResolve 下导入符号退化为 any），不能替代 watch 编译结果作为验证。
+- 修复：grid.ts `getViewLocation` 由 private 改为 public（附 fork 注释）；layout.ts 逻辑不动。复核确认其语义本就正确：根网格为 `[标题/banner, middle区, 状态栏]`，middle 区固定为索引 2；其横向轴子序为 `[活动栏, 侧栏, [editorNodes, 面板条], 辅助栏]`，随侧栏位置 editorBranch 索引在 1/2 间变化，**必须动态取位**，不能改用上游 `adjustPartPositions` 的硬编码端点 `[2,0]/[2,-1]`（那会把全高列插到活动栏/辅助栏之外）。守卫 `length>=3` 在面板水平时（编辑器深度 4）恒真、面板垂直时（深度 2）恒假，恰好排除不支持的面板朝向。
+- 图标链路独立复核（与编译失败无关，一并确认无缺陷）：按侧动作注册于 `MenuId.PanelTitleLeft/Right`（panelActions.ts L306/L328），`toggled: { condition, icon: restoreIcon(chevron-down), tooltip }` 与原生 `ToggleMaximizedPanelAction`（L257-260）同构；渲染走标准 `MenuEntryActionViewItem._updateItemClass`（menuEntryActionViewItem.ts L302：`checked && item.toggled.icon ? toggled.icon : item.icon`），toggled 时 label 换挂 `codicon-panel-restore` 类；全仓 259 个 CSS 中涉及 `codicon-panel-maximize|panel-restore` 的规则仅原生 `.part.basepanel.left/right/top`（不作用于提升出的全高列）与 §52.3 的 `pos-*` 规则，底部位置无旋转 → restore 图标为向下 chevron。
+- 验证方式：以 `npm run watch` 的 watch-client 输出为准（本修复后应为 0 errors），再重载 dev 实例按 §52.4.3 清单复核。
+
+
+
+---
+
+## 53. 修复按侧最大化/还原按钮在一侧已提升为全高列时误触发整板最大化（2026-08-28）
+
+**需求**：修复用户反馈：左/右侧面板最大化（提升为全高列）后，点击该侧标题栏上的 "Restore Left/Right Panel Size" 按钮没有还原该侧，而是错误地改变了另一侧（底部条中）面板的高度——表现为"Restore 按钮控制了另一侧的最大化和还原"，且按钮图标/文字与实际行为不符；要求最大化后的图标样式与右侧（Restore Right Panel Size）一致。
+
+### 53.1 根因
+
+`panelPart.ts` 的 `isDualLayout()` 直接以 `rightViewInSplit`（`splitView.length > 1`）作为"双栏布局激活"判据。当某一侧被 `enterSideFullHeight` 提升为全高列时，splitView 中只剩另一侧一个视图（length === 1），`isDualLayout()` 误判为 false：
+
+- `toggleSideMaximized(side)` 的守卫 `isDualLayout() && getPanelPosition() === BOTTOM` 不成立，落入 else 分支执行**整板垂直最大化** `layoutService.toggleMaximizedPanel()`；
+- 点击提升侧 "Restore … Panel Size"（按钮 tooltip/图标因 `isSideMaximized` 优先读 `fullHeightSide` 而正确显示还原态）实际改变的是底部条中另一侧的高度——与用户观察完全一致；
+- 同理，提升期间命令面板的 "Toggle Maximized Left/Right Panel Size" 及另一侧的 "Maximize … Panel Size" 都会误走整板最大化。
+
+### 53.2 修复
+
+**`src/vs/workbench/browser/parts/panel/panelPart.ts`**
+- `isDualLayout()` 改为 `rightViewInSplit || this.fullHeightSide !== undefined`：一侧被提升为全高列时仍视为双栏布局激活，`toggleSideMaximized` 的按侧分支（互斥退出/进入、`exitSideFullHeight` 恢复原宽度比例）得以正确执行；
+- `rightViewInSplit` 保持纯"split 结构"语义不动（其余 14 处引用依赖它区分"右栏是否在 split 中"，且相关路径已各自防护 `fullHeightSide`：`updateSideVisibility`、`closeActiveSide`、drag 路径等）；
+- 附带收益：提升期间 `workbench.action.closePanel` 的按侧关闭守卫（`panelActions.ts` L378 `isDualLayout() && hideActivePaneCompositeSide(...)`）同样恢复生效，不再静默失效（`closeActiveSide` 内部会先 `exitSideFullHeight` 再关闭）。
+
+### 53.3 图标/文案链路复核（确认无缺陷，两侧对称）
+
+- 左右动作定义完全对称（panelActions.ts L295-337）：同 `maximizeIcon(chevron-up)`、`toggled: { condition: 各自 MaximizedContext, icon: restoreIcon(chevron-down), tooltip: "Restore … Panel Size" }`，分别注册于 `MenuId.PanelTitleLeft/Right`；
+- `toggled` 渲染走标准 `MenuEntryActionViewItem._updateItemClass`：`checked && toggled.icon → codicon-panel-restore`；
+- 位置旋转补偿类 `panel-side-full-height-pos-*` 由 `enterSideFullHeight` 按 `positionToString(getPanelPosition())` 施加在提升侧元素上、`exitSideFullHeight` 对称移除；底部位置（唯一允许按侧最大化的位置）无旋转规则 → 两侧最大化后的还原图标均为不旋转的向下 chevron，样式天然一致。用户看到的"图标/文字不对"即 53.1 行为错乱的连带观感，行为修复后两侧表现一致。
+
+### 53.4 验证方式
+
+- `npm run watch` 0 errors 后重载 dev 实例：
+  1. 双栏布局（底部位置）→ 最大化左侧 → 左侧提升为编辑器左侧全高列 → 点击左侧栏 "Restore Left Panel Size" → 左侧回落原位置、原宽度比例恢复（不再触发整板最大化）；
+  2. 同样验证右侧 "Restore Right Panel Size"；
+  3. 提升期间点击另一侧的 "Maximize … Panel Size" → 互斥切换（先还原已提升侧，再提升所点侧）；
+  4. 两侧最大化后的按钮图标样式一致（chevron-down，无旋转）。
+
+---
+
+## 54. 回归修复：按侧最大化（提升为全高列）后，左右 Panel 分割线样式丢失
+
+日期：2026-08-28（本节）
+
+### 54.1 现象（用户报告 + 截图）
+
+§53 的 `isDualLayout()` 修复生效后，点击 "Maximize Left Panel Size" 首次真正进入
+"按侧提升" 路径（此前该 bug 使点击总是落入整板最大化路径，提升路径从未被执行过）。
+提升成功，但左侧全高列与编辑器之间**没有任何分割线/分隔样式**，左列与中间区域直接
+贴合成一片，整体观感 "样式直接错乱"。
+
+### 54.2 根因（CSS 层，非 TS 行为层）
+
+按侧最大化由 `PanelPart.enterSideFullHeight`（panelPart.ts L1866-1902）实现：把
+side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列。此时该元素
+（`.panel-side`）被 grid **重新挂载**，不再是 `.part.panel` 的后代，grid 给它设置
+固定像素宽高。由此产生三类样式失效：
+
+1. **分割线消失（主诉）**：全高列的分割线由
+   `.panel-side-full-height-left { border-right: 1px solid var(--vscode-panel-border) }`
+   （右列对称 `border-left`）绘制。但 `.panel-side` 未声明 `box-sizing`（默认
+   `content-box`），border 画在 grid 分配盒子**之外**：溢出的 1px 落进相邻编辑器
+   branch node 的区域，被后绘制的不透明编辑器背景**盖住**；外层
+   `.monaco-grid-view` 又是 `overflow: hidden`。结果分割线完全不可见。
+   （提升前左右两栏之间的线是 SplitView 的 sash `:before` 常显 1px 线，sash 是
+   SplitView 容器层的 overlay，不依赖 side 元素自身盒模型，因此从未暴露此问题。）
+2. **视图主体高度规则失效**：`.part.panel .panel-side > .content` 的
+   `flex: 1 / display: flex` 等填充规则锚定 `.part.panel` 祖先，提升后不再匹配。
+3. **细节样式失效**：标题栏关闭按钮配色（`composite-close-action`）、输入框边框
+   （`.monaco-inputbox`）、panel 内 monaco editor 背景等规则同样锚定
+   `.part.panel`，提升后全部落空 —— 即 "错乱" 的其余观感来源。
+
+### 54.3 修复（仅 `src/vs/workbench/browser/parts/panel/media/panelpart.css`）
+
+1. `.panel-side-full-height` 增加 `box-sizing: border-box;` —— 让 1px 分割线画进
+   grid 分配的盒内，不再溢出、不再被相邻 branch node 覆盖（附根因注释）；
+2. 新增 `.monaco-workbench .panel-side-full-height > .content` 规则，复制通用
+   content 填充规则（`flex: 1 1 auto / min-height: 0 / display: flex` 等），
+   摆脱对 `.part.panel` 祖先的依赖；
+3. 为 close 按钮、inputbox、monaco editor 背景三类规则并列追加裸 `.panel-side`
+   选择器（strip 内重复匹配无害，提升后正常生效），并附说明注释。
+
+### 54.4 验证
+
+- CSS 括号/圆括号配平校验通过；全部新增选择器在源文件中确认存在；
+- 已同步拷贝至 `out/vs/workbench/browser/parts/panel/media/panelpart.css`
+  （`out synced: true`）；`out/.../panelPart.js` 中 §53 的 `isDualLayout()` 修复
+  经确认仍在（构建未退化）；
+- 人工验证路径：双栏（底部）→ Maximize Left/Right → 全高列与编辑器之间出现与原
+  左右栏 sash 分割一致的 1px `panel-border` 竖线；视图主体填满列高；标题栏关闭
+  按钮/输入框配色与 strip 状态一致 → Restore 后一切还原；
+- TS 行为层（§53）无改动，`npm run watch` 无需重跑（本次仅 CSS，dev/编译实例
+  重载窗口即可生效）。
+

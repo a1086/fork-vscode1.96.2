@@ -282,6 +282,22 @@ export class TerminalViewPane extends ViewPane {
 		this._terminalTabbedView = this._register(this.instantiationService.createInstance(TerminalTabbedView, this._parentDomElement));
 	}
 
+	/**
+	 * 强制把 live xterm canvas 归位到本 pane 当前所在的 container。
+	 * 场景：Terminal 从浮动窗口被复用回主窗口 editor 区时，`terminalTabbedView`
+	 * 的 container 节点虽随 `pane.element` 一起移到了活 DOM 树，但
+	 * `TerminalGroupService` 的 primary 仍是浮动窗口时期注册的引用（或根本未
+	 * 重新认领这个活节点），导致 canvas 仍挂在已失效的节点上而白屏。这里先
+	 * `setContainer`（把活节点重新注册进 group service）再 `setPrimaryContainer`
+	 * （把唯一真实的 `_groupElement` canvas 搬到活节点），确保终端真正显示。
+	 */
+	forceRelocateTerminalContainer(): void {
+		if (this._terminalTabbedView) {
+			this._terminalGroupService.setContainer(this._terminalTabbedView.container);
+			this._terminalGroupService.setPrimaryContainer(this._terminalTabbedView.container);
+		}
+	}
+
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	protected override layoutBody(height: number, width: number): void {
 		super.layoutBody(height, width);

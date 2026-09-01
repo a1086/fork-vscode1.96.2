@@ -9,7 +9,7 @@ import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { MenuId, MenuRegistry, registerAction2, Action2, IAction2Options } from '../../../../platform/actions/common/actions.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
 import { isHorizontal, IWorkbenchLayoutService, PanelAlignment, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
-import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelMaximizedContext, PanelPositionContext, PanelVisibleContext } from '../../../common/contextkeys.js';
+import { AuxiliaryBarVisibleContext, PanelAlignmentContext, PanelLeftMaximizedContext, PanelMaximizedContext, PanelPositionContext, PanelRightMaximizedContext, PanelVisibleContext } from '../../../common/contextkeys.js';
 import { ContextKeyExpr, ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
@@ -285,6 +285,54 @@ registerAction2(class extends Action2 {
 		else {
 			layoutService.toggleMaximizedPanel();
 		}
+	}
+});
+
+// Per-side "Maximize Panel Size" for the dual-panel layout: each side's
+// title bar gets its own button that HEIGHT-maximizes only that side (same
+// width, full column height) while the other side stays in the bottom Panel
+// strip completely unchanged. Each button toggles with its own context key.
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'workbench.action.toggleMaximizedPanelLeft',
+			title: localize2('toggleMaximizedPanelLeft', "Toggle Maximized Left Panel Size"),
+			tooltip: localize('maximizeLeftPanel', "Maximize Left Panel Size"),
+			category: Categories.View,
+			f1: true,
+			icon: maximizeIcon, // This is being rotated in CSS depending on the panel position
+			toggled: { condition: PanelLeftMaximizedContext, icon: restoreIcon, tooltip: localize('restoreLeftPanel', "Restore Left Panel Size") },
+			menu: [{
+				id: MenuId.PanelTitleLeft,
+				group: 'navigation',
+				order: 1
+			}]
+		});
+	}
+	run(accessor: ServicesAccessor) {
+		accessor.get(IPaneCompositePartService).toggleSideMaximized('left');
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'workbench.action.toggleMaximizedPanelRight',
+			title: localize2('toggleMaximizedPanelRight', "Toggle Maximized Right Panel Size"),
+			tooltip: localize('maximizeRightPanel', "Maximize Right Panel Size"),
+			category: Categories.View,
+			f1: true,
+			icon: maximizeIcon, // This is being rotated in CSS depending on the panel position
+			toggled: { condition: PanelRightMaximizedContext, icon: restoreIcon, tooltip: localize('restoreRightPanel', "Restore Right Panel Size") },
+			menu: [{
+				id: MenuId.PanelTitleRight,
+				group: 'navigation',
+				order: 1
+			}]
+		});
+	}
+	run(accessor: ServicesAccessor) {
+		accessor.get(IPaneCompositePartService).toggleSideMaximized('right');
 	}
 });
 

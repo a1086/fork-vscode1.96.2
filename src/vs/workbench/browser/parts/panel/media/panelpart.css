@@ -36,50 +36,69 @@
 	margin-left: var(--vscode-part-panel-gap, 4px);
 }
 
+/* Same re-parenting note as for the close-button colors below: the bare
+ * `.panel-side` selectors keep these rules working while a side is lifted
+ * out into its full-height grid column (outside `.part.panel`). */
 .monaco-workbench .part.panel > .content .monaco-editor,
 .monaco-workbench .part.panel > .content .monaco-editor .margin,
-.monaco-workbench .part.panel > .content .monaco-editor .monaco-editor-background {
+.monaco-workbench .part.panel > .content .monaco-editor .monaco-editor-background,
+.monaco-workbench .panel-side > .content .monaco-editor,
+.monaco-workbench .panel-side > .content .monaco-editor .margin,
+.monaco-workbench .panel-side > .content .monaco-editor .monaco-editor-background {
 	/* THIS DOESN'T WORK ANYMORE */
 	background-color: var(--vscode-panel-background);
 }
 
 .monaco-workbench .part.panel > .content .suggest-input-container .monaco-editor,
 .monaco-workbench .part.panel > .content .suggest-input-container .monaco-editor .margin,
-.monaco-workbench .part.panel > .content .suggest-input-container .monaco-editor .monaco-editor-background {
+.monaco-workbench .part.panel > .content .suggest-input-container .monaco-editor .monaco-editor-background,
+.monaco-workbench .panel-side > .content .suggest-input-container .monaco-editor,
+.monaco-workbench .panel-side > .content .suggest-input-container .monaco-editor .margin,
+.monaco-workbench .panel-side > .content .suggest-input-container .monaco-editor .monaco-editor-background {
 	background-color: inherit;
 }
 
 .monaco-workbench .part.panel > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked:not(:focus) .active-item-indicator:before,
 .monaco-workbench .part.panel > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before,
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked:not(:focus) .active-item-indicator:before,
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before {
+.monaco-workbench .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked:not(:focus) .active-item-indicator:before,
+.monaco-workbench .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked.clicked:focus .active-item-indicator:before {
 	border-top-color: var(--vscode-panelTitle-activeBorder) !important;
 }
 
 .monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus .action-label,
 .monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label,
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus .action-label,
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label {
+.monaco-workbench .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus .action-label,
+.monaco-workbench .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:hover .action-label {
 	color: var(--vscode-panelTitle-activeForeground) !important;
 }
 
-/* composite tab close button colors */
-.monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item > .composite-close-action {
+/* composite tab close button colors.
+ * NOTE: the selectors are duplicated for a bare `.panel-side` because a side
+ * lifted out to a full-height grid column ("Maximize Panel Size" per side) is
+ * re-parented OUT of the `.part.panel` subtree by the workbench grid - the
+ * `.part.panel`-anchored rules would stop matching and the buttons would fall
+ * back to default colors there. */
+.monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item > .composite-close-action,
+.monaco-workbench .panel-side .composite-bar-container .monaco-action-bar .action-item > .composite-close-action {
 	color: var(--vscode-panelTitle-inactiveForeground);
 }
 
 .monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item.checked > .composite-close-action,
 .monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item:hover > .composite-close-action,
-.monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item:focus-within > .composite-close-action {
+.monaco-workbench .part.panel .composite-bar-container .monaco-action-bar .action-item:focus-within > .composite-close-action,
+.monaco-workbench .panel-side .composite-bar-container .monaco-action-bar .action-item.checked > .composite-close-action,
+.monaco-workbench .panel-side .composite-bar-container .monaco-action-bar .action-item:hover > .composite-close-action,
+.monaco-workbench .panel-side .composite-bar-container .monaco-action-bar .action-item:focus-within > .composite-close-action {
 	color: var(--vscode-panelTitle-activeForeground);
 }
 
-.monaco-workbench .part.panel .monaco-inputbox {
+.monaco-workbench .part.panel .monaco-inputbox,
+.monaco-workbench .panel-side .monaco-inputbox {
 	border-color: var(--vscode-panelInput-border, transparent) !important;
 }
 
 .monaco-workbench .part.panel > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus,
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus {
+.monaco-workbench .panel-side > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item:focus {
 	outline: none;
 }
 
@@ -115,7 +134,7 @@
 }
 
 /* Each side fills its SplitView slot and stacks its own title + content */
-.monaco-workbench .part.panel .panel-side {
+.monaco-workbench .panel-side {
 	display: flex;
 	flex-direction: column;
 	width: 100%;
@@ -135,7 +154,7 @@
 	 * When a side has no active view its title bar would otherwise collapse to
 	 * just the 4px borders; keep a default height so it matches a side that is
 	 * showing views. */
-.monaco-workbench .part.panel .panel-side > .title {
+.monaco-workbench .panel-side > .title {
 	flex: 0 0 auto;
 	min-height: 35px;
 	border-top: 4px solid var(--vscode-panel-border, transparent);
@@ -159,7 +178,7 @@
 	 * rule `.part > .content > .composite { height: 100% }` does not match because
 	 * the side part sits two levels deeper (`.panel-split > .panel-side`), so we
 	 * replicate it here. This is what gives the functional body its height. */
-.monaco-workbench .part.panel .panel-side > .content > .composite {
+.monaco-workbench .panel-side > .content > .composite {
 	height: 100%;
 }
 
@@ -168,18 +187,18 @@
 	 * Use overflow:hidden to prevent the composite close button (which uses
 	 * margin-right:-6px) from overflowing into the adjacent panel side when the
 	 * panel is resized to be very narrow. */
-.monaco-workbench .part.panel .panel-side > .composite.title {
+.monaco-workbench .panel-side > .composite.title {
 	display: flex;
 	overflow: hidden;
 }
 
-.monaco-workbench .part.panel .panel-side > .composite.title > .title-actions {
+.monaco-workbench .panel-side > .composite.title > .title-actions {
 	flex: 1;
 	padding-left: 5px;
 }
 
 /* Disable composites that are active in the other side of a dual panel. */
-.monaco-workbench .part.panel .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.disabled {
+.monaco-workbench .panel-side > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.disabled {
 	opacity: 0.4;
 	pointer-events: none;
 }
@@ -211,8 +230,109 @@
 	border-left: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
 }
 
+/* Side-level drop-target preview. This marker is set on the *side element*
+ * (not only on the split container) because a height-maximized side is
+ * re-parented out of `.part.panel` into its own workbench grid column, where
+ * the container-anchored `.panel-split-preview` rule above can no longer
+ * match it. Using a side-anchored class keeps the dashed drop border visible
+ * on the left/right panel while that side is maximized, so the drag hot zone
+ * still shows. */
+.monaco-workbench .panel-side.panel-side-drop-preview {
+	border: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
+}
+
+/* When the other (filled) side is maximized, the empty half the user is
+ * dropping onto is the remaining bottom-strip side; keep its preview border
+ * on the correct edge. */
+.monaco-workbench .part.panel .panel-split.panel-split-preview .panel-side-left {
+	border-right: 1px dashed var(--vscode-panel-dragAndDropBorder, var(--vscode-focusBorder, rgba(128, 128, 128, 0.6)));
+}
+
 .monaco-workbench .part.panel .panel-split .monaco-sash.vertical {
 	margin-left: calc(var(--vscode-sash-size) / 2);
+}
+
+/* Height-maximized side ("Maximize Panel Size" per side): the side lives in
+ * its own full-height workbench grid column, OUTSIDE the `.part.panel`
+ * subtree, so rules that relied on that ancestor chain need equivalents
+ * anchored on `.panel-side-full-height-*` (the split/`.part.panel` rules
+ * above still match while the side sits inside the bottom Panel strip).
+ *
+ * Full-height column divider towards the editor area (there is no Panel sash
+ * out there, so draw the separator as a plain border). */
+.monaco-workbench .panel-side-full-height-left {
+	border-right: 4px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.monaco-workbench .panel-side-full-height-right {
+	border-left: 4px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+/* Keep the maximize/restore icon rotation for a lifted-out side - but ONLY
+ * for the Panel positions where the stock `.part.basepanel.left/right/top`
+ * rules actually rotated these icons while the side lived inside the bottom
+ * Panel strip. At the `bottom` position (the only one where a side can be
+ * lifted out today) the stock rules never rotated anything, so no
+ * compensation is needed: the unrotated maximize (chevron-up) / restore
+ * (chevron-down) glyphs are correct there. The `pos-*` classes are set by
+ * `PanelPart.enterSideFullHeight`. */
+.monaco-workbench .panel-side-full-height-pos-right .title-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-right .title-actions .codicon-panel-restore::before,
+.monaco-workbench .panel-side-full-height-pos-right .global-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-right .global-actions .codicon-panel-restore::before {
+	display: inline-block;
+	transform: rotate(-90deg);
+}
+
+.monaco-workbench .panel-side-full-height-pos-left .title-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-left .title-actions .codicon-panel-restore::before,
+.monaco-workbench .panel-side-full-height-pos-left .global-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-left .global-actions .codicon-panel-restore::before {
+	display: inline-block;
+	transform: rotate(90deg);
+}
+
+.monaco-workbench .panel-side-full-height-pos-top .title-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-top .title-actions .codicon-panel-restore::before,
+.monaco-workbench .panel-side-full-height-pos-top .global-actions .codicon-panel-maximize::before,
+.monaco-workbench .panel-side-full-height-pos-top .global-actions .codicon-panel-restore::before {
+	display: inline-block;
+	transform: rotate(180deg);
+}
+
+/*
+ * A full-height side must fill its grid column: column layout keeps the
+ * title row on top and lets the view body take the remaining height.
+ *
+ * `box-sizing: border-box` is REQUIRED here: the workbench grid assigns the
+ * element a fixed pixel width/height and every layer above it clips or paints
+ * over anything sticking out of that box (`.monaco-grid-view` is
+ * `overflow: hidden` and the neighbouring branch node is painted after this
+ * one). Without border-box the 1px divider border declared on
+ * `.panel-side-full-height-left/right` overflows into the editor part's
+ * branch node and is painted over -> the divider disappears entirely
+ * ("the divider between the two panels is gone").
+ */
+.monaco-workbench .panel-side-full-height {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+/*
+ * The generic content rule (`.part.panel .panel-side > .content`) is anchored
+ * on a `.part.panel` ancestor, which a lifted-out side no longer has. Repeat
+ * it for the full-height state so the view body keeps filling the remaining
+ * height and the composite container stays laid out.
+ */
+.monaco-workbench .panel-side-full-height > .content {
+	flex: 1 1 auto;
+	min-height: 0;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 
 

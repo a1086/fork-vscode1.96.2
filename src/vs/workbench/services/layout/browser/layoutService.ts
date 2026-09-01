@@ -8,7 +8,7 @@ import { Event } from '../../../../base/common/event.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { Part } from '../../../browser/part.js';
 import { IDimension } from '../../../../base/browser/dom.js';
-import { Direction, IViewSize } from '../../../../base/browser/ui/grid/grid.js';
+import { Direction, ISerializableView, IViewSize } from '../../../../base/browser/ui/grid/grid.js';
 import { isMacintosh, isNative, isWeb } from '../../../../base/common/platform.js';
 import { isAuxiliaryWindow } from '../../../../base/browser/window.js';
 import { CustomTitleBarVisibility, TitleBarSetting, getMenuBarVisibility, hasCustomTitlebar, hasNativeTitlebar } from '../../../../platform/window/common/window.js';
@@ -257,6 +257,21 @@ export interface IWorkbenchLayoutService extends ILayoutService {
 	 * Returns true if the panel is maximized.
 	 */
 	isPanelMaximized(): boolean;
+
+	/**
+	 * Moves the given view into the workbench grid as a full-height column
+	 * placed next to the editor part (`Direction.Left`/`Direction.Right`).
+	 * Used by the dual-panel layout to "height-maximize" a single Panel side:
+	 * the side keeps its width, the editor area is squeezed horizontally and
+	 * the bottom Panel strip (with the other side) is left unchanged.
+	 */
+	addPanelSideFullHeightView(direction: Direction, view: ISerializableView, size: number): void;
+
+	/**
+	 * Removes a view previously added via `addPanelSideFullHeightView` from
+	 * the workbench grid. No-op if the view is not currently in the grid.
+	 */
+	removePanelSideFullHeightView(view: ISerializableView): void;
 
 	/**
 	 * Gets the current side bar position. Note that the sidebar can be hidden too.

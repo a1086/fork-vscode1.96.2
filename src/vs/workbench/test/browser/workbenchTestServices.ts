@@ -79,7 +79,7 @@ import { BrowserTextFileService } from '../../services/textfile/browser/browserT
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { createTextBufferFactoryFromStream } from '../../../editor/common/model/textModel.js';
 import { IPathService } from '../../services/path/common/pathService.js';
-import { Direction, IViewSize } from '../../../base/browser/ui/grid/grid.js';
+import { Direction, ISerializableView, IViewSize } from '../../../base/browser/ui/grid/grid.js';
 import { IProgressService, IProgressOptions, IProgressWindowOptions, IProgressNotificationOptions, IProgressCompositeOptions, IProgress, IProgressStep, Progress, IProgressDialogOptions, IProgressIndicator } from '../../../platform/progress/common/progress.js';
 import { IWorkingCopyFileService, WorkingCopyFileService } from '../../services/workingCopy/common/workingCopyFileService.js';
 import { UndoRedoService } from '../../../platform/undoRedo/common/undoRedoService.js';
@@ -659,6 +659,8 @@ export class TestLayoutService implements IWorkbenchLayoutService {
 	toggleMaximizedPanel(): void { }
 	ensurePanelSize(): void { }
 	isPanelMaximized(): boolean { return false; }
+	addPanelSideFullHeightView(_direction: Direction, _view: ISerializableView, _size: number): void { }
+	removePanelSideFullHeightView(_view: ISerializableView): void { }
 	getMenubarVisibility(): MenuBarVisibility { throw new Error('not implemented'); }
 	toggleMenuBar(): void { }
 	getSideBarPosition() { return 0; }

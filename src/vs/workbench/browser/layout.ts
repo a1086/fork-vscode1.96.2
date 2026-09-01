@@ -1633,6 +1633,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		if (!this.isVisible(Parts.PANEL_PART, mainWindow) || this.isPanelMaximized()) {
 			return;
 		}
+		const panelPart = this.panelPartView as { isPanelCollapsedForFullHeight?: () => boolean } | undefined;
+		if (panelPart?.isPanelCollapsedForFullHeight?.()) {
+			return;
+		}
 
 		const panelPosition = this.getPanelPosition();
 		const isPanelHorizontal = isHorizontal(panelPosition);
@@ -1645,6 +1649,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		// (less than a quarter of the preferred size). This repairs a persisted
 		// too-small size on startup while still preserving a user-defined size.
 		if (currentPanelSize < preferredSize * 0.25) {
+			console.log('ip');
 			this.workbenchGrid.resizeView(this.panelPartView, {
 				width: isPanelHorizontal ? currentSize.width : preferredSize,
 				height: isPanelHorizontal ? preferredSize : currentSize.height
@@ -1951,7 +1956,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, hidden);
 
 		this.storageService.store('panel.lastHidden', hidden, StorageScope.WORKSPACE, StorageTarget.MACHINE);
-		console.log('ph');
+
 
 		const isPanelMaximized = this.isPanelMaximized();
 
@@ -2100,6 +2105,94 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_WAS_LAST_MAXIMIZED, !isMaximized);
 	}
 
+	/** Views currently handed to the grid by the dual Panel's per-side maximize, with their width. */
+	private readonly panelSideFullHeightViews = new Map<ISerializableView, number>();
+
+	/**
+	 * Keep the total width constant while routing the whole width change to the
+	 * editor/panel column.
+	 *
+	 * The row insert / removal of a lifted-out side hands the freed width to
+	 * the LAST view of the row's SplitView (the auxiliary bar). Pinning the
+	 * auxiliary bar back to its pre-mutation width is the ONLY resize needed:
+	 * `SplitView.resizeView` marks every other view with a higher priority
+	 * than the resize target (the editor/panel column holds the High-priority
+	 * editor part) to absorb the resulting delta FIRST, so the editor/panel
+	 * column takes exactly `-size` on insert and `+size` on removal while the
+	 * sidebar/activity bar stay untouched.
+	 *
+	 * Explicitly resizing the editor part as well (`resizeView(editorPartView,
+	 * preE + delta)`) was actively harmful: it already consumes part of the
+	 * delta, and the subsequent auxiliary pin-back then rips the remaining
+	 * displacement out of the High-priority editor/panel column a SECOND time
+	 * (the column is charged twice on insert) and leaks the difference into
+	 * the sidebar. On removal the same mechanism overshoots in the opposite
+	 * direction, which is what made the Panel side left in the strip visibly
+	 * wider after a maximize/restore cycle and narrower again after the next
+	 * one.
+	 */
+	private rebalancePanelSideWidths(preA: number): void {
+		if (this.isVisible(Parts.AUXILIARYBAR_PART)) {
+			this.workbenchGrid.resizeView(this.auxiliaryBarPartView, {
+				width: preA,
+				height: this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).height
+			});
+		}
+		// The resize above can hand the lifted-out column a different width
+		// than the one it received when it was inserted. A SplitView only
+		// re-invokes a view's layout callback when its size actually changes,
+		// and the column's callback already ran at the pre-resize width, so the
+		// maximized side would keep rendering at a stale size - its views look
+		// scrambled until the user drags a sash. Force one full grid relayout
+		// so every view is laid out at the final size.
+		this.workbenchGrid.layout(this._mainContainerDimension.width, this._mainContainerDimension.height);
+	}
+
+	addPanelSideFullHeightView(direction: Direction, view: ISerializableView, size: number): void {
+		if (this.panelSideFullHeightViews.has(view)) {
+			return;
+		}
+		// Register the view relative to the editor part first. Note that a
+		// relative insertion resolves against whatever currently sits around
+		// the editor column: in the default arrangement the editor lives
+		// inside the vertical [editor, panel] sub-branch of the middle
+		// section, so the new view is wrapped into an orthogonal sub-branch
+		// NEXT TO THE EDITOR - it would share the center column (keeping the
+		// Panel strip below it) instead of owning a full-height column.
+		this.panelSideFullHeightViews.set(view, size);
+
+		const preA = this.isVisible(Parts.AUXILIARYBAR_PART) ? this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).width : 0;
+		this.workbenchGrid.addView(view, size, this.editorPartView, direction);
+		// Normalize: move the view up into the middle section itself, right
+		// next to the editor/panel column, so it owns a real full-height
+		// column (same technique as the panel position switching, which uses
+		// `moveViewTo(..., [2, -1] / [2, 0])` for the Auxiliary Bar). The
+		// side's fixed width (minimumWidth === maximumWidth === `size`) then
+		// squeezes only the editor/panel column: the maximized side keeps its
+		// width and spans the full column height, and the other Panel side in
+		// the bottom strip stays exactly as it was.
+		const editorLocation = this.workbenchGrid.getViewLocation(this.editorPartView);
+		if (editorLocation && editorLocation.length >= 3) {
+			// location = [middleSectionIndex, editorColumnIndex, ...] under the root
+			const insertIndex = editorLocation[1] + (direction === Direction.Right ? 1 : 0);
+			this.workbenchGrid.moveViewTo(view, [editorLocation[0], insertIndex]);
+		}
+
+		this.rebalancePanelSideWidths(preA);
+	}
+
+	removePanelSideFullHeightView(view: ISerializableView): void {
+		const size = this.panelSideFullHeightViews.get(view);
+		if (size === undefined) {
+			return;
+		}
+		this.panelSideFullHeightViews.delete(view);
+
+		const preA = this.isVisible(Parts.AUXILIARYBAR_PART) ? this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).width : 0;
+		this.workbenchGrid.removeView(view);
+		this.rebalancePanelSideWidths(preA);
+	}
+
 	private panelOpensMaximized(): boolean {
 
 		// The workbench grid currently prevents us from supporting panel maximization with non-center panel alignment
@@ -2174,6 +2267,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		if (!this.isVisible(Parts.PANEL_PART, mainWindow)) {
 			return;
 		}
+		const panelPart = this.panelPartView as { isPanelCollapsedForFullHeight?: () => boolean } | undefined;
+		if (panelPart?.isPanelCollapsedForFullHeight?.()) {
+			return;
+		}
 
 		const panelPosition = this.getPanelPosition();
 		const isPanelHorizontal = isHorizontal(panelPosition);
@@ -2200,11 +2297,12 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		const panel = this.panelPartView as PanelPart;
 		const previousMinimumHeight = panel.minimumHeight;
 		try {
-			panel.minimumHeight = preferredSize;
-			this.workbenchGrid.resizeView(this.panelPartView, {
-				width: isPanelHorizontal ? currentSize.width : preferredSize,
-				height: isPanelHorizontal ? preferredSize : currentSize.height
-			});
+		panel.minimumHeight = preferredSize;
+		console.log('ep');
+		this.workbenchGrid.resizeView(this.panelPartView, {
+			width: isPanelHorizontal ? currentSize.width : preferredSize,
+			height: isPanelHorizontal ? preferredSize : currentSize.height
+		});
 		} finally {
 			panel.minimumHeight = previousMinimumHeight;
 		}
