@@ -5,7 +5,7 @@
 
 import './media/panelpart.css';
 import { ActivePanelContext, PanelFocusContext, PanelLeftFocusContext, PanelLeftMaximizedContext, PanelRightFocusContext, PanelRightMaximizedContext } from '../../../common/contextkeys.js';
-import { IWorkbenchLayoutService, Parts, Position } from '../../../services/layout/browser/layoutService.js';
+import { IWorkbenchLayoutService, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
@@ -29,6 +29,7 @@ import { Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { SplitView, Orientation, IView, LayoutPriority, Sizing } from '../../../../base/browser/ui/splitview/splitview.js';
+import { Direction, ISerializableView } from '../../../../base/browser/ui/grid/grid.js';
 import { PanelSidePart, PanelSide } from './panelSidePart.js';
 import { IMenuService } from '../../../../platform/actions/common/actions.js';
 import { CompositeDragAndDropObserver, CompositeDragAndDropData } from '../../dnd.js';
@@ -125,6 +126,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * the next fallback candidate.
 	 */
 	private readonly lastClosedContainerBySide = new Map<PanelSide, string>();
+	private readonly lastDismissedContainerBySide = new Map<PanelSide, string>();
 
 	/**
 	 * Containers the user has actually opened on each side at least once.
@@ -210,6 +212,29 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 */
 	private readonly panelLeftMaximizedContext: IContextKey<boolean>;
 	private readonly panelRightMaximizedContext: IContextKey<boolean>;
+
+	/**
+	 * Sides currently "height-maximized": each has left the horizontal Panel
+	 * split and lives in its own full-height workbench grid column (same
+	 * width, height fills the main area). The other side(s) stay in the bottom
+	 * Panel strip completely unchanged. Both sides can be maximized at the
+	 * same time, independently of each other.
+	 */
+	private readonly fullHeightSides = new Set<PanelSide>();
+	/** Width each lifted-out side had inside the split; restored on exit. */
+	private readonly fullHeightSideWidths = new Map<PanelSide, number>();
+	/**
+	 * Last width each side really had while BOTH sides were still in the split.
+	 * Once one side is lifted out the SplitView stretches the remaining single
+	 * view to the whole Panel width (view sizes always sum to the container),
+	 * so `getViewSize` no longer reports the ratio width - the stretched one is
+	 * what made a side "grow" when it was maximized second.
+	 */
+	private readonly splitSideWidths = new Map<PanelSide, number>();
+	/** The grid adapter views handed to the layout service, keyed by side. */
+	private readonly fullHeightGridViews = new Map<PanelSide, ISerializableView>();
+	private panelStripCollapsed = false;
+	private collapsedPanelStripHeight = 0;
 	/**
 	 * Whether the whole Panel was already maximized (Editor hidden) *before* a
 	 * per-side "maximize" gesture started. When a side's button is toggled off
@@ -400,6 +425,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * is persisted to storage immediately so repeated toggles never lose it.
 	 */
 	captureLayoutBeforeHide(): void {
+		// Height-maximized sides live outside the Panel (their own grid
+		// columns). Exit those states first so the pre-hide snapshot and the
+		// hide mutation below see the plain split layout (the maximized state
+		// itself is deliberately not persisted across a Toggle Panel).
+		for (const side of [...this.fullHeightSides]) {
+			this.exitSideFullHeight(side);
+		}
+		this.updateSideMaximizedContextKeys();
 		// Persist the current (pre-hide) layout NOW. We must save *before*
 		// flipping `suppressLayoutSave`, otherwise the `saveDualPanelLayout()`
 		// below would return immediately (its first line bails out when
@@ -598,6 +631,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Track which container is active on each side so we can prevent the
 		// same view from being shown in both sides at once.
 		this._register(sidePart.onDidPaneCompositeOpen(e => {
+			console.log('po' + side + ':' + e.getId());
 			// A composite has just become active on this side, so any scheduled
 			// "this side is empty" fallback is no longer needed.
 			fallbackScheduler.cancel();
@@ -703,25 +737,25 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// 兜底，容器继续正常显示，Panel 不会被误隐藏。
 				const closingContainer = this.panelViewDescriptorService.getViewContainerById(e.getId());
 				const closingModel = closingContainer ? this.panelViewDescriptorService.getViewContainerModel(closingContainer) : undefined;
-			const containerStillHasViews = !!closingModel
-				&& closingModel.activeViewDescriptors.length > 0;
-			const containerStillVisibleViews = !!closingModel
-				&& closingModel.visibleViewDescriptors.length > 0;
-			if (containerStillHasViews) {
-				// 容器明明还有可见视图却收到了 close（典型：拖走另一容器后本侧
-				// 被切到该容器，但其视图描述符的增删事件竞态触发了一次误 close，
-				// 导致内容区短暂消失）。这里不 delete 登记，并且若容器当前已无
-				// active 则重新激活它，把内容拉回来，避免 Panel 显示空占位符。
-				// 仅在拖出窗口收尾期间（suppress 为 true）才 re-open：此时本侧正
-				// 在从"拖走一个容器"切到下一个容器，re-open 能把误 close 的容器
-				// 拉回。归位（关闭独立窗口把视图 move 回原栏）时 suppress 为 false，
-				// 不走此分支，避免与正常的 open 流程竞争导致两个容器同时高亮。
-				if (containerStillVisibleViews && isSuppressPanelRelayoutOnDragOut()
-					&& sidePart.getActivePaneComposite()?.getId() !== e.getId()) {
-					sidePart.openPaneComposite(e.getId(), false, true, false);
+				const containerStillHasViews = !!closingModel
+					&& closingModel.activeViewDescriptors.length > 0;
+				const containerStillVisibleViews = !!closingModel
+					&& closingModel.visibleViewDescriptors.length > 0;
+				if (containerStillHasViews) {
+					// 容器明明还有可见视图却收到了 close（典型：拖走另一容器后本侧
+					// 被切到该容器，但其视图描述符的增删事件竞态触发了一次误 close，
+					// 导致内容区短暂消失）。这里不 delete 登记，并且若容器当前已无
+					// active 则重新激活它，把内容拉回来，避免 Panel 显示空占位符。
+					// 仅在拖出窗口收尾期间（suppress 为 true）才 re-open：此时本侧正
+					// 在从"拖走一个容器"切到下一个容器，re-open 能把误 close 的容器
+					// 拉回。归位（关闭独立窗口把视图 move 回原栏）时 suppress 为 false，
+					// 不走此分支，避免与正常的 open 流程竞争导致两个容器同时高亮。
+					if (containerStillVisibleViews && isSuppressPanelRelayoutOnDragOut()
+						&& sidePart.getActivePaneComposite()?.getId() !== e.getId()) {
+						sidePart.openPaneComposite(e.getId(), false, true, false);
+					}
+					return;
 				}
-				return;
-			}
 				this.activeContainerBySide.delete(side);
 				this.sideContainerViewSubscriptions.get(side)?.clear();
 				const otherPart = this.getOtherSidePart(side);
@@ -769,8 +803,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// 过程中（新 composite 尚未 setActive），立即打开会造成两个容器争用
 				// 同一 side，出现"两个 title 同时高亮"、"内容区仍显示 Drag a view here"
 				// 等异常。如果同一帧内随后触发了 open，上面的 scheduler 会被 cancel。
-				this.lastClosedContainerBySide.set(side, e.getId());
-				fallbackScheduler.schedule();
+			this.lastClosedContainerBySide.set(side, e.getId());
+			this.lastDismissedContainerBySide.set(side, e.getId());
+			fallbackScheduler.schedule();
 
 				// 拖拽把视图拖走（跨侧 / 拖出窗口）时 observer 可能不派发 dragend，
 				// 导致 isDragInProgress 卡在 true，使 autoHidePanelIfEmpty 一直 bail。
@@ -832,7 +867,20 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * which made dragging a view onto the empty half a silent no-op.
 	 */
 	private get rightViewInSplit(): boolean {
-		return !!this.splitView && this.splitView.length > 1;
+		if (!this.splitView) {
+			return false;
+		}
+		// A lifted-out (full-height) side is REMOVED from the split, so the raw
+		// view count drops below 2 even while the other side is still in the
+		// split. Comparing against a plain `> 1` therefore reports "right not in
+		// split" as soon as the left side is maximized, which silently breaks
+		// maximizing the right side (`splitIndexOf` returns -1), skips its
+		// relayout and persists `rightInSplit: false`. Compare against how many
+		// sides the split is expected to hold instead.
+		if (this.fullHeightSides.has('right')) {
+			return false;
+		}
+		return this.splitView.length > (this.fullHeightSides.has('left') ? 0 : 1);
 	}
 
 	/**
@@ -840,13 +888,22 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * right side is part of the split. Used to decide whether per-side
 	 * maximization (`toggleSideMaximized`) applies or we fall back to whole-panel
 	 * maximization.
+	 *
+	 * A side that is currently lifted out as a full-height column still counts
+	 * as dual layout: the split temporarily holds only one view in that state,
+	 * but the dual feature is active and the per-side actions — in particular
+	 * the "Restore <side> Panel Size" button on the lifted side — must keep
+	 * routing to `toggleSideMaximized` instead of falling back to whole-panel
+	 * maximization (`toggleMaximizedPanel`), which would otherwise resize the
+	 * remaining side in the strip. `rightViewInSplit` intentionally keeps its
+	 * pure split-structure semantics; the lifted state is accounted for here.
 	 */
 	isDualLayout(): boolean {
-		return this.rightViewInSplit;
+		return this.rightViewInSplit || this.fullHeightSides.size > 0;
 	}
 
 	private addRightToSplit(): void {
-		if (!this.splitView) {
+		if (!this.splitView || this.fullHeightSides.has('right')) {
 			return;
 		}
 		// Reconcile the boolean with reality first: if a prior Toggle Panel left
@@ -857,7 +914,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 		this.rightInSplit = true;
 		const initialSize = Math.max(150, Math.round((this.sideWidth || 800) / 2));
-		this.splitView.addView(this.getSideView(this.rightPart, 'right'), initialSize, 1);
+		// The split holds only the sides that are not lifted out, so index 1 is
+		// not valid while the left side is a full-height column (the split is
+		// empty then).
+		this.splitView.addView(this.getSideView(this.rightPart, 'right'), initialSize, Math.min(1, this.splitView.length));
 		this.updateSideVisibility();
 		// Persist so a later Toggle Panel off/on restores this exact layout.
 		this.saveDualPanelLayout();
@@ -876,7 +936,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 			return;
 		}
 		this.rightInSplit = false;
-		this.splitView.removeView(1, Sizing.Distribute);
+		// Not a hard-coded `1`: while the left side is a full-height column the
+		// split holds only the right side, which then lives at index 0.
+		this.splitView.removeView(this.splitIndexOf('right'), Sizing.Distribute);
 		this.rightPart.sideElement.remove();
 		this.updateSideVisibility();
 		// Persist so a later Toggle Panel off/on restores this exact layout.
@@ -957,23 +1019,26 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Persist split ratio whenever the user drags the sash.
 		this._register(this.splitView.onDidSashChange(() => this.saveSplitRatio()));
 
+		// Install the drag-to-split drop targets. The listeners are bound to
+		// `splitContainer` plus every height-maximized side element (see
+		// `refreshSplitDropTargets`), so the left/right drop hot zone also works
+		// while a side is maximized - a maximized side is re-parented out of
+		// `splitContainer` and would otherwise no longer receive the drag.
+		this.registerSplitDropTarget();
+
 		// Track drag source side so the two sides can drop composites onto
 		// each other even though they share the same ViewContainerLocation.
 		this._register(CompositeDragAndDropObserver.INSTANCE.onDragStart(e => {
 			// 若上一轮拖出（拖到 Editor/窗口/侧栏）未派发 dragend，isDragInProgress
 			// 可能卡在 true，会干扰本轮拖拽判定，先复位再开始新一轮拖拽。
 			if (this.isDragInProgress) {
-				console.log('dr');
 				this.isDragInProgress = false;
 			}
 			this.isDragInProgress = true;
-			console.log('ds');
 			// 拖拽开始时若整块 Panel 因被拖空而隐藏，临时重新显示为空热区，
 			// 否则容器无布局尺寸，getSplitTargetSide 永远返回 undefined，热区唤不起。
 			if (!this.layoutService.isVisible(Parts.PANEL_PART) && this.lastAutoHideWasEmpty) {
-				console.log('sh');
 				this.layoutService.setPartHidden(false, Parts.PANEL_PART);
-				console.log('sv');
 			}
 			const target = e.eventData.target as HTMLElement;
 			if (isAncestor(target, this.leftPart.sideElement)) {
@@ -989,13 +1054,11 @@ export class PanelPart extends AbstractPaneCompositePart {
 			this.sideFallbackSchedulers.forEach(scheduler => scheduler.cancel());
 			setTimeout(() => {
 				this.isDragInProgress = false;
-				console.log('de');
 				this.endDragState();
 				if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
 					return;
 				}
 				if (this.activeContainerBySide.size === 0) {
-					console.log('ah');
 					this.autoHidePanelIfEmpty();
 				}
 			}, 0);
@@ -1024,6 +1087,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 				// The whole-Panel hide is done; the next hide could be a per-side
 				// collapse, so reset the flag.
 				this.hidingEntirePanel = false;
+
+				// Defensive: on hide paths that bypass `captureLayoutBeforeHide`
+				// height-maximized sides could still live in their own grid
+				// columns. Put them back so the Panel always comes back in its
+				// plain split layout.
+				for (const side of [...this.fullHeightSides]) {
+					this.exitSideFullHeight(side);
+				}
+				this.updateSideMaximizedContextKeys();
 
 				// If the Panel was hidden while *both* sides were empty (no active
 				// view container on either side), remember this so the NEXT Toggle
@@ -1372,8 +1444,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 					// 归位时仍然要走互斥门：若该容器包含的视图已经在另一侧显示，必须先
 					// 清空另一侧，否则同一 view（如 Terminal）会同时在左右两侧出现。
 					// `releaseOtherSideIfViewOverlap` 在 open 前同步检查并释放冲突侧。
-					await targetPart.pinPaneComposite(containerId);
-					await targetPart.openPaneComposite(containerId, false, true /* skipMaximizeOnShow */, false /* skipExclusion */);
+			await targetPart.pinPaneComposite(containerId);
+			await targetPart.openPaneComposite(containerId, false, true /* skipMaximizeOnShow */, false /* skipExclusion */);
 					targetPart.refreshCompositeBar();
 
 					// 每完成一次 open 就补一次唯一性兜底，确保并发/异步路径产生的
@@ -1412,17 +1484,25 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 
 		this.splitView.layout(this.sideWidth);
-		this.leftPart.layout(this.splitView.getViewSize(0), this.sideHeight, 0, 0);
-		// The right side only exists in the split after a split has happened
-		// (drag, or restoring a persisted right container). Guard the index so
-		// relayout before that point does not throw.
-		if (this.rightInSplit) {
-			this.rightPart.layout(this.splitView.getViewSize(1), this.sideHeight, 0, 0);
+		// Height-maximized sides live OUTSIDE the split (their own full-height
+		// grid columns, sized by the workbench grid): skip them here and shift
+		// the remaining sides' split indexes accordingly.
+		let splitIndex = 0;
+		if (!this.fullHeightSides.has('left')) {
+			this.leftPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
+			splitIndex++;
+		}
+		if (this.rightInSplit && !this.fullHeightSides.has('right')) {
+			this.rightPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
 		}
 	}
 
 	getDragSourceSide(): PanelSide | undefined {
 		return this.dragSourceSide;
+	}
+
+	getSidePart(side: PanelSide): PanelSidePart {
+		return side === 'left' ? this.leftPart : this.rightPart;
 	}
 
 	getOtherSidePart(side: PanelSide): PanelSidePart {
@@ -1601,6 +1681,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 		const model = this.panelViewDescriptorService.getViewContainerModel(container);
 		store.add(model.onDidChangeActiveViewDescriptors(e => {
+			console.log('sc' + side + ':' + containerId + (e.added.length ? '+'+e.added.length : '') + (e.removed.length ? '-'+e.removed.length : ''));
 			// If a view was just added to this side and the other side already
 			// shows the same view, the other side must be released - the view
 			// cannot be visible in both places at once.
@@ -1647,6 +1728,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * active composite is cleared so re-opening a view on it starts fresh.
 	 */
 	hideSide(side: PanelSide): void {
+		// Closing a side that is height-maximized: only pull THAT side back into
+		// the plain split. Previously this exited *every* full-height side, which
+		// silently dropped the OTHER side's maximization too (so closing an empty
+		// left side while the right side was still maximized would un-maximize the
+		// right side as well). Exiting only the target side keeps the other
+		// maximized side untouched in its own grid column.
+		if (this.fullHeightSides.has(side)) {
+			this.exitSideFullHeight(side);
+		}
+		this.updateSideMaximizedContextKeys();
 		if (this.hiddenSides.has(side)) {
 			return;
 		}
@@ -1727,37 +1818,75 @@ export class PanelPart extends AbstractPaneCompositePart {
 	}
 
 	/**
-	 * Whether the given side is currently "maximized" in the *vertical* sense:
-	 * the whole Panel is maximized so the Panel occupies the full vertical height
-	 * and squeezes the Editor area. In the dual layout both sides share that one
-	 * Panel height, so maximizing the clicked side grows the Panel (occupying the
-	 * Editor display) and both sides grow with it - the other side is left
-	 * visible and untouched. This matches the requested behaviour: "the current
-	 * Panel grows vertically and takes over the editor display".
+	 * Whether the given side is currently "maximized".
+	 *
+	 * In the dual (split) layout maximizing is per side: the clicked side
+	 * leaves the bottom Panel strip and takes a full-height workbench grid
+	 * column of unchanged width ("width stays, height is maximized") while
+	 * the other side stays in the bottom strip completely unchanged. In that
+	 * state only the lifted-out side reports `true`.
+	 *
+	 * Otherwise (single-area layout, or the classic whole-panel vertical
+	 * maximization where the Panel takes over the editor display) both sides
+	 * share the single Panel height, so the whole-panel maximized state is
+	 * reported for both sides.
 	 */
 	isSideMaximized(side: PanelSide): boolean {
+		// Per-side full-height maximization: the side lives in its own
+		// full-height grid column outside the bottom Panel strip.
+		if (this.fullHeightSides.size > 0) {
+			return this.fullHeightSides.has(side);
+		}
+		// Fall back to the classic whole-panel vertical maximization.
 		return this.layoutService.isPanelMaximized();
 	}
 
 	/**
 	 * Toggle maximization of a single side of the dual-panel layout.
 	 *
-	 * In the dual layout the two sides share one Panel height, so "maximizing"
-	 * the side the user clicked simply vertically maximizes the whole Panel - the
-	 * Panel grows to fill the vertical space (occupying the Editor display) and
-	 * both sides grow with it. Crucially we do NOT hide / collapse the other side,
-	 * so the other Panel is never removed. Clicking the button again restores the
-	 * Panel to its previous height. When the Panel is not in dual mode this falls
-	 * back to the same classic whole-panel maximization.
+	 * In the dual (split) layout with the Panel at the bottom, "maximizing" a
+	 * side means HEIGHT-maximizing that side only: the side leaves the
+	 * horizontal Panel split and takes a full-height workbench grid column at
+	 * the same width, so it fills the entire column height while the other
+	 * side stays in the bottom Panel strip completely unchanged (same height,
+	 * same width, same views). Each side toggles independently; both sides
+	 * can be height-maximized at the same time.
+	 *
+	 * In any other arrangement (single-area layout, or the Panel moved away
+	 * from the bottom) this falls back to the classic whole-panel vertical
+	 * maximization. While the WHOLE panel is maximized the button shows the
+	 * restore glyph and clicking it simply un-maximizes the panel.
 	 */
 	toggleSideMaximized(side: PanelSide): void {
 		// Make sure the side the user clicked is actually visible before we
 		// maximize it (e.g. it could have been closed on its own).
 		this.showSide(side);
 
-		// Vertically maximize (or restore) the whole Panel. This occupies the
-		// Editor display and grows the clicked side; the other side stays put.
-		this.layoutService.toggleMaximizedPanel();
+		if (this.isDualLayout() && this.layoutService.getPanelPosition() === Position.BOTTOM) {
+			if (this.fullHeightSides.has(side)) {
+				// Restore: put the side back into the split at its old width.
+				this.exitSideFullHeight(side);
+			} else if (this.layoutService.isPanelMaximized()) {
+				this.layoutService.toggleMaximizedPanel();
+				const other: PanelSide = side === 'left' ? 'right' : 'left';
+				const otherPart = other === 'left' ? this.leftPart : this.rightPart;
+				if (!this.isSideHidden(other) && otherPart.getActivePaneComposite()) {
+					this.enterSideFullHeight(other);
+				}
+			} else if (this.fullHeightSides.size > 0) {
+				for (const lifted of [...this.fullHeightSides]) {
+					this.exitSideFullHeight(lifted);
+				}
+				this.layoutService.toggleMaximizedPanel();
+			} else {
+				// Independent: do not touch the other side's full-height state.
+				this.enterSideFullHeight(side);
+			}
+		} else {
+			// Single-area layout (or the Panel is not at the bottom): fall
+			// back to the classic whole-panel vertical maximization.
+			this.layoutService.toggleMaximizedPanel();
+		}
 		this.updateSideMaximizedContextKeys();
 	}
 
@@ -1769,6 +1898,210 @@ export class PanelPart extends AbstractPaneCompositePart {
 	private updateSideMaximizedContextKeys(): void {
 		this.panelLeftMaximizedContext.set(this.isSideMaximized('left'));
 		this.panelRightMaximizedContext.set(this.isSideMaximized('right'));
+	}
+
+	/**
+	 * Lifts the given side out of the horizontal Panel split and hands it to
+	 * the workbench grid as a full-height column (unchanged width). The other
+	 * side stays in the bottom strip untouched (it simply fills the strip).
+	 */
+	private enterSideFullHeight(side: PanelSide): void {
+		if (!this.splitView) {
+			return;
+		}
+		const index = this.splitIndexOf(side);
+		if (index < 0) {
+			return;
+		}
+		const other: PanelSide = side === 'left' ? 'right' : 'left';
+		const otherIndex = this.splitIndexOf(other);
+		if (otherIndex >= 0) {
+			this.splitSideWidths.set(other, this.splitView.getViewSize(otherIndex));
+		}
+		const otherStillInSplit = otherIndex >= 0;
+		const sideWidth = otherStillInSplit
+			? Math.max(this.splitView.getViewSize(index), 150)
+			: Math.max(this.splitSideWidths.get(side) ?? this.splitView.getViewSize(index), 150);
+		this.fullHeightSideWidths.set(side, sideWidth);
+
+		// Removing the view from the horizontal split also detaches its
+		// element from the Panel DOM (`SplitView.removeView` disposes the view
+		// wrapper); the workbench grid re-parents the element right after.
+		this.splitView.removeView(index, Sizing.Distribute);
+
+		const sidePart = side === 'left' ? this.leftPart : this.rightPart;
+		sidePart.sideElement.classList.add('panel-side-full-height', `panel-side-full-height-${side}`);
+		// Mirror the Panel's docked position on the lifted-out side: the stock
+		// maximize/restore icon rotation rules (`.part.basepanel.left/right/top`)
+		// no longer match once the side lives outside the `.part.panel`
+		// subtree, and the compensation depends on the position (none at the
+		// bottom). See `media/panelpart.css`.
+		sidePart.sideElement.classList.add(`panel-side-full-height-pos-${positionToString(this.layoutService.getPanelPosition())}`);
+		const gridView = this.getMaximizedSideGridView(side);
+		this.fullHeightGridViews.set(side, gridView);
+		this.layoutService.addPanelSideFullHeightView(
+			side === 'left' ? Direction.Left : Direction.Right,
+			gridView,
+			sideWidth
+		);
+
+		this.fullHeightSides.add(side);
+		this.relayoutAfterFullHeightChange();
+		this.updatePanelStripForFullHeight();
+	}
+
+	/**
+	 * Puts a height-maximized side back into the horizontal Panel split at its
+	 * original index and with its original width.
+	 */
+	private exitSideFullHeight(side: PanelSide): void {
+		const gridView = this.fullHeightGridViews.get(side);
+		if (!gridView || !this.splitView) {
+			return;
+		}
+		this.layoutService.removePanelSideFullHeightView(gridView);
+		this.fullHeightGridViews.delete(side);
+		this.fullHeightSides.delete(side);
+
+		const sidePart = side === 'left' ? this.leftPart : this.rightPart;
+		sidePart.sideElement.classList.remove(
+			'panel-side-full-height', 'panel-side-full-height-left', 'panel-side-full-height-right',
+			'panel-side-full-height-pos-left', 'panel-side-full-height-pos-right',
+			'panel-side-full-height-pos-top', 'panel-side-full-height-pos-bottom'
+		);
+
+		// Put the side back into the horizontal split at its original index
+		// with the width it had before being maximized.
+		const sideWidth = this.fullHeightSideWidths.get(side) ?? 150;
+		this.fullHeightSideWidths.delete(side);
+		const insertIndex = side === 'left' ? 0 : (this.fullHeightSides.has('left') ? 0 : 1);
+		this.splitView.addView(this.getSideView(sidePart, side), sideWidth, insertIndex);
+		this.relayoutAfterFullHeightChange();
+		this.updatePanelStripForFullHeight();
+		this.saveSplitRatio();
+	}
+
+	private updatePanelStripForFullHeight(): void {
+		const splitEmpty = !!this.splitView && this.splitView.length === 0;
+		this.minimumHeight = splitEmpty ? 0 : 77;
+		this.applyPanelStripHeight(splitEmpty);
+	}
+
+	private applyPanelStripHeight(splitEmpty: boolean): void {
+		if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
+			console.log('s0');
+			return;
+		}
+		if (splitEmpty === this.panelStripCollapsed) {
+			return;
+		}
+		const size = this.layoutService.getSize(Parts.PANEL_PART);
+		if (splitEmpty) {
+			console.log('s1');
+			this.collapsedPanelStripHeight = size.height;
+			this.layoutService.setSize(Parts.PANEL_PART, { width: size.width, height: 0 });
+			this.panelStripCollapsed = true;
+		} else {
+			console.log('s2');
+			this.layoutService.setSize(Parts.PANEL_PART, { width: size.width, height: this.collapsedPanelStripHeight || this.preferredHeight || 350 });
+			this.panelStripCollapsed = false;
+		}
+	}
+
+	/**
+	 * Builds the grid adapter for a lifted-out side: a fixed-width (unchanged
+	 * from the split) view that fills the whole column height. The layout
+	 * callback forwards to the side part exactly like the split `IView`s do.
+	 */
+	private getMaximizedSideGridView(side: PanelSide): ISerializableView {
+		const sidePart = side === 'left' ? this.leftPart : this.rightPart;
+		const fixedWidth = this.fullHeightSideWidths.get(side) ?? 150;
+		return {
+			element: sidePart.sideElement,
+			// Prefer the width the side had in the split, but let the grid
+			// shrink it when the window is too narrow: both lifted-out sides
+			// together claim the whole editor/panel column width, so a hard
+			// fixed width would leave the editor at zero and force the grid to
+			// steal the missing space from the auxiliary bar (it collapses).
+			minimumWidth: Math.min(fixedWidth, 150),
+			maximumWidth: fixedWidth,
+			minimumHeight: 200,
+			maximumHeight: Number.POSITIVE_INFINITY,
+			// Not `High`: a high priority view keeps its own size and pushes the
+			// loss onto the normal-priority auxiliary bar, which is what made
+			// the auxiliary bar disappear when both sides were maximized.
+			priority: LayoutPriority.Normal,
+			proportionalLayout: false,
+			onDidChange: Event.None,
+			layout: (width: number, height: number) => {
+				sidePart.layout(width, height, 0, 0);
+				// The element was just detached from the Panel split and
+				// re-parented into the grid, so the browser has not reflowed it
+				// yet when this first callback runs. Views that measure their
+				// own container (xterm and friends) then read a stale box and
+				// keep rendering at the wrong size - which is why dragging a
+				// sash "fixes" it. Re-apply once the layout has settled.
+				requestAnimationFrame(() => sidePart.layout(width, height, 0, 0));
+			},
+			// Required by `ISerializableView`. The workbench grid state is
+			// persisted via `createGridDescriptor()` (state keys only), never
+			// via `SerializableGrid.serialize`, so this is purely nominal: the
+			// maximized state is intentionally not restored across reloads.
+			toJSON: () => ({ type: 'panel.side.fullHeight', side })
+		};
+	}
+
+	/**
+	 * Relayouts the Panel internals after a side entered/left the full-height
+	 * state: the split (holding only the remaining side) and that remaining
+	 * side itself. Mind the shifted split indexes while a side is lifted out
+	 * (the remaining side becomes index 0).
+	 */
+	private relayoutAfterFullHeightChange(): void {
+		if (!this.splitView) {
+			return;
+		}
+		this.splitView.layout(this.sideWidth);
+		// Only lay out the side(s) still living inside the split; any
+		// maximized sides are sized by the workbench grid instead (see
+		// `getMaximizedSideGridView`).
+		let splitIndex = 0;
+		if (!this.fullHeightSides.has('left')) {
+			this.leftPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
+			splitIndex++;
+		}
+		if (this.rightViewInSplit && !this.fullHeightSides.has('right')) {
+			this.rightPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
+		}
+		// A side that became (or stopped being) height-maximized was
+		// re-parented into / out of its own workbench grid column, so the set
+		// of elements that must carry the drag-to-split listeners changed.
+		// Re-bind them so the left/right drop hot zone keeps working in the
+		// maximized state (a maximized side is no longer inside `splitContainer`,
+		// so the container listener alone can no longer see drags over it).
+		this.refreshSplitDropTargets();
+	}
+
+	/**
+	 * Index of the given side inside the horizontal Panel split, accounting
+	 * for lifted-out (height-maximized) sides. The split only contains sides
+	 * that are not full-height, so the indexes shift as sides are lifted out.
+	 * Returns -1 for a side that currently lives in its own grid column.
+	 */
+	private splitIndexOf(side: PanelSide): number {
+		if (!this.splitView) {
+			return -1;
+		}
+		if (this.fullHeightSides.has(side)) {
+			return -1;
+		}
+		if (side === 'left') {
+			return 0;
+		}
+		if (!this.rightViewInSplit) {
+			return -1;
+		}
+		return this.fullHeightSides.has('left') ? 0 : 1;
 	}
 
 	/**
@@ -1967,6 +2300,24 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
 		const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
 
+		// (0) 两侧激活的是同一个 container id（例如 DEBUG CONSOLE /
+		// `workbench.panel.repl` 左右各一份）。必须显式用严格相等判断，不能依赖
+		// 下面的 `containersShareView`：
+		//   - `containersShareView` 对 `a === b` 故意返回 false（见其实现注释，
+		//     用于让还原路径允许"两个 Terminal 并排"），因此 check (2)/(3) 天然
+		//     发现不了"同一容器在两侧同时激活"这一重复；
+		//   - 上面的可见集是 composite bar 的 pinned 集合
+		//     （`getVisiblePaneCompositeIds`），未 pin 的激活容器不在其中，所以
+		//     check (1) 也会漏掉。
+		// 三者叠加导致同一视图（DEBUG CONSOLE）能在左右两侧长期共存，而本方法
+		// 声明的不变式是"视图必须单一归属，不能同时出现在两个 Panel 中"。
+		if (leftActiveId && leftActiveId === rightActiveId) {
+			// 与 check (1) 的同 id 分支保持一致：保留右侧，释放左侧的副本。
+			this.clearAndUnpinSide('left');
+			this.storageService.remove(PanelSidePart.activePanelSettingsKeyFor('left'), StorageScope.WORKSPACE);
+			return;
+		}
+
 		// (1) 同一 id 同时出现在两侧可见集。
 		let conflictingId: string | undefined;
 		for (const id of leftVisible) {
@@ -2034,6 +2385,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * `PanelSidePart.openPaneComposite`.
 	 */
 	async movePaneCompositeToSide(id: string, toSide: PanelSide): Promise<IPaneComposite | undefined> {
+		console.log('mx');
 		this.isInCrossSideMove = true;
 		const fromPart = toSide === 'left' ? this.rightPart : this.leftPart;
 		const targetPart = toSide === 'left' ? this.leftPart : this.rightPart;
@@ -2189,7 +2541,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 	}
 
 	private saveSplitRatio(): void {
-		if (!this.splitView) {
+		// While one or more sides are height-maximized the split holds only the
+		// remaining side(s), so the (left,right) sizes below would be wrong.
+		// Keep the last ratio saved while the plain split layout was active.
+		if (!this.splitView || this.fullHeightSides.size > 0) {
 			return;
 		}
 		const left = this.splitView.getViewSize(0);
@@ -2221,17 +2576,39 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (typeof id === 'string') {
 			const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
 			const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
+			console.log('OP ' + id + ' L=' + leftActiveId + ' R=' + rightActiveId);
+			if (this.lastDismissedContainerBySide.get('right') === id) {
+				this.lastDismissedContainerBySide.delete('right');
+				console.log('OPdR');
+				return this.rightPart.openPaneComposite(id, focus);
+			}
+			if (this.lastDismissedContainerBySide.get('left') === id) {
+				this.lastDismissedContainerBySide.delete('left');
+				console.log('OPdL');
+				return this.leftPart.openPaneComposite(id, focus);
+			}
+			if (rightActiveId === id) {
+				console.log('OPR');
+				return this.rightPart.openPaneComposite(id, focus);
+			}
+			if (leftActiveId === id) {
+				console.log('OPL');
+				return this.leftPart.openPaneComposite(id, focus);
+			}
 			const leftOccupied = !!leftActiveId;
 			const rightEmpty = !rightActiveId;
 			const noViewOverlap = !leftActiveId || !this.containersShareView(leftActiveId, id);
-			if (leftOccupied && rightEmpty && noViewOverlap) {
+			console.log('OP? lo=' + leftOccupied + ' re=' + rightEmpty + ' nvo=' + noViewOverlap + ' ris=' + this.rightViewInSplit);
+			if (leftOccupied && rightEmpty && noViewOverlap && this.rightViewInSplit) {
 				// The right side is not in the split yet -> create it, then open there.
 				if (!this.rightViewInSplit) {
 					this.addRightToSplit();
 				}
+				console.log('OPr');
 				return this.rightPart.openPaneComposite(id, focus);
 			}
 		}
+		console.log('OPl');
 		return this.leftPart.openPaneComposite(id, focus);
 	}
 
@@ -2421,9 +2798,18 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// the sides would keep their stale height. Push the current height to
 			// both sides explicitly. The right side only exists in the split once
 			// a split has happened, so guard its index.
-			this.leftPart.layout(this.splitView.getViewSize(0), this.sideHeight, 0, 0);
-			if (this.rightInSplit) {
-				this.rightPart.layout(this.splitView.getViewSize(1), this.sideHeight, 0, 0);
+			//
+			// While a side is height-maximized it lives OUTSIDE the split (its
+			// own full-height grid column, sized by the workbench grid), so it
+			// must not be touched here. Mind the shifted split indexes when one
+			// or both sides are lifted out.
+			let splitIndex = 0;
+			if (!this.fullHeightSides.has('left')) {
+				this.leftPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
+				splitIndex++;
+			}
+			if (this.rightInSplit && !this.fullHeightSides.has('right')) {
+				this.rightPart.layout(this.splitView.getViewSize(splitIndex), this.sideHeight, 0, 0);
 			}
 		}
 	}
@@ -2473,7 +2859,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 	private updatePanelMinimumHeight(): void {
 		const isEmpty = this.activeContainerBySide.size === 0;
-		const targetMinimum = isEmpty ? (this.preferredHeight ?? 350) : 77;
+		const splitEmpty = !!this.splitView && this.splitView.length === 0;
+		const targetMinimum = splitEmpty ? 0 : (isEmpty ? (this.preferredHeight ?? 350) : 77);
 		if (this.minimumHeight !== targetMinimum) {
 			// 拖出窗口期间（`isSuppressPanelRelayoutOnDragOut`）：视图刚被 move 到 Editor
 			// 区，源 Panel 侧会短暂变空。若按常规把最小高度从 77 抬到 350 并 fire 重布局，
@@ -2521,18 +2908,20 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 		const leftActive = this.leftPart.hasActiveView();
 		const rightActive = this.rightPart.hasActiveView();
+		console.log('ac' + (leftActive ? 'L' : 'l') + (rightActive ? 'R' : 'r'));
 
 		if (!rightActive && this.rightViewInSplit) {
 			if (!this.isDragInProgress && this.splitPreviewSide !== undefined) {
 				this.splitView.layout(this.sideWidth);
 			} else {
-				console.log('ph');
+				console.log('a1');
 				this.removeRightFromSplit();
+				this.updatePanelStripForFullHeight();
 			}
 		}
 		if (!leftActive && rightActive && !this.isSideHidden('left') && this.splitPreviewSide === undefined) {
 			if (!this.isDragInProgress) {
-				console.log('ph');
+				console.log('lh');
 				this.hideSide('left');
 			}
 		}
@@ -2635,6 +3024,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 		return this.lastAutoHideWasEmpty;
 	}
 
+	isPanelCollapsedForFullHeight(): boolean {
+		return this.panelStripCollapsed;
+	}
+
 	private autoHidePanelIfEmpty(): void {
 		// GUARD (startup): while the initial default-view open is still async-in-flight,
 		// `activeContainerBySide` transiently reports zero containers even though a view
@@ -2676,6 +3069,31 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.storageService.remove(PanelPart.layoutSettingsKey, StorageScope.WORKSPACE);
 	}
 
+	private collapseEmptySideInSplit(): boolean {
+		if (!this.splitView || this.fullHeightSides.size === 0) {
+			return false;
+		}
+		if (this.hidingEntirePanel || isSuppressPanelRelayoutOnDragOut() || this.isDragInProgress || this.splitPreviewSide !== undefined) {
+			console.log('c0');
+			return false;
+		}
+		if (this.rightViewInSplit && !this.rightPart.getActivePaneComposite()) {
+			console.log('c1');
+			this.removeRightFromSplit();
+			this.updatePanelStripForFullHeight();
+			return true;
+		}
+		if (this.rightViewInSplit && !this.fullHeightSides.has('left') && !this.isSideHidden('left') && !this.leftPart.getActivePaneComposite()) {
+			console.log('c2');
+			this.splitView.resizeView(0, 0);
+			this.splitView.resizeView(1, this.sideWidth);
+			this.leftPart.layout(0, this.sideHeight, 0, 0);
+			this.rightPart.layout(this.sideWidth, this.sideHeight, 0, 0);
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Decide how the split shares the Panel width.
 	 *
@@ -2688,6 +3106,58 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 */
 	private updateSideVisibility(): void {
 		if (!this.splitView || this.sideWidth <= 0 || this.sideHeight <= 0) {
+			return;
+		}
+
+		if (this.fullHeightSides.size > 0) {
+			if (this.collapseEmptySideInSplit()) {
+				return;
+			}
+			// 当任一最大化（full-height）侧没有激活的视图时，直接隐藏该侧，
+			// 而不是显示 "Drag a view here" 的空占位：
+			//   - 左侧最大化侧变空：记入 `hiddenSides`，Panel 区回退为单栏；
+			//   - 右侧最大化侧变空：从 split 移除，Panel 回退为单栏；
+			// 剩余的另一最大化侧继续以 full-height 显示。若所有侧都变空，则
+			// 隐藏整个 Panel。跳过拖拽中 / 拖出窗口的过渡期，避免误隐藏。
+			if (!this.isDragInProgress && !isSuppressPanelRelayoutOnDragOut() && !this.hidingEntirePanel) {
+				const emptyFullHeightSides = [...this.fullHeightSides].filter(side =>
+					!(side === 'left' ? this.leftPart : this.rightPart).hasActiveView());
+				if (emptyFullHeightSides.length > 0) {
+					// 仍有可能存在的活跃侧：剩余的 full-height 侧 + 仍在 split 里
+					// 且未隐藏的其他侧。
+					const remainingFullHeightActive = this.fullHeightSides.size - emptyFullHeightSides.length > 0;
+					const otherSideActive = [...this.fullHeightSides]
+						.filter(side => !emptyFullHeightSides.includes(side))
+						.some(side => (side === 'left' ? this.leftPart : this.rightPart).hasActiveView());
+					const splitActive = (!this.fullHeightSides.has('left') && !this.isSideHidden('left') && this.leftPart.hasActiveView())
+						|| (this.rightViewInSplit && this.rightPart.hasActiveView());
+					if (!remainingFullHeightActive && !otherSideActive && !splitActive) {
+						// 全部变空：隐藏整个 Panel。
+						this.autoHidePanelIfEmpty();
+						return;
+					}
+					// 只隐藏变空的最大化侧，保留其余侧（其它仍最大化的一侧继续
+					// 在各自的 grid 列里显示；hideSide 只把目标侧退出 full-height，
+					// 不再像旧逻辑那样把所有最大化侧都退掉）。
+					for (const side of emptyFullHeightSides) {
+						this.hideSide(side);
+					}
+					// 隐藏后可能已无 full-height 侧，此时走下方 split 分支重新布局；
+					// 否则对剩余 full-height 侧做常规 full-height 布局。
+					if (this.fullHeightSides.size > 0) {
+						this.relayoutAfterFullHeightChange();
+						this.updatePanelStripForFullHeight();
+						return;
+					}
+				}
+			}
+			// 若隐藏空侧后已无 full-height 侧，重新走下方 split 分支统一布局
+			// （此时 Panel 应回退为单栏并折叠空侧，避免出现 "Drag a view" 占位）。
+			if (this.fullHeightSides.size === 0) {
+				this.updateSideVisibility();
+				return;
+			}
+			this.relayoutAfterFullHeightChange();
 			return;
 		}
 
@@ -2716,7 +3186,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		} else {
 			const leftActive = this.activeContainerBySide.has('left') || !!this.leftPart.getActivePaneComposite();
 			const rightActive = this.activeContainerBySide.has('right') || !!this.rightPart.getActivePaneComposite();
-			console.log('pa');
 
 			// An empty side only needs a visible drop target while the user is
 			// actively dragging a view. When no drag is in progress, collapse the
@@ -2738,13 +3207,11 @@ export class PanelPart extends AbstractPaneCompositePart {
 			const emptyDropWidth = this.splitPreviewSide !== undefined ? 150 : 0;
 
 			if (leftActive && !rightActive) {
-				console.log('p1');
 				// Left shows a view, right is empty: give the right side a minimum
 				// drop width (while dragging / previewing it) and let the left fill.
 				this.splitView.resizeView(1, emptyDropWidth);
 				this.splitView.resizeView(0, this.sideWidth - emptyDropWidth);
 			} else if (rightActive && !leftActive) {
-				console.log('p2');
 				// Only the right side has a view. Keep the empty left side at the
 				// same minimum drop width unless it was explicitly closed, in which
 				// case collapse it to zero so the right side fills the panel.
@@ -2756,14 +3223,12 @@ export class PanelPart extends AbstractPaneCompositePart {
 					this.splitView.resizeView(1, this.sideWidth - emptyDropWidth);
 				}
 			} else if (!leftActive && !rightActive) {
-				console.log('p3');
 				if (this.isDragInProgress || this.splitPreviewSide !== undefined) {
 					this.splitView.layout(this.sideWidth);
 				} else {
 					this.removeRightFromSplit();
 				}
 			} else {
-				console.log('p4');
 				// Both sides host a view: split by the persisted ratio.
 				const ratio = this.loadSplitRatio();
 				const left = Math.max(150, Math.round(this.sideWidth * ratio));
@@ -2779,6 +3244,13 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (this.splitView.length > 1) {
 			this.rightPart.layout(this.splitView.getViewSize(1), this.sideHeight, 0, 0);
 		}
+
+		if (!this.leftPart.hasActiveView() && !!this.leftPart.getActivePaneComposite()) {
+			console.log('uL');
+		}
+		if (!this.rightPart.hasActiveView() && !!this.rightPart.getActivePaneComposite()) {
+			console.log('uR');
+		}
 	}
 
 	// ----- Drag-to-split (editor-like) --------------------------------------
@@ -2793,6 +3265,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * half left by a *closed left* panel never re-activated it).
 	 */
 	private splitPreviewSide: PanelSide | undefined;
+
+	/**
+	 * DOM listeners backing the drag-to-split drop target. They are re-created
+	 * whenever a side enters/leaves the height-maximized state (see
+	 * `refreshSplitDropTargets`) because a maximized side is re-parented out of
+	 * `splitContainer` into its own workbench grid column, where the container
+	 * listeners can no longer see drags over it.
+	 */
+	private readonly splitDropTargetSubscriptions = this._register(new DisposableStore());
 
 	/**
 	 * Register a drag target over the whole Panel so that dragging a view/composite
@@ -2844,255 +3325,347 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// empty half left by a *closed left* panel never re-activated it - the
 		// preview only ever looked at the right half. Now `getSplitTargetSide`
 		// resolves the side from whichever half the pointer is over.
-		// Resolve which side of the split the cursor is currently over, based on
-		// the *visible* geometry. Unlike `getSplitTargetSide` this does NOT bail
-		// out when the resolved side already shows a view - it is used to decide
-		// cross-side drags where the target side is non-empty.
-		// (Defined as a class method `resolveSideByPosition` below; call it
-		// directly rather than re-wrapping it in a shadowing local closure.)
-		const getSplitTargetSide = (e: DragEvent): PanelSide | undefined => {
-			const rect = this.splitContainer.getBoundingClientRect();
-			if (rect.width <= 0) {
-				console.log('gw');
-				return undefined;
-			}
-			// The boundary between the two halves depends on the *visible*
-			// geometry, not just whether the right side is in the split:
-			//  - When BOTH sides are visible (right in split and the left view
-			//    actually has a non-zero width) the boundary is the real width
-			//    of the left view, so dragging onto the left area targets left
-			//    and onto the right area targets right.
-			//  - When ONE side is collapsed/hidden (e.g. the user closed the left
-			//    panel and the right fills the whole Panel), the Panel visually
-			//    behaves like a single area. The "empty" half the user wants to
-			//    re-activate is the *opposite* half of the container, so the
-			//    boundary must be the container MIDPOINT. Using the (zero) left
-			//    width here would pin the boundary to the container's left edge
-			//    and the drag would always resolve to the wrong (right) side,
-			//    which is exactly why a closed-left panel could never be
-			//    re-triggered by a drag.
-			const leftCollapsed = this.isSideHidden('left')
-				|| (this.rightViewInSplit && this.splitView.getViewSize(0) <= 0);
-			let splitX: number;
-			if (this.rightViewInSplit && !leftCollapsed) {
-				// When the right side was just pulled into the split (e.g. by a
-				// drag-over onto the empty half) but has not been given a view yet,
-				// `updateSideVisibility` collapses it to ZERO width (see the
-				// `leftActive && !rightActive` branch). At that moment
-				// `getViewSize(0)` is the *whole* container width, so using it as
-				// the split boundary would pin the boundary to the container's
-				// right edge and make the entire right half resolve to `left`
-				// (which already hosts a view) -> `getSplitTargetSide` returns
-				// `undefined` and the right half gets NO drop zone at all (only
-				// the sash line reacts). Fall back to the container MIDPOINT while
-				// the right side is still zero-width so the right half is a real
-				// drop target.
-				const rightSize = this.splitView.getViewSize(1);
-				if (rightSize <= 0) {
-					splitX = rect.left + rect.width / 2;
-				} else {
-					splitX = rect.left + this.splitView.getViewSize(0);
-				}
-			} else {
-				splitX = rect.left + rect.width / 2;
-			}
-			const targetSide: PanelSide = e.clientX < splitX ? 'left' : 'right';
-			// 只有当目标侧"真实持有可见视图"才算被占据。activeContainerBySide /
-			// isSideHidden 在视图被拖走后经常残留旧记录，不能据此拒绝接管，否则
-			// 空出的那一半永远唤不起 drop 热区。getActivePaneComposite() 才是该侧
-			// 是否真有可见内容的权威来源。
-			const occupied = targetSide === 'right'
-				? !!this.rightPart.getActivePaneComposite()
-				: !!this.leftPart.getActivePaneComposite();
-			if (occupied) {
-				console.log('gh');
-				return undefined;
-			}
-			return targetSide;
-		};
+		// The side is resolved by `resolveSideByPosition` (real on-screen
+		// geometry, class method below) and narrowed down to the EMPTY side by
+		// `getSplitTargetSide`. Both are class methods so the listeners installed
+		// by `refreshSplitDropTargets` - which are re-bound whenever a side is
+		// maximized - can reuse them.
+		this.refreshSplitDropTargets();
+	}
 
-		this._register(addDisposableListener(this.splitContainer, EventType.DRAG_ENTER, (e: DragEvent) => {
-			const side = getSplitTargetSide(e);
-			if (side) {
-				EventHelper.stop(e, true);
-				// Only (re-)activate the preview when the targeted side actually
-				// CHANGES. Comparing against the resolved `side` (instead of
-				// merely `undefined`) is what stops the flicker: while the pointer
-				// hovers the same empty half, `getSplitTargetSide` keeps returning
-				// that side, so we must NOT re-run `ensureSideInSplit` (and thus
-				// `updateSideVisibility` -> `resizeView`) on every `dragenter`/`dragover`.
-				// Re-running it every frame combined with `clearSplitPreview` -> the
-				// opposite `removeRightFromSplit` created a geometry feedback loop:
-				// resizing the split moved the `splitX` boundary under the pointer,
-				// which flipped the next `getSplitTargetSide` to `undefined`, which
-				// tore the side back out of the split, which moved `splitX` again,
-				// which re-added it ... an endless add/remove of the side view that
-				// made both Panel areas flash until the drop ended.
-				if (this.splitPreviewSide !== side) {
-					this.splitPreviewSide = side;
-					this.splitContainer.classList.add('panel-split-preview');
-					// Re-activate the previously closed / empty side so the drop
-					// has a real target to land on. `ensureSideInSplit` is a
-					// no-op when the side is already in the split.
-					this.ensureSideInSplit(side);
-				}
-			} else {
-			}
-		}, true));
+	/**
+	 * (Re-)installs the drag-to-split listeners on every element that must act
+	 * as a Panel drop *root*:
+	 *
+	 *  - `splitContainer`, always: it spans the whole bottom Panel strip,
+	 *    including the empty half that has no side element of its own yet -
+	 *    that empty half is what lets a drag split a single-area Panel in two.
+	 *  - every *height-maximized* side element: a maximized side is handed to
+	 *    the workbench grid as its own full-height column and is therefore
+	 *    RE-PARENTED out of `splitContainer`. A capture listener on
+	 *    `splitContainer` never sees drags over it, so without registering on
+	 *    the side element itself the left/right drop hot zone would disappear
+	 *    completely while a side is maximized.
+	 *
+	 * Re-run from `relayoutAfterFullHeightChange()` (the common tail of
+	 * `enterSideFullHeight` / `exitSideFullHeight`) so the set of roots always
+	 * matches the current layout. A side that still lives inside
+	 * `splitContainer` is deliberately NOT registered on its own: it is already
+	 * covered by the container listener, and registering both would run every
+	 * handler twice for the same event.
+	 */
+	private refreshSplitDropTargets(): void {
+		this.splitDropTargetSubscriptions.clear();
+		if (!this.splitContainer || !this.leftPart || !this.rightPart) {
+			return;
+		}
+		const roots: HTMLElement[] = [this.splitContainer];
+		if (this.fullHeightSides.has('left')) {
+			roots.push(this.leftPart.sideElement);
+		}
+		if (this.fullHeightSides.has('right')) {
+			roots.push(this.rightPart.sideElement);
+		}
+		for (const root of roots) {
+			this.splitDropTargetSubscriptions.add(addDisposableListener(root, EventType.DRAG_ENTER, (e: DragEvent) => this.onSplitDragEnter(e), true));
+			this.splitDropTargetSubscriptions.add(addDisposableListener(root, EventType.DRAG_OVER, (e: DragEvent) => this.onSplitDragOver(e), true));
+			this.splitDropTargetSubscriptions.add(addDisposableListener(root, EventType.DRAG_LEAVE, (e: DragEvent) => this.onSplitDragLeave(e), true));
+			this.splitDropTargetSubscriptions.add(addDisposableListener(root, EventType.DROP, (e: DragEvent) => this.onSplitDrop(e), true));
+			this.splitDropTargetSubscriptions.add(addDisposableListener(root, EventType.DRAG_END, () => this.endDragState(), true));
+		}
+	}
 
-		this._register(addDisposableListener(this.splitContainer, EventType.DRAG_OVER, (e: DragEvent) => {
-			const side = getSplitTargetSide(e);
-			if (side) {
-				// Stop propagation so the side's own empty-pane handler (which
-				// would otherwise move the view into the single Panel) does not
-				// also run. `preventDefault` is required for the drop to fire.
-				EventHelper.stop(e, true);
-				// Same stability guard as DRAG_ENTER: keep the preview for the
-				// current side instead of re-activating it on every high-frequency
-				// `dragover`, which would otherwise re-trigger the add/remove flicker
-				// loop described there.
-				if (this.splitPreviewSide !== side) {
-					this.splitPreviewSide = side;
-					this.splitContainer.classList.add('panel-split-preview');
-					this.ensureSideInSplit(side);
-				}
+	/**
+	 * Resolve which Panel side the cursor is currently over, based on the REAL
+	 * ON-SCREEN geometry. This is the single source of truth for both the
+	 * empty-half split preview and the cross-side drop interception, and it
+	 * must keep working while one or both sides are height-maximized.
+	 *
+	 * Why the maximized state needs its own branch: a maximized side is lifted
+	 * out of the horizontal Panel split and re-parented into its own
+	 * full-height workbench grid column. There it owns NO split index, so
+	 * `splitView.getViewSize(...)` cannot describe it (and the split may even be
+	 * empty) - which is why the split-geometry calculations below must never run
+	 * for a lifted-out side. Hit-testing the side's own element instead works in
+	 * both arrangements and is the only way a drag over a maximized side can
+	 * resolve to that side at all.
+	 */
+	private resolveSideByPosition(e: DragEvent): PanelSide | undefined {
+		if (!this.leftPart || !this.rightPart) {
+			return undefined;
+		}
+
+		// 1) Height-maximized sides live OUTSIDE the bottom Panel strip (they
+		//    sit next to the editor), so hit-test their own columns first.
+		for (const side of this.fullHeightSides) {
+			const sideRect = this.getSidePart(side).sideElement.getBoundingClientRect();
+			if (sideRect.width > 0 && sideRect.height > 0
+				&& e.clientX >= sideRect.left && e.clientX <= sideRect.right
+				&& e.clientY >= sideRect.top && e.clientY <= sideRect.bottom) {
+				return side;
 			}
+		}
+
+		if (!this.splitContainer || !this.splitView) {
+			return undefined;
+		}
+		const rect = this.splitContainer.getBoundingClientRect();
+		if (rect.width <= 0) {
+			return undefined;
+		}
+
+		// 2) The bottom Panel strip. Which sides does the split still lay out?
+		//    `rightViewInSplit` is already false while the right side is lifted
+		//    out, so only the left side needs the explicit check.
+		const leftInSplit = !this.fullHeightSides.has('left');
+		const rightInSplit = this.rightViewInSplit;
+
+		if (!leftInSplit && !rightInSplit) {
+			// Both sides are maximized: nothing is left in the strip.
+			return undefined;
+		}
+
+		if (leftInSplit && rightInSplit) {
+			// Both sides share the strip: the boundary is the real width of the
+			// left view, with a MIDPOINT fallback while one of the two is still
+			// collapsed to zero width. Without that fallback the boundary gets
+			// pinned to a container edge and the collapsed half ends up with no
+			// drop zone at all (only the sash line reacts).
+			const leftSize = this.splitView.getViewSize(0);
+			const rightSize = this.splitView.length > 1 ? this.splitView.getViewSize(1) : 0;
+			const splitX = (leftSize > 0 && rightSize > 0)
+				? rect.left + leftSize
+				: rect.left + rect.width / 2;
+			return e.clientX < splitX ? 'left' : 'right';
+		}
+
+		// Exactly one side is laid out by the split.
+		if (this.fullHeightSides.size > 0) {
+			// The other side is maximized: the remaining side fills the whole
+			// strip, so the ENTIRE strip is its drop area. Halving it would hand
+			// one half to the maximized side, which is not there.
+			return leftInSplit ? 'left' : 'right';
+		}
+		// Plain single-area Panel (the second side was never opened): the
+		// "empty" half the user wants to re-activate is the opposite half of the
+		// container, so the boundary must be the container MIDPOINT.
+		return e.clientX < rect.left + rect.width / 2 ? 'left' : 'right';
+	}
+
+	/**
+	 * Same as `resolveSideByPosition`, but only reports a side while that side
+	 * is EMPTY - i.e. while hovering it must reveal a drop hot zone instead of
+	 * letting the side's own (already populated) drop handler deal with the
+	 * drag. Returns `undefined` for a side that already hosts a view.
+	 */
+	private getSplitTargetSide(e: DragEvent): PanelSide | undefined {
+		const targetSide = this.resolveSideByPosition(e);
+		if (targetSide === undefined) {
+			return undefined;
+		}
+		// 只有当目标侧"真实持有可见视图"才算被占据。activeContainerBySide /
+		// isSideHidden 在视图被拖走后经常残留旧记录，不能据此拒绝接管，否则
+		// 空出的那一半永远唤不起 drop 热区。getActivePaneComposite() 才是该侧
+		// 是否真有可见内容的权威来源。
+		const occupied = targetSide === 'right'
+			? !!this.rightPart.getActivePaneComposite()
+			: !!this.leftPart.getActivePaneComposite();
+		return occupied ? undefined : targetSide;
+	}
+
+	/**
+	 * Whether `node` is (or is inside) one of the elements the drag-to-split
+	 * listeners are installed on - the Panel strip or a height-maximized side
+	 * column. Used to tell a real "the pointer left the Panel" `dragleave` apart
+	 * from an internal move between those elements.
+	 */
+	private isInsidePanelDropArea(node: Node): boolean {
+		if (this.splitContainer && isAncestor(node as HTMLElement, this.splitContainer)) {
+			return true;
+		}
+		if (!this.leftPart || !this.rightPart) {
+			return false;
+		}
+		for (const side of this.fullHeightSides) {
+			if (isAncestor(node as HTMLElement, this.getSidePart(side).sideElement)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private onSplitDragEnter(e: DragEvent): void {
+		const side = this.getSplitTargetSide(e);
+		if (side === undefined) {
+			return;
+		}
+		EventHelper.stop(e, true);
+		// Only (re-)activate the preview when the targeted side actually
+		// CHANGES. Comparing against the resolved `side` (instead of merely
+		// `undefined`) is what stops the flicker: while the pointer hovers the
+		// same empty half, `getSplitTargetSide` keeps returning that side, so we
+		// must NOT re-run `ensureSideInSplit` (and thus `updateSideVisibility` ->
+		// `resizeView`) on every `dragenter`/`dragover`. Re-running it every
+		// frame combined with `clearSplitPreview` -> the opposite
+		// `removeRightFromSplit` created a geometry feedback loop: resizing the
+		// split moved the boundary under the pointer, which flipped the next
+		// resolution to `undefined`, which tore the side back out of the split,
+		// which moved the boundary again, which re-added it ... an endless
+		// add/remove of the side view that made both Panel areas flash until the
+		// drop ended.
+		if (this.splitPreviewSide !== side) {
+			this.setSplitPreviewSide(side);
+			// Re-activate the previously closed / empty side so the drop has a
+			// real target to land on. `ensureSideInSplit` is a no-op when the
+			// side is already in the split - and while the side is
+			// height-maximized it is already on screen in its own grid column.
+			this.ensureSideInSplit(side);
+		}
+	}
+
+	private onSplitDragOver(e: DragEvent): void {
+		const side = this.getSplitTargetSide(e);
+		if (side === undefined) {
 			// IMPORTANT: do NOT clear the split preview here when the pointer is
-			// over the *filled* sibling side (the `getSplitTargetSide` `else`
-			// branch). Clearing on every `dragover` that lands on the filled half
-			// made the empty half add/remove from the SplitView as the pointer
-			// crossed the left(filled)/right(empty) boundary, which flashed both
-			// Panel areas continuously while dragging a view from the Auxiliary
-			// Bar / Editor / Activity Bar over the dual-panel layout. The preview
-			// now stays sticky until the pointer genuinely leaves the Panel
-			// (`dragleave`, guarded against internal `null` relatedTargets) or a
-			// real drop occurs (DROP handler below), which collapses it cleanly.
-		}, true));
+			// over the *filled* sibling side. Clearing on every `dragover` that
+			// lands on the filled half made the empty half add/remove from the
+			// SplitView as the pointer crossed the boundary, which flashed both
+			// Panel areas continuously while dragging a view over the dual-panel
+			// layout. The preview stays sticky until the pointer genuinely leaves
+			// the Panel (`dragleave`) or a real drop occurs, which collapses it
+			// cleanly.
+			return;
+		}
+		// Stop propagation so the side's own empty-pane handler (which would
+		// otherwise move the view into the single Panel) does not also run.
+		// `preventDefault` is required for the drop to fire.
+		EventHelper.stop(e, true);
+		// Same stability guard as `onSplitDragEnter`.
+		if (this.splitPreviewSide !== side) {
+			this.setSplitPreviewSide(side);
+			this.ensureSideInSplit(side);
+		}
+	}
 
-		this._register(addDisposableListener(this.splitContainer, EventType.DRAG_LEAVE, (e: DragEvent) => {
-			// A dragleave on the container fires when leaving the whole Panel.
-			// Only clear the preview if we are actually leaving the container,
-			// not when moving between its child sides.
-			//
-			// IMPORTANT: `e.relatedTarget` is `null` in many browsers while the
-			// pointer is still *inside* the container (e.g. when it moves over a
-			// child element that the browser does not report, or over the
-			// `panel-split-preview` overlay / empty-pane hint that covers the
-			// side). Treating `null` as "left the container" made every internal
-			// `dragleave` cancel the split preview -> `clearSplitPreview()` ->
-			// `removeRightFromSplit()` (the right side is dropped from the
-			// SplitView). The very next `dragenter` then re-ran `ensureSideInSplit`
-			// -> `addRightToSplit`, re-adding the right side. That add/remove
-			// ping-pong on every internal move made both Panel areas flash until
-			// the drop ended - exactly the "two panels keep flickering" bug when
-			// dragging a view from the Auxiliary Bar onto the right (empty) side.
-			// So we only clear when `relatedTarget` is a real element that lives
-			// OUTSIDE the split container. A `null` target means "still inside"
-			// and we must leave the preview (and the split) intact. Leaving the
-			// whole window / dropping is cleaned up by the `dragend` / `drop`
-			// handlers, which always run.
-			if (e.relatedTarget && !isAncestor(e.relatedTarget as HTMLElement, this.splitContainer)) {
-				this.endDragState();
-			}
-		}, true));
-
-		this._register(addDisposableListener(this.splitContainer, EventType.DROP, (e: DragEvent) => {
-			// Cross-side drag interception:
-			//
-			// When a view/composite is dragged from one Panel side (`dragSourceSide`)
-			// and released over the *other* side (whether that side is currently
-			// empty or already shows a *different* view), the drop must MOVE the
-			// view off the source side. Without this, the drop bubbles down to the
-			// target side's `ViewPaneContainer.onDrop` (`isSinglePaneContainer`
-			// branch), which only *opens* the view on the target side and never
-			// removes it from the source - so the view appears duplicated (lingers
-			// in the original Panel), which is exactly the reported bug.
-			//
-			// We take over the drop here (capture phase, before the side handler
-			// sees it) and delegate to the target side's `handleEmptyAreaDrop`,
-			// whose dnd pipeline routes the move through
-			// `movePaneCompositeToSide` -> `clearActivePaneComposite` +
-			// `unpinPaneComposite` on the source, guaranteeing the source is
-			// cleared. This covers BOTH the empty-target and the non-empty-target
-			// cases (the latter is what the empty-half `getSplitTargetSide` branch
-			// used to skip, leaving the source view behind).
-			const sourceSide = this.dragSourceSide;
-			const dropSide = this.resolveSideByPosition(e);
-			if (sourceSide && dropSide && sourceSide !== dropSide) {
-				EventHelper.stop(e, true);
-				const targetPart = dropSide === 'left' ? this.leftPart : this.rightPart;
-				const accepted = targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
-				if (accepted) {
-					// Mirror the success branch below: the drop ended, so reset the
-					// drag state now (observer dragend is unreliable for cross-side
-					// drags and would otherwise leave `isDragInProgress` stuck true).
-					this.endDragState();
-				} else {
-					// No valid view dropped: cancel any preview so we don't leave a
-					// broken half-occupied split behind.
-					this.endDragState();
-				}
-				// Clean up any stale ViewPaneDropOverlay that the target side's
-				// ViewPaneContainer created during onDragEnter (isSinglePaneContainer
-				// branch). Because we stopped propagation in the capture phase,
-				// the target's onDrop never fires and the overlay is never disposed
-				// — leaving a visible PANEL_SECTION_DRAG_AND_DROP_BACKGROUND rectangle
-				// that looks like a "dark patch" over the content area (the bug
-				// reported with the screenshot). Remove it by ID and class.
-				targetPart.sideElement.querySelectorAll('#monaco-pane-drop-overlay').forEach(el => el.remove());
-				targetPart.sideElement.querySelectorAll('.dragged-over').forEach(el => el.classList.remove('dragged-over'));
-				return;
-			}
-
-			// Resolve the *actual* target side from the cursor position rather
-			// than the stale `splitPreviewSide`. This is what makes the sticky
-			// preview (see the DRAG_OVER handler) safe: while the pointer was
-			// hovering the empty half the preview was active, but the user may
-			// have moved onto the filled sibling before releasing - in that case
-			// the drop must be handled by that side, not forced onto the empty
-			// half.
-			const side = getSplitTargetSide(e);
-			if (side === undefined) {
-				// The drop landed on the filled sibling side (or outside the
-				// empty half). We do NOT stop propagation, so the side's own
-				// handler (the ViewPaneContainer for a side that already hosts a
-				// view) processes the drop normally. We only collapse the sticky
-				// empty-side preview we may have been showing so it does not
-				// linger as a permanent empty panel after the drop.
-				if (this.splitPreviewSide !== undefined) {
-					this.clearSplitPreview();
-				}
-				return;
-			}
-			// Delegate the actual drop to the targeted side's own dnd handler,
-			// which understands drags from every Panel-internal source (the
-			// dragged view/composite id is carried on the shared
-			// `LocalSelectionTransfer`, so `buildSplitDragData` always resolves
-			// it for VS Code-internal drags). `handleEmptyAreaDrop` already calls
-			// `EventHelper.stop` internally before performing the move, so the
-			// other side will not also handle this drop.
-			EventHelper.stop(e, true);
-			const targetPart = side === 'left' ? this.leftPart : this.rightPart;
-			const accepted = targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
-			if (accepted) {
-				// The drop ended. The async move (`movePaneCompositeToSide` ->
-				// `openPaneComposite`) will apply the real layout via
-				// `onDidPaneCompositeOpen -> updateSideVisibility`. Reset the drag
-				// state here so `isDragInProgress` does not stay stuck true (the
-				// observer's dragend is unreliable for cross-side drags and would
-				// otherwise leave an empty 150px placeholder panel behind).
-				this.endDragState();
-			} else {
-				// No valid view was dropped (e.g. an unrecognised data type):
-				// cancel the preview and collapse the target side back out of the
-				// split, since it has nothing to show.
-				this.endDragState();
-			}
-		}, true));
-
-		this._register(addDisposableListener(this.splitContainer, EventType.DRAG_END, () => {
+	private onSplitDragLeave(e: DragEvent): void {
+		// A dragleave fires when leaving the whole Panel area. Only clear the
+		// preview if we are actually leaving it, not when moving between the
+		// Panel strip and a height-maximized side column (or between two sides).
+		//
+		// IMPORTANT: `e.relatedTarget` is `null` in many browsers while the
+		// pointer is still *inside* the Panel (e.g. when it moves over a child
+		// element the browser does not report, or over the `panel-split-preview`
+		// overlay / empty-pane hint). Treating `null` as "left the Panel" made
+		// every internal `dragleave` cancel the split preview ->
+		// `clearSplitPreview()` -> `removeRightFromSplit()`, and the very next
+		// `dragenter` re-added the side - an add/remove ping-pong that made both
+		// Panel areas flash until the drop ended. So we only clear when
+		// `relatedTarget` is a real element that lives OUTSIDE every Panel drop
+		// root. A `null` target means "still inside" and leaves the preview (and
+		// the split) intact. Leaving the window / dropping is cleaned up by the
+		// `dragend` / `drop` handlers, which always run.
+		if (e.relatedTarget && !this.isInsidePanelDropArea(e.relatedTarget as Node)) {
 			this.endDragState();
-		}, true));
+		}
+	}
+
+	private onSplitDrop(e: DragEvent): void {
+		// Cross-side drag interception:
+		//
+		// When a view/composite is dragged from one Panel side (`dragSourceSide`)
+		// and released over the *other* side (whether that side is currently
+		// empty or already shows a *different* view), the drop must MOVE the
+		// view off the source side. Without this, the drop bubbles down to the
+		// target side's `ViewPaneContainer.onDrop` (`isSinglePaneContainer`
+		// branch), which only *opens* the view on the target side and never
+		// removes it from the source - so the view appears duplicated (lingers
+		// in the original Panel), which is exactly the reported bug.
+		//
+		// We take over the drop here (capture phase, before the side handler
+		// sees it) and delegate to the target side's `handleEmptyAreaDrop`,
+		// whose dnd pipeline routes the move through `movePaneCompositeToSide`
+		// -> `clearActivePaneComposite` + `unpinPaneComposite` on the source,
+		// guaranteeing the source is cleared. This covers BOTH the empty-target
+		// and the non-empty-target cases.
+		const sourceSide = this.dragSourceSide;
+		const dropSide = this.resolveSideByPosition(e);
+		if (sourceSide && dropSide && sourceSide !== dropSide) {
+			EventHelper.stop(e, true);
+			const targetPart = this.getSidePart(dropSide);
+			targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
+			// The drop ended either way: reset the drag state now (the observer's
+			// dragend is unreliable for cross-side drags and would otherwise
+			// leave `isDragInProgress` stuck true).
+			this.endDragState();
+			// Clean up any stale ViewPaneDropOverlay that the target side's
+			// ViewPaneContainer created during onDragEnter
+			// (isSinglePaneContainer branch). Because we stopped propagation in
+			// the capture phase, the target's onDrop never fires and the overlay
+			// is never disposed - leaving a visible
+			// PANEL_SECTION_DRAG_AND_DROP_BACKGROUND rectangle that looks like a
+			// "dark patch" over the content area. Remove it by ID and class.
+			targetPart.sideElement.querySelectorAll('#monaco-pane-drop-overlay').forEach(el => el.remove());
+			targetPart.sideElement.querySelectorAll('.dragged-over').forEach(el => el.classList.remove('dragged-over'));
+			return;
+		}
+
+		// Resolve the *actual* target side from the cursor position rather than
+		// the stale `splitPreviewSide`. This is what makes the sticky preview
+		// (see `onSplitDragOver`) safe: while the pointer was hovering the empty
+		// half the preview was active, but the user may have moved onto the
+		// filled sibling before releasing - in that case the drop must be
+		// handled by that side, not forced onto the empty half.
+		const side = this.getSplitTargetSide(e);
+		if (side === undefined) {
+			// The drop landed on the filled sibling side (or outside the empty
+			// half). We do NOT stop propagation, so the side's own handler (the
+			// ViewPaneContainer for a side that already hosts a view) processes
+			// the drop normally. We only collapse the sticky empty-side preview
+			// we may have been showing so it does not linger as a permanent
+			// empty panel after the drop.
+			if (this.splitPreviewSide !== undefined) {
+				this.clearSplitPreview();
+			}
+			return;
+		}
+		// Delegate the actual drop to the targeted side's own dnd handler,
+		// which understands drags from every Panel-internal source (the dragged
+		// view/composite id is carried on the shared `LocalSelectionTransfer`,
+		// so `buildSplitDragData` always resolves it for VS Code-internal
+		// drags). `handleEmptyAreaDrop` already calls `EventHelper.stop`
+		// internally before performing the move, so the other side will not also
+		// handle this drop.
+		EventHelper.stop(e, true);
+		const targetPart = this.getSidePart(side);
+		targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
+		// The drop ended. The async move (`movePaneCompositeToSide` ->
+		// `openPaneComposite`) will apply the real layout via
+		// `onDidPaneCompositeOpen -> updateSideVisibility`. Reset the drag state
+		// here so `isDragInProgress` does not stay stuck true and no empty 150px
+		// placeholder panel is left behind.
+		this.endDragState();
+	}
+
+	/**
+	 * Keep the drop-preview classes in sync with `splitPreviewSide`.
+	 *
+	 * The marker is set on the *side element* (not only on the split container)
+	 * because a height-maximized side is re-parented out of `.part.panel` into
+	 * its own workbench grid column, where the container-anchored
+	 * `.panel-split.panel-split-preview` CSS rule can no longer match it.
+	 */
+	private setSplitPreviewSide(side: PanelSide | undefined): void {
+		this.splitPreviewSide = side;
+		this.applySplitPreviewClasses();
+	}
+
+	private applySplitPreviewClasses(): void {
+		if (!this.splitContainer || !this.leftPart || !this.rightPart) {
+			return;
+		}
+		this.splitContainer.classList.toggle('panel-split-preview', this.splitPreviewSide !== undefined);
+		this.leftPart.sideElement.classList.toggle('panel-side-drop-preview', this.splitPreviewSide === 'left');
+		this.rightPart.sideElement.classList.toggle('panel-side-drop-preview', this.splitPreviewSide === 'right');
 	}
 
 	/**
@@ -3102,12 +3675,18 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * side is added to the split lazily, so we also call `addRightToSplit`.
 	 */
 	private ensureSideInSplit(side: PanelSide): void {
+		if (this.fullHeightSides.has(side)) {
+			return;
+		}
 		this.showSide(side);
 		if (side === 'right') {
 			this.addRightToSplit();
 		} else {
 			// Left is always in the split (index 0); just re-apply its layout.
 			this.updateSideVisibility();
+		}
+		if (this.panelStripCollapsed) {
+			this.updatePanelStripForFullHeight();
 		}
 	}
 
@@ -3121,7 +3700,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * `handleEmptyAreaDrop` will then reject the drop and the preview is
 	 * cancelled, which is the safe behaviour.
 	 */
-	private buildSplitDragData(e: DragEvent): CompositeDragAndDropData {
+	private buildSplitDragData(_e: DragEvent): CompositeDragAndDropData {
 		const transfer = LocalSelectionTransfer.getInstance<DraggedCompositeIdentifier | DraggedViewIdentifier>();
 		const composite = transfer.getData(DraggedCompositeIdentifier.prototype);
 		if (composite && composite[0]) {
@@ -3163,32 +3742,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.splitContainer.classList.remove('panel-split-preview');
 		this.dragEndFallbackScheduler.cancel();
 		this.updateSideVisibility();
-	}
-
-	/**
-	 * Resolve which side of the split the cursor is currently over, based purely
-	 * on the *visible* geometry. Unlike `getSplitTargetSide` (the empty-half
-	 * split-preview logic) this does NOT bail out when the resolved side already
-	 * hosts a view - it is used to detect cross-side drags that land on a
-	 * *non-empty* target side, where the drop must still be intercepted and
-	 * delegated to `movePaneCompositeToSide` so the view is genuinely MOVED off
-	 * the source side (and not merely copied/opened on the target while lingering
-	 * on the source - the bug this handler fixes).
-	 */
-	private resolveSideByPosition(e: DragEvent): PanelSide | undefined {
-		const rect = this.splitContainer.getBoundingClientRect();
-		if (rect.width <= 0) {
-			return undefined;
-		}
-		const leftCollapsed = this.isSideHidden('left')
-			|| (this.rightViewInSplit && this.splitView.getViewSize(0) <= 0);
-		let splitX: number;
-		if (this.rightViewInSplit && !leftCollapsed) {
-			splitX = rect.left + this.splitView.getViewSize(0);
-		} else {
-			splitX = rect.left + rect.width / 2;
-		}
-		return e.clientX < splitX ? 'left' : 'right';
+		this.emptyPanelCheckScheduler.schedule();
 	}
 
 	// ----- Theming -----------------------------------------------------------

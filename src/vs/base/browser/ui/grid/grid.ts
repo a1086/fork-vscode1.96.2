@@ -695,7 +695,12 @@ export class Grid<T extends IView = IView> extends Disposable {
 			.map(node => node.view);
 	}
 
-	private getViewLocation(view: T): GridLocation {
+	// Fork: made public (was `private`) so `Layout.addPanelSideFullHeightView`
+	// can compute the editor part's grid location for the dual Panel per-side
+	// maximize normalization (`moveViewTo`). There is no public alternative
+	// (`GridView` exposes no location getter, and relative `moveView` inserts
+	// one level too deep for that use case).
+	getViewLocation(view: T): GridLocation {
 		const element = this.views.get(view);
 
 		if (!element) {
