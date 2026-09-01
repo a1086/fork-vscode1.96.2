@@ -292,10 +292,25 @@ export class TerminalViewPane extends ViewPane {
 	 * （把唯一真实的 `_groupElement` canvas 搬到活节点），确保终端真正显示。
 	 */
 	forceRelocateTerminalContainer(): void {
-		if (this._terminalTabbedView) {
-			this._terminalGroupService.setContainer(this._terminalTabbedView.container);
-			this._terminalGroupService.setPrimaryContainer(this._terminalTabbedView.container);
+		if (!this._terminalTabbedView) {
+			return;
 		}
+		const container = this._terminalTabbedView.container;
+		const r = (e: Element | null) => e ? `${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}` : 'null';
+		const ge = container.firstElementChild as HTMLElement | null;
+		const inst = this._terminalGroupService.instances.map(i => {
+			const w = i.domElement;
+			const xt = w.querySelector('.xterm');
+			const ta = w.querySelector('textarea');
+			return `${w.isConnected ? 1 : 0}${w.ownerDocument === document ? 1 : 0}${r(w)}|${xt ? r(xt) : 'nx'}|${ta ? 1 : 0}`;
+		}).join(' ');
+		const cv = container.querySelectorAll('canvas');
+		const canv = cv.length ? [...cv].map(c => `${r(c)}@${c.ownerDocument === document ? 1 : 0}`).join(',') : 'nc';
+		console.log('tv', container.ownerDocument === document, container.isConnected, r(container),
+			ge ? `${ge.className}:${ge.style.display}:${r(ge)}` : 'ng',
+			this._terminalGroupService.groups.length, this._parentDomElement ? r(this._parentDomElement) : 'np', inst, 'C' + canv);
+		this._terminalGroupService.setContainer(container);
+		this._terminalGroupService.setPrimaryContainer(container, true);
 	}
 
 	// eslint-disable-next-line @typescript-eslint/naming-convention

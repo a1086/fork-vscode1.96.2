@@ -198,6 +198,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	private _lineDataEventAddon: LineDataEventAddon | undefined;
 	private readonly _scopedContextKeyService: IContextKeyService;
 	private _resizeDebouncer?: TerminalResizeDebouncer;
+	private readonly _xtermStore = this._register(new DisposableStore());
 	private _pauseInputEventBarrier: Barrier | undefined;
 	pauseInputEvents(barrier: Barrier): void {
 		this._pauseInputEventBarrier = barrier;
@@ -794,7 +795,8 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			disableShellIntegrationReporting,
 		});
 		this.xterm = xterm;
-		this._resizeDebouncer = this._register(new TerminalResizeDebouncer(
+		this._xtermStore.clear();
+		this._resizeDebouncer = this._xtermStore.add(new TerminalResizeDebouncer(
 			() => this._isVisible,
 			() => xterm,
 			async (cols, rows) => {
@@ -810,12 +812,12 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 				await this._updatePtyDimensions(xterm.raw);
 			}
 		));
-		this._register(toDisposable(() => this._resizeDebouncer = undefined));
+		this._xtermStore.add(toDisposable(() => this._resizeDebouncer = undefined));
 		this.updateAccessibilitySupport();
-		this._register(this.xterm.onDidRequestRunCommand(e => {
+		this._xtermStore.add(this.xterm.onDidRequestRunCommand(e => {
 			this.sendText(e.command.command, e.noNewLine ? false : true);
 		}));
-		this._register(this.xterm.onDidRequestRefreshDimensions(() => {
+		this._xtermStore.add(this.xterm.onDidRequestRefreshDimensions(() => {
 			if (this._lastLayoutDimensions) {
 				this.layout(this._lastLayoutDimensions);
 			}
@@ -823,13 +825,13 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		// Write initial text, deferring onLineFeed listener when applicable to avoid firing
 		// onLineData events containing initialText
 		const initialTextWrittenPromise = this._shellLaunchConfig.initialText ? new Promise<void>(r => this._writeInitialText(xterm, r)) : undefined;
-		const lineDataEventAddon = this._register(new LineDataEventAddon(initialTextWrittenPromise));
-		this._register(lineDataEventAddon.onLineData(e => this._onLineData.fire(e)));
+		const lineDataEventAddon = this._xtermStore.add(new LineDataEventAddon(initialTextWrittenPromise));
+		this._xtermStore.add(lineDataEventAddon.onLineData(e => this._onLineData.fire(e)));
 		this._lineDataEventAddon = lineDataEventAddon;
 		// Delay the creation of the bell listener to avoid showing the bell when the terminal
 		// starts up or reconnects
 		disposableTimeout(() => {
-			this._register(xterm.raw.onBell(() => {
+			this._xtermStore.add(xterm.raw.onBell(() => {
 				if (this._configurationService.getValue(TerminalSettingId.EnableBell) || this._configurationService.getValue(TerminalSettingId.EnableVisualBell)) {
 					this.statusList.add({
 						id: TerminalStatus.Bell,
@@ -840,40 +842,43 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 				}
 				this._accessibilitySignalService.playSignal(AccessibilitySignal.terminalBell);
 			}));
-		}, 1000, this._store);
-		this._register(xterm.raw.onSelectionChange(() => this._onDidChangeSelection.fire(this)));
-		this._register(xterm.raw.buffer.onBufferChange(() => this._refreshAltBufferContextKey()));
+		}, 1000, this._xtermStore);
+		this._xtermStore.add(xterm.raw.onSelectionChange(() => this._onDidChangeSelection.fire(this)));
+		this._xtermStore.add(xterm.raw.buffer.onBufferChange(() => this._refreshAltBufferContextKey()));
 
-		this._register(this._processManager.onProcessData(e => this._onProcessData(e)));
-		this._register(xterm.raw.onData(async data => {
+		this._xtermStore.add(this._processManager.onProcessData(e => this._onProcessData(e)));
+		this._xtermStore.add(xterm.raw.onData(async data => {
 			await this._pauseInputEventBarrier?.wait();
 			await this._processManager.write(data);
 			this._onDidInputData.fire(data);
 		}));
-		this._register(xterm.raw.onBinary(data => this._processManager.processBinary(data)));
+		this._xtermStore.add(xterm.raw.onBinary(data => this._processManager.processBinary(data)));
 		// Init winpty compat and link handler after process creation as they rely on the
 		// underlying process OS
-		this._register(this._processManager.onProcessReady(async (processTraits) => {
-			// Respond to DA1 with basic conformance. Note that including this is required to avoid
-			// a long delay in conpty 1.22+ where it waits for the response.
-			// Reference: https://github.com/microsoft/terminal/blob/3760caed97fa9140a40777a8fbc1c95785e6d2ab/src/terminal/adapter/adaptDispatch.cpp#L1471-L1495
-			if (processTraits?.windowsPty?.backend === 'conpty') {
-				this._register(xterm.raw.parser.registerCsiHandler({ final: 'c' }, params => {
-					if (params.length === 0 || params.length === 1 && params[0] === 0) {
-						this._processManager.write('\x1b[?61;4c');
-						return true;
-					}
-					return false;
-				}));
-			}
+	this._xtermStore.add(this._processManager.onProcessReady(async (processTraits) => {
+		// Respond to DA1 with basic conformance. Note that including this is required to avoid
+		// a long delay in conpty 1.22+ where it waits for the response.
+		// Reference: https://github.com/microsoft/terminal/blob/3760caed97fa9140a40777a8fbc1c95785e6d2ab/src/terminal/adapter/adaptDispatch.cpp#L1471-L1495
+		if (processTraits?.windowsPty?.backend === 'conpty') {
+			this._register(xterm.raw.parser.registerCsiHandler({ final: 'c' }, params => {
+				if (params.length === 0 || params.length === 1 && params[0] === 0) {
+					this._processManager.write('\x1b[?61;4c');
+					return true;
+				}
+				return false;
+			}));
+		}
 			if (this._processManager.os) {
 				lineDataEventAddon.setOperatingSystem(this._processManager.os);
 			}
 			xterm.raw.options.windowsPty = processTraits.windowsPty;
 		}));
-		this._register(this._processManager.onRestoreCommands(e => this.xterm?.shellIntegration.deserialize(e)));
+		if (this._processManager.os) {
+			lineDataEventAddon.setOperatingSystem(this._processManager.os);
+		}
+		this._xtermStore.add(this._processManager.onRestoreCommands(e => this.xterm?.shellIntegration.deserialize(e)));
 
-		this._register(this._viewDescriptorService.onDidChangeLocation(({ views }) => {
+		this._xtermStore.add(this._viewDescriptorService.onDidChangeLocation(({ views }) => {
 			if (views.some(v => v.id === TERMINAL_VIEW_ID)) {
 				xterm.refresh();
 			}
@@ -896,7 +901,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 					this._updateProcessCwd();
 				}
 			});
-			this._register(this.capabilities.onDidAddCapabilityType(e => {
+			this._xtermStore.add(this.capabilities.onDidAddCapabilityType(e => {
 				if (e === TerminalCapability.CwdDetection) {
 					onKeyListener?.dispose();
 					onKeyListener = undefined;
@@ -907,6 +912,10 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		this._pathService.userHome().then(userHome => {
 			this._userHome = userHome.fsPath;
 		});
+
+		if (this._onLineData.hasListeners()) {
+			xterm.raw.loadAddon(lineDataEventAddon);
+		}
 
 		if (this._isVisible) {
 			this._open();
@@ -980,6 +989,26 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			}
 			this._initDragAndDrop(container);
 		}, 0);
+	}
+
+	async recreateXterm(container?: HTMLElement): Promise<void> {
+		if (this.isDisposed) {
+			return;
+		}
+		console.log('rx');
+		this.xterm?.dispose();
+		this.xterm = undefined;
+		this._wrapperElement.xterm = undefined;
+		this._wrapperElement.innerText = '';
+		this._xtermStore.clear();
+		if (container) {
+			this._container = container;
+		}
+		this._xtermReadyPromise = this._createXterm();
+		const xterm = await this._xtermReadyPromise;
+		if (xterm && this._container) {
+			this.attachToElement(this._container);
+		}
 	}
 
 	/**
@@ -1862,6 +1891,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	layout(dimension: dom.Dimension): void {
+		console.log('il', Math.round(dimension.width), Math.round(dimension.height), this.disableLayout, !!this.xterm);
 		this._lastLayoutDimensions = dimension;
 		if (this.disableLayout) {
 			return;

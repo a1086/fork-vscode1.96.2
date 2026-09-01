@@ -120,6 +120,7 @@ export class ViewEditorPane extends EditorPane {
 		pane.orientation = Orientation.VERTICAL;
 
 		this.container.appendChild(pane.element);
+		console.log('si', input.viewId, this._ownsPane ? 'new' : 'reuse', pane.element.ownerDocument === document, pane.element.isConnected);
 		this._editorView = pane;
 		this.layoutPane(pane);
 
@@ -130,6 +131,7 @@ export class ViewEditorPane extends EditorPane {
 
 		if (pane instanceof TerminalViewPane) {
 			pane.forceRelocateTerminalContainer();
+			this.layoutPane(pane);
 		}
 
 		this.registerReverseDrag(input, descriptor, pane);
@@ -268,6 +270,7 @@ export class ViewEditorPane extends EditorPane {
 		// input placeholder) to be initialized with no visible area, which then
 		// renders truncated even after a subsequent real layout. Wait until the
 		// editor pane receives a concrete dimension.
+		console.log('lp', width, height, pane.element.isConnected, Math.round(pane.element.getBoundingClientRect().width));
 		if (width <= 0 || height <= 0) {
 			return;
 		}
