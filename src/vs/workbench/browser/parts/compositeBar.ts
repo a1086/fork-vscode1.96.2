@@ -78,17 +78,21 @@ export class CompositeDragAndDrop implements ICompositeDragAndDrop {
 		if (dragData.type === 'view') {
 			const viewToMove = this.viewDescriptorService.getViewDescriptorById(dragData.id)!;
 			if (viewToMove && viewToMove.canMoveView) {
+				const currentContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id);
+				const alreadyOwnTab = !!currentContainer
+					&& this.viewDescriptorService.getViewContainerLocation(currentContainer) === this.targetContainerLocation
+					&& this.viewDescriptorService.getViewContainerModel(currentContainer).allViewDescriptors.length === 1;
+
 				// When dropping onto the bar (no specific target tab), reuse an existing
 				// container at the target location instead of letting moveViewToLocation
 				// generate a fresh random container. A generated container can be cleaned up
 				// immediately by the generated-containers cleanup logic, making the view vanish.
 				const existingContainers = this.viewDescriptorService.getViewContainersByLocation(this.targetContainerLocation);
-				const targetContainer = existingContainers.find(c => this.viewDescriptorService.getViewContainerModel(c).allViewDescriptors.length === 0)
-					?? existingContainers[0];
+				const targetContainer = existingContainers.find(c => this.viewDescriptorService.getViewContainerModel(c).allViewDescriptors.length === 0);
 
 				if (targetContainer) {
 					this.viewDescriptorService.moveViewsToContainer([viewToMove], targetContainer, ViewVisibilityState.Default, 'dnd');
-				} else {
+				} else if (!alreadyOwnTab) {
 					this.viewDescriptorService.moveViewToLocation(viewToMove, this.targetContainerLocation, 'dnd');
 				}
 
