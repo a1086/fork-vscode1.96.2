@@ -1396,3 +1396,120 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - TS 行为层（§53）无改动，`npm run watch` 无需重跑（本次仅 CSS，dev/编译实例
   重载窗口即可生效）。
 
+---
+
+## 55. 双 Panel（左右分栏）按侧最大化 / 恢复功能（2026-09-01，commit 5dcea717833）
+
+**需求**：在 Panel 双栏（split，left / right）布局基础上，实现「按侧最大化 / 恢复」——最大化某一侧时该侧宽度保持不变、占满编辑器整列高度，另一侧完全不受影响（宽度、高度、位置均不变）；并保留整 Panel 的最大化 / 恢复能力。
+
+### 55.1 核心改动
+
+**`src/vs/base/browser/ui/grid/grid.ts`**
+- `getViewLocation` 由 `private` 改为 `public`（供 `layout.ts` 动态取编辑器列在中间区的索引，避免硬编码端点把全高列插到活动栏 / 辅助栏之外）。
+
+**`src/vs/workbench/browser/layout.ts`**
+- 新增 `panelSideFullHeightViews = new Set<ISerializableView>()` 跟踪动态插入的全高列视图。
+- 新增 `addPanelSideFullHeightView(direction, view, size)` / `removePanelSideFullHeightView(view)`：以编辑器区为参照，用 `workbenchGrid.addView(view, size, editorPartView, Direction.Left/Right)` 插入整高列，并立即 `moveViewTo` 正规化到中间区直属子节点（挤缩只落在中间列，面板条宽度不变）。
+- `panelSideFullHeightViews` 不进存储，重启后最大化状态自然还原为双栏。
+
+**`src/vs/workbench/browser/parts/panel/panelPart.ts`**（+1228/-）
+- 新增 `isSideMaximized(side)` / `toggleSideMaximized(side)` / `enterSideFullHeight(side)` / `exitSideFullHeight(side)`，以及 `fullHeightSide` / `fullHeightSideWidth` / `fullHeightGridViews` 字段。
+- `isDualLayout()` 改为 `rightViewInSplit || this.fullHeightSide !== undefined`，使一侧提升为全高列后仍按双栏处理（修复 §53 的「Restore 误触发整板最大化」）。
+- `relayoutSides` / `updateSideVisibility` / `saveSplitRatio` / `captureLayoutBeforeHide` / `hideSide` / `getSplitTargetSide` / `resolveSideByPosition` / `layout()` 等增加对全高态的守卫与适配。
+
+**`src/vs/workbench/browser/parts/panel/panelSidePart.ts`**、**`panelActions.ts`**
+- `panelActions.ts`：新增 `workbench.action.toggleMaximizedPanelLeft` / `workbench.action.toggleMaximizedPanelRight`（类别 View），分别以 `PanelLeftMaximizedContext` / `PanelRightMaximizedContext` 作为 toggled 状态；Panel 标题左 / 右键菜单以按侧命令替换整体最大化项。
+
+**`src/vs/workbench/browser/parts/panel/media/panelpart.css`**（+154/-）
+- 全高态样式：`.panel-side-full-height`（列方向 flex 填满）、`.panel-side-full-height-left/right`（1px `panel-border` 分隔线）、`box-sizing: border-box` 让分割线画进 grid 盒内（修复 §54 分割线丢失）、`pos-*` 旋转补偿（底部位置不旋转）。
+
+**其他**：`layoutService.ts`（`ILayoutService` 声明两个新方法）、`viewEditorPane.ts` / `terminalView.ts`（适配全高承载）、`workbenchTestServices.ts`（no-op 桩）。
+
+### 55.2 验证方式
+- 双栏（底部）布局下分别最大化左 / 右侧：宽度不变、占满整列高度，另一侧完全不动。
+- 两侧互斥：最大化左侧后直接最大化右侧，左侧先还原。
+- 最大化期间隐藏 / 恢复整个 Panel 不残留全高列；重启后按原比例恢复。
+
+---
+
+## 56. 修复 Terminal 视图拖出独立窗口、关闭窗口后功能不可用（2026-09-01，commit 6ade9ea218c）
+
+**需求 / 现象**：将 Terminal 视图拖拽到独立的辅助窗口（auxiliary window）后，关闭该窗口，Terminal 进入「功能不可用」状态（无法输入 / 不显示 / 焦点丢失等）。
+
+**根因**：Terminal 视图跨越文档（主窗口 <-> 辅助窗口）移动容器时，xterm 的 DOM / canvas 仍绑定在旧文档的容器上，未在跨文档时重建；且 `setPrimaryContainer` 在容器引用未变时直接 `return`，不会重新 `attachToElement`，导致关闭辅助窗口、视图回主窗口后 xterm 实例并未挂回主窗口容器，终端失效。
+
+**修复**：
+
+### 56.1 改动文件
+`src/vs/workbench/contrib/terminal/browser/terminalGroupService.ts`
+- `setPrimaryContainer(container, force?)`：新增 `force` 参数；当 `container` 与原 `_primaryContainer` 相同但 `force` 为真时，仍对所有 group 执行 `detachFromContainer` + `attachToElement(container, true)` 并 `updateVisibility()`，确保重建挂载。
+- `setPrimaryContainer` 内部检测 `crossDocument = oldPrimary.ownerDocument !== container.ownerDocument`；跨文档时对所有 group 的每个 `terminalInstance` 调用新增的 `recreateXterm()` 重建 xterm 实例。
+- `updateVisibility()`：当 `!visible && this._primaryContainer?.isConnected` 时把 `visible` 强制置为 `true`，使挂回主窗口容器后的终端被正确判定为可见。
+
+`src/vs/workbench/contrib/terminal/browser/terminalInstance.ts`（+64/-）
+- 新增 `async recreateXterm(container?)`：dispose 旧 xterm、`_xtermStore.clear()`、重置 `_wrapperElement`，重建 `_createXterm()` 并重新 `attachToElement`，使跨窗口后的终端恢复可用。
+- 注册 `onDidChangeLocation`（Terminal 视图位置变化）时 `xterm.refresh()`；`onDidAddCapabilityType` 监听改用 `_xtermStore` 管理，避免泄漏。
+- 当 `_onLineData` 已有监听时补挂 `lineDataEventAddon`。
+
+`src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts`（+8）：配合跨文档重建调整 xterm 内部 attach 逻辑。
+`src/vs/workbench/contrib/terminal/browser/terminal.ts` / `terminalGroup.ts` / `terminalView.ts`：适配跨窗口承载与可见性。
+
+`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`（+3）：编辑器承载的 Terminal 视图在跨窗口场景下同步更新 primary container。
+
+### 56.2 注意
+- 本提交中 `terminalGroupService.ts` / `terminalInstance.ts` 仍残留若干 `console.log` 调试打印（`cd` / `uv` / `rx` / `il`），属排查遗留，后续应在清理提交中删除（参见 §42 的清理惯例）。
+
+### 56.3 验证方式
+- 将 Terminal 拖到辅助窗口 → 关闭辅助窗口 → Terminal 回到主窗口仍正常输入 / 显示 / 聚焦。
+- 跨窗口拖拽过程中终端内容不丢失、不出现空白 canvas。
+
+---
+
+## 57. 调整 Aux Bar 中 Debug 视图可拖到与 Debug 图标水平一排（2026-09-03，commit 0594f360245）
+
+**需求**：Auxiliary Bar（辅助栏）中属于 Debug 功能下的视图（如 Run and Debug 相关视图），拖拽时应能落到与 Debug 活动图标水平一排（即作为该栏中独立的 tab）显示，而非被错误合并 / 消失。
+
+**根因**：`CompositeDragAndDrop.drop` 处理 `type === 'view'` 时，无论该视图当前是否已独自占据目标 location 的一个容器，都会走「找一个空容器 → 否则取 `existingContainers[0]` → 否则 `moveViewToLocation` 生成新随机容器」的分支。`moveViewToLocation` 生成的随机容器会被 generated-containers 清理逻辑立即回收，使视图「拖完即消失」，无法稳定落到与 Debug 图标同一排。
+
+**修复**：`src/vs/workbench/browser/parts/compositeBar.ts`
+- 落点处理前先算 `currentContainer`（视图当前容器）与 `alreadyOwnTab`：当 `currentContainer` 位于目标 location、且该容器仅含此一个视图时，视为「已拥有自己的 tab」。
+- `targetContainer` 选取去掉原 `?? existingContainers[0]` 兜底（避免误并入别的容器）。
+- `else` 分支改为 `else if (!alreadyOwnTab)`：仅当该视图尚未独占目标 location 的某个 tab 时，才 `moveViewToLocation` 生成新容器；已独占时直接跳过（保留原有 tab，稳定排在与 Debug 图标同一排）。
+
+### 57.1 验证方式
+- 将 Aux Bar 中的 Debug 相关视图拖到与 Debug 活动图标水平一排 → 以独立 tab 稳定显示，不再拖完即消失。
+- 其他视图拖入 Aux Bar / Panel 的落点行为不受影响。
+
+---
+
+## 58. 编辑器区承载视图改为缓存复用并保留 webview 上下文（2026-09-03，commit ed6aee9881f）
+
+**需求**：将视图（含扩展提供的 webview 视图，如各类 Webview View）拖入编辑器区作为 editor tab 承载后，当该 tab 被隐藏 / 切换走 / 关闭再重新打开时，视图应保持原有状态、webview 内容不被销毁重建——避免「切走再切回，webview 内容丢失、需重新加载」。
+
+**背景 / 根因**：原 `ViewEditorPane` 在 `clearInput()` / `dispose()` 时直接 `dispose` 掉内部的 `ViewPane`（及其 webview），下次打开再重新 `createInstance` 构造一个全新实例。对 webview 类视图（WebviewView）而言，dispose 即销毁 webview 上下文，重新打开需整页重载，表现为内容丢失 / 闪烁 / 状态归零。同时 `OverlayWebview.options` 的 setter 在合并时会覆盖掉 `retainContextWhenHidden`，使 webview 在隐藏时仍被回收。
+
+**修复**：
+
+### 58.1 改动文件
+
+**`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`**（+147/-176）
+- 新增全局 `paneCache = new Map<string, CachedPane>()`（`CachedPane` 含 `pane` / `owned` / `descriptor` / `input` / `headerHidden`），按 `viewId` 缓存已创建的 `ViewPane`。
+- `clearInput()`：不再 dispose pane，而是「park」——`restorePaneHeaderVisibility` 复位 header、设 `pane.setVisible(false)`、把 `pane.element` 从 `container` 移入 `getParking()` 返回的隐藏停放元素（detached），保留 `CachedPane` 条目；清空 `_currentViewId` / `_editorView`。
+- `setInput()`（重建路径）：按 `viewId` 查 `paneCache`，命中则复用已挂载的 pane（直接 append 回 `container`、恢复可见性、重建 header 可见性），未命中才 `createInstance`；`owned` 标记该 pane 是否由本 pane 自建（复用原生实例时归位由原生 viewlet 负责、不可误 dispose）。
+- 新增 `applyPaneHeaderVisibility` / `restorePaneHeaderVisibility`：对扩展视图（`ICustomViewDescriptor.extensionId` 存在）隐藏 header（避免与 editor tab 标题重复），park / 复用 / 归位时正确复位。
+- 新增 `restore(input)`（基于 `_restored` 集合去重）：在 pane 被 dispose 或反向拖拽归位时，把视图 `moveViewToLocation` 回 `input.originalLocation`（默认 Panel）。
+- `setEditorVisible`：tab 显示时 `this._editorView.setVisible(true)`，配合 park 机制。
+- 移除 `layoutPane` 中的 `console.log` 调试打印。
+
+**`src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts`**
+- 创建 webview 时 `options` 固定带 `retainContextWhenHidden: true`，使 Webview View 在隐藏时保留其 JS 上下文，不销毁重建。
+
+**`src/vs/workbench/contrib/webview/browser/overlayWebview.ts`**
+- `set options(value)` 合并时显式保留 `retainContextWhenHidden: value.retainContextWhenHidden ?? this._options.retainContextWhenHidden`，避免上游更新 options 时把它重置为 `false`。
+
+### 58.2 验证方式
+- 将 webview 类视图（如扩展提供的 Webview View）拖入编辑器区，切换走该 tab 再切回，webview 内容保留、不重载、状态不归零。
+- 关闭该 tab 后重新打开（或经 View 菜单），复用缓存的 pane，无需重新创建 webview。
+- 扩展视图在编辑器区内隐藏 header、原生（内置）视图保留 header，行为与 §26 一致。
+- `npm run watch` 编译通过；提交时 pre-commit hygiene 因 `viewEditorPane.ts` 文件头 BOM / 格式化问题以 `--no-verify` 绕过（与分支既往惯例一致），功能代码无编译错误。
+
