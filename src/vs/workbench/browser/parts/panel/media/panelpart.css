@@ -252,6 +252,14 @@
 	margin-left: calc(var(--vscode-sash-size) / 2);
 }
 
+.monaco-workbench .part.panel .panel-split.panel-split-no-divider .monaco-sash.vertical:before {
+	background: transparent;
+}
+
+.monaco-workbench .part.panel .panel-split.panel-split-no-divider .monaco-sash.vertical {
+	pointer-events: none;
+}
+
 /* Height-maximized side ("Maximize Panel Size" per side): the side lives in
  * its own full-height workbench grid column, OUTSIDE the `.part.panel`
  * subtree, so rules that relied on that ancestor chain need equivalents

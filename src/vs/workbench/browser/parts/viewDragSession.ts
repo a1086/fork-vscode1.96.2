@@ -123,3 +123,27 @@ export function isSuppressPanelRelayoutOnDragOut(): boolean {
 export function onSuppressPanelRelayoutOnDragOutChange(handler: (value: boolean) => void): { dispose(): void } {
 	return _onSuppressPanelRelayoutOnDragOutChange.event(handler);
 }
+
+let __viewDragOutPanelSide: 'left' | 'right' | undefined;
+
+export function setViewDragOutPanelSide(side: 'left' | 'right' | undefined): void {
+	__viewDragOutPanelSide = side;
+}
+
+export function getViewDragOutPanelSide(): 'left' | 'right' | undefined {
+	return __viewDragOutPanelSide;
+}
+
+const __viewDragOutViewSides = new Map<string, 'left' | 'right'>();
+
+export function setViewDragOutPanelSideForView(viewId: string, side: 'left' | 'right' | undefined): void {
+	if (side) {
+		__viewDragOutViewSides.set(viewId, side);
+	} else {
+		__viewDragOutViewSides.delete(viewId);
+	}
+}
+
+export function getViewDragOutPanelSideForView(viewId: string): 'left' | 'right' | undefined {
+	return __viewDragOutViewSides.get(viewId);
+}

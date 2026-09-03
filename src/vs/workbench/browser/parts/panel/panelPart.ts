@@ -14,7 +14,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { PANEL_BACKGROUND, PANEL_BORDER, PANEL_TITLE_BORDER } from '../../../common/theme.js';
 import { contrastBorder } from '../../../../platform/theme/common/colorRegistry.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { Dimension, $, isAncestor, addDisposableListener, EventType, EventHelper } from '../../../../base/browser/dom.js';
+import { Dimension, $, isAncestor, addDisposableListener, EventType, EventHelper, getWindow } from '../../../../base/browser/dom.js';
 import { assertIsDefined } from '../../../../base/common/types.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
@@ -34,7 +34,7 @@ import { PanelSidePart, PanelSide } from './panelSidePart.js';
 import { IMenuService } from '../../../../platform/actions/common/actions.js';
 import { CompositeDragAndDropObserver, CompositeDragAndDropData } from '../../dnd.js';
 import { DraggedCompositeIdentifier, DraggedViewIdentifier } from '../../dnd.js';
-import { isSuppressPanelRelayoutOnDragOut, onSuppressPanelRelayoutOnDragOutChange } from '../viewDragSession.js';
+import { isSuppressPanelRelayoutOnDragOut, onSuppressPanelRelayoutOnDragOutChange, setViewDragOutPanelSide, getViewDragOutPanelSideForView, setViewDragOutPanelSideForView } from '../viewDragSession.js';
 import { LocalSelectionTransfer } from '../../../../platform/dnd/browser/dnd.js';
 
 export class PanelPart extends AbstractPaneCompositePart {
@@ -172,9 +172,20 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (!this.isDragInProgress) {
 			return;
 		}
-		this.isDragInProgress = false;
+		this.endDragState();
 		this.updatePanelVisibility();
 	}, 250);
+	private lastDragOverTime = 0;
+	private readonly dragOverWatchdog = this._register(new RunOnceScheduler(() => {
+		if (!this.isDragInProgress) {
+			return;
+		}
+		if (Date.now() - this.lastDragOverTime > 1000) {
+			this.endDragState();
+			return;
+		}
+		this.dragOverWatchdog.schedule();
+	}, 1000));
 	/**
 	 * 初始化的"确保首视图工作状态"收口点。详见 `scheduleInitialEnsureWorking`
 	 * 的注释：它把散落在 `restore().then()` 与 `whenInstalledExtensionsRegistered
@@ -249,6 +260,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * next view itself.
 	 */
 	private isInCrossSideMove = false;
+	private isRestoringFromEditor = false;
 	/**
 	 * Set while the workbench is hiding the whole Panel. `captureLayoutBeforeHide`
 	 * persists the pre-hide layout and flips this on; the side-collapse mutation
@@ -729,6 +741,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}));
 		this._register(sidePart.onDidPaneCompositeClose(e => {
 			if (this.activeContainerBySide.get(side) === e.getId()) {
+				this.lastActiveSideByContainer.set(e.getId(), side);
 				// BUG FIX: 拖出独立窗口 / 跨位置移动时，close 事件触发的其实是
 				// "容器里少了一个视图"，但**整个容器可能仍然活著**（Panel 里还有其它
 				// 残留视图）。此时若直接 delete 会把仍含视图的容器误判为已空，使
@@ -1019,6 +1032,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Persist split ratio whenever the user drags the sash.
 		this._register(this.splitView.onDidSashChange(() => this.saveSplitRatio()));
 
+		this._register(addDisposableListener(getWindow(this.element), EventType.DRAG_OVER, () => {
+			this.lastDragOverTime = Date.now();
+		}, true));
+
 		// Install the drag-to-split drop targets. The listeners are bound to
 		// `splitContainer` plus every height-maximized side element (see
 		// `refreshSplitDropTargets`), so the left/right drop hot zone also works
@@ -1035,6 +1052,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 				this.isDragInProgress = false;
 			}
 			this.isDragInProgress = true;
+			this.lastDragOverTime = Date.now();
+			this.dragOverWatchdog.schedule();
+			this.clearStaleDropOverlays();
 			// 拖拽开始时若整块 Panel 因被拖空而隐藏，临时重新显示为空热区，
 			// 否则容器无布局尺寸，getSplitTargetSide 永远返回 undefined，热区唤不起。
 			if (!this.layoutService.isVisible(Parts.PANEL_PART) && this.lastAutoHideWasEmpty) {
@@ -1048,8 +1068,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 			} else {
 				this.dragSourceSide = undefined;
 			}
+			setViewDragOutPanelSide(this.dragSourceSide);
+			if (this.dragSourceSide) {
+				const dragSourceActiveId = this.activeContainerBySide.get(this.dragSourceSide);
+				if (dragSourceActiveId) {
+					this.lastActiveSideByContainer.set(dragSourceActiveId, this.dragSourceSide);
+				}
+			}
 		}));
 		this._register(CompositeDragAndDropObserver.INSTANCE.onDragEnd(() => {
+			this.dragOverWatchdog.cancel();
 			this.dragSourceSide = undefined;
 			this.sideFallbackSchedulers.forEach(scheduler => scheduler.cancel());
 			setTimeout(() => {
@@ -1403,29 +1431,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 					const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
 					const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
 
-					// 两侧已经同时出现该 container：这是持久化/时序异常导致的重复，
-					// 立即释放右侧，保留左侧作为基线。
-					if (leftActiveId === containerId && rightActiveId === containerId) {
-						this.clearAndUnpinSide('right');
-						continue;
-					}
-
-					// 仅单侧激活则跳过正常 open，但同样要检查并清理另一侧的重复。
-					if (leftActiveId === containerId || rightActiveId === containerId) {
-						const activeSide: PanelSide = leftActiveId === containerId ? 'left' : 'right';
-						const otherSide: PanelSide = activeSide === 'left' ? 'right' : 'left';
-						const otherActiveId = this.getOtherSidePart(activeSide).getActivePaneComposite()?.getId();
-						if (otherActiveId && this.containersShareView(containerId, otherActiveId)) {
-							this.clearAndUnpinSide(otherSide);
-						}
-						continue;
-					}
-
-					// 归位回原 side：优先使用本进程记录的"该 container 最后活跃的 side"，
-					// 这比读取各 side 持久化的 active container id 更可靠——拖出后源侧
-					// 容器被清空，fallback 可能已经在该侧打开了另一个容器，导致存储里
-					// 的 right last active 变成别的 container，归位时错判为左侧。
-					const rememberedSide = this.lastActiveSideByContainer.get(containerId);
+					// 归位回原 side：优先使用拖出开窗瞬间记录的来源侧（最可靠），
+					// 其次是本进程记忆的"该 container 最后活跃的 side"，最后回退到持久化记录。
+					// 注意：拖出后原 generated container 会被回收，归位时是新容器 id，
+					// 因此来源侧必须按 view id 记录（view id 稳定不变）。
+					const dragOutSide = getViewDragOutPanelSideForView(view.id)
+						?? this.panelViewDescriptorService.getViewContainerModel(container).allViewDescriptors
+							.map(d => getViewDragOutPanelSideForView(d.id)).find(s => s);
+					const rememberedSide = dragOutSide ?? this.lastActiveSideByContainer.get(containerId);
 					let targetSide: PanelSide;
 					if (rememberedSide) {
 						targetSide = rememberedSide;
@@ -1433,7 +1446,34 @@ export class PanelPart extends AbstractPaneCompositePart {
 						// 没有记忆（例如跨会话重启后首次归位）时，回退到持久化记录。
 						const rightLastActive = this.storageService.get(PanelSidePart.activePanelSettingsKeyFor('right'), StorageScope.WORKSPACE, '');
 						targetSide = rightLastActive === containerId ? 'right' : 'left';
+						}
+
+						// 两侧已经同时出现该 container：这是持久化/时序异常导致的重复，
+					// 释放非归位侧，保留归位侧作为基线。
+					if (leftActiveId === containerId && rightActiveId === containerId) {
+						this.clearAndUnpinSide(rememberedSide === 'right' ? 'left' : 'right');
+						setViewDragOutPanelSideForView(view.id, undefined);
+						continue;
 					}
+
+					// 仅单侧激活则跳过正常 open，但同样要检查并清理另一侧的重复。
+					if (leftActiveId === containerId || rightActiveId === containerId) {
+						const activeSide: PanelSide = leftActiveId === containerId ? 'left' : 'right';
+						if (rememberedSide && activeSide !== rememberedSide) {
+							this.ensureSideInSplit(rememberedSide);
+							await this.movePaneCompositeToSide(containerId, rememberedSide);
+							setViewDragOutPanelSideForView(view.id, undefined);
+							continue;
+						}
+						const otherSide: PanelSide = activeSide === 'left' ? 'right' : 'left';
+						const otherActiveId = this.getOtherSidePart(activeSide).getActivePaneComposite()?.getId();
+						if (otherActiveId && this.containersShareView(containerId, otherActiveId)) {
+							this.clearAndUnpinSide(otherSide);
+						}
+						setViewDragOutPanelSideForView(view.id, undefined);
+						continue;
+					}
+
 					const targetPart = targetSide === 'left' ? this.leftPart : this.rightPart;
 
 					// 若目标 side 之前被关闭或移出了 split（例如拖出后用户点了右侧关闭），
@@ -1444,9 +1484,13 @@ export class PanelPart extends AbstractPaneCompositePart {
 					// 归位时仍然要走互斥门：若该容器包含的视图已经在另一侧显示，必须先
 					// 清空另一侧，否则同一 view（如 Terminal）会同时在左右两侧出现。
 					// `releaseOtherSideIfViewOverlap` 在 open 前同步检查并释放冲突侧。
-			await targetPart.pinPaneComposite(containerId);
-			await targetPart.openPaneComposite(containerId, false, true /* skipMaximizeOnShow */, false /* skipExclusion */);
+					await targetPart.pinPaneComposite(containerId);
+					await targetPart.openPaneComposite(containerId, false, true /* skipMaximizeOnShow */, false /* skipExclusion */);
 					targetPart.refreshCompositeBar();
+					for (const d of this.panelViewDescriptorService.getViewContainerModel(container).allViewDescriptors) {
+						setViewDragOutPanelSideForView(d.id, undefined);
+					}
+					setViewDragOutPanelSideForView(view.id, undefined);
 
 					// 每完成一次 open 就补一次唯一性兜底，确保并发/异步路径产生的
 					// 任何重复都被立即清理。
@@ -1454,7 +1498,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 				}
 			};
 
+			this.isRestoringFromEditor = true;
 			openNext().then(() => {
+				this.isRestoringFromEditor = false;
 				// 全部归位完成后最终兜底：强制清空右侧，保证"同一 view 不重复显示"。
 				this.enforceViewUniquenessAfterRestore();
 			});
@@ -2595,12 +2641,21 @@ export class PanelPart extends AbstractPaneCompositePart {
 				console.log('OPL');
 				return this.leftPart.openPaneComposite(id, focus);
 			}
+			const oc = this.panelViewDescriptorService.getViewContainerById(id);
+			const recSide = oc
+				? this.panelViewDescriptorService.getViewContainerModel(oc).allViewDescriptors.map(d => getViewDragOutPanelSideForView(d.id)).find(Boolean)
+				: undefined;
+			if ((recSide ?? this.lastActiveSideByContainer.get(id)) === 'right' && !rightActiveId) {
+				if (!this.rightViewInSplit) {
+					this.addRightToSplit();
+				}
+				return this.rightPart.openPaneComposite(id, focus);
+			}
 			const leftOccupied = !!leftActiveId;
 			const rightEmpty = !rightActiveId;
 			const noViewOverlap = !leftActiveId || !this.containersShareView(leftActiveId, id);
 			console.log('OP? lo=' + leftOccupied + ' re=' + rightEmpty + ' nvo=' + noViewOverlap + ' ris=' + this.rightViewInSplit);
-			if (leftOccupied && rightEmpty && noViewOverlap && this.rightViewInSplit) {
-				// The right side is not in the split yet -> create it, then open there.
+			if (leftOccupied && rightEmpty && noViewOverlap) {
 				if (!this.rightViewInSplit) {
 					this.addRightToSplit();
 				}
@@ -2896,7 +2951,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 *   - 视图正在拖拽中。
 	 */
 	private autoCollapseEmptySides(): void {
-		if (this.hidingEntirePanel || isSuppressPanelRelayoutOnDragOut() || this.isDragInProgress) {
+		if (this.hidingEntirePanel || this.isRestoringFromEditor || isSuppressPanelRelayoutOnDragOut() || this.isDragInProgress) {
 			return;
 		}
 
@@ -3251,6 +3306,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (!this.rightPart.hasActiveView() && !!this.rightPart.getActivePaneComposite()) {
 			console.log('uR');
 		}
+		this.updateSplitDividerVisibility();
+	}
+
+	private updateSplitDividerVisibility(): void {
+		if (!this.splitContainer || !this.splitView) {
+			return;
+		}
+		const leftVisible = !this.isSideHidden('left') && !!this.leftPart.getActivePaneComposite();
+		const rightVisible = !this.isSideHidden('right') && this.rightViewInSplit && !!this.rightPart.getActivePaneComposite();
+		this.splitContainer.classList.toggle('panel-split-no-divider', !(leftVisible && rightVisible));
 	}
 
 	// ----- Drag-to-split (editor-like) --------------------------------------
@@ -3597,15 +3662,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// dragend is unreliable for cross-side drags and would otherwise
 			// leave `isDragInProgress` stuck true).
 			this.endDragState();
-			// Clean up any stale ViewPaneDropOverlay that the target side's
-			// ViewPaneContainer created during onDragEnter
-			// (isSinglePaneContainer branch). Because we stopped propagation in
-			// the capture phase, the target's onDrop never fires and the overlay
-			// is never disposed - leaving a visible
-			// PANEL_SECTION_DRAG_AND_DROP_BACKGROUND rectangle that looks like a
-			// "dark patch" over the content area. Remove it by ID and class.
-			targetPart.sideElement.querySelectorAll('#monaco-pane-drop-overlay').forEach(el => el.remove());
-			targetPart.sideElement.querySelectorAll('.dragged-over').forEach(el => el.classList.remove('dragged-over'));
 			return;
 		}
 
@@ -3741,8 +3797,25 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.splitPreviewSide = undefined;
 		this.splitContainer.classList.remove('panel-split-preview');
 		this.dragEndFallbackScheduler.cancel();
+		this.dragOverWatchdog.cancel();
+		this.clearStaleDropOverlays();
 		this.updateSideVisibility();
 		this.emptyPanelCheckScheduler.schedule();
+	}
+
+	private clearStaleDropOverlays(): void {
+		if (!this.leftPart || !this.rightPart) {
+			return;
+		}
+		for (const side of ['left', 'right'] as const) {
+			const element = this.getSidePart(side).sideElement;
+			if (!element) {
+				continue;
+			}
+			const stale = element.querySelectorAll('#monaco-pane-drop-overlay');
+			stale.forEach(el => el.remove());
+			element.querySelectorAll('.dragged-over').forEach(el => el.classList.remove('dragged-over'));
+		}
 	}
 
 	// ----- Theming -----------------------------------------------------------
