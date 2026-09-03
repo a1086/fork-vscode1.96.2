@@ -9,7 +9,7 @@ import { IActivity } from '../../services/activity/common/activity.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ActionBar, ActionsOrientation } from '../../../base/browser/ui/actionbar/actionbar.js';
 import { CompositeActionViewItem, CompositeOverflowActivityAction, CompositeOverflowActivityActionViewItem, CompositeBarAction, ICompositeBar, ICompositeBarColors, IActivityHoverOptions } from './compositeBarActions.js';
-import { tryClaimViewDragSession, nextViewDragSession, releaseViewDragSession, setSuppressPanelRelayoutOnDragOut } from './viewDragSession.js';
+import { tryClaimViewDragSession, nextViewDragSession, releaseViewDragSession, setSuppressPanelRelayoutOnDragOut, getViewDragOutPanelSide, setViewDragOutPanelSideForView } from './viewDragSession.js';
 import { Dimension, $, addDisposableListener, EventType, EventHelper, isAncestor, getWindow } from '../../../base/browser/dom.js';
 import { StandardMouseEvent } from '../../../base/browser/mouseEvent.js';
 import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
@@ -443,6 +443,8 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				const vOriginalIndex = vOriginalContainer
 					? this.viewDescriptorService.getViewContainerModel(vOriginalContainer).allViewDescriptors.findIndex(d => d.id === v.id)
 					: -1;
+				const dragOutSide = getViewDragOutPanelSide();
+				setViewDragOutPanelSideForView(v.id, dragOutSide);
 				const input = this.instantiationService.createInstance(
 					ViewEditorInput,
 					v.id,

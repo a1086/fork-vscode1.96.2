@@ -82,6 +82,8 @@ class ViewPaneDropOverlay extends Themable {
 
 	private cleanupOverlayScheduler: RunOnceScheduler;
 
+	private staleScheduler: RunOnceScheduler;
+
 	get currentDropOperation(): DropDirection | undefined {
 		return this._currentDropOperation;
 	}
@@ -95,6 +97,9 @@ class ViewPaneDropOverlay extends Themable {
 	) {
 		super(themeService);
 		this.cleanupOverlayScheduler = this._register(new RunOnceScheduler(() => this.dispose(), 300));
+		this.staleScheduler = this._register(new RunOnceScheduler(() => {
+			this.dispose();
+		}, 600));
 
 		this.create();
 	}
@@ -151,6 +156,8 @@ class ViewPaneDropOverlay extends Themable {
 
 				// Position overlay
 				this.positionOverlay(e.offsetX, e.offsetY);
+
+				this.staleScheduler.schedule();
 
 				// Make sure to stop any running cleanup scheduler to remove the overlay
 				if (this.cleanupOverlayScheduler.isScheduled()) {
