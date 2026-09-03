@@ -180,7 +180,7 @@ export class WebviewViewPane extends ViewPane {
 			origin,
 			providedViewType: this.id,
 			title: this.title,
-			options: { purpose: WebviewContentPurpose.WebviewView },
+			options: { purpose: WebviewContentPurpose.WebviewView, retainContextWhenHidden: true },
 			contentOptions: {},
 			extension: this.extensionId ? { id: this.extensionId } : undefined
 		});

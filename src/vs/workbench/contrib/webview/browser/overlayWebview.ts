@@ -317,7 +317,7 @@ export class OverlayWebview extends Disposable implements IOverlayWebview {
 	}
 
 	public get options(): WebviewOptions { return this._options; }
-	public set options(value: WebviewOptions) { this._options = { customClasses: this._options.customClasses, ...value }; }
+	public set options(value: WebviewOptions) { this._options = { customClasses: this._options.customClasses, ...value, retainContextWhenHidden: value.retainContextWhenHidden ?? this._options.retainContextWhenHidden }; }
 
 	public get contentOptions(): WebviewContentOptions { return this._contentOptions; }
 	public set contentOptions(value: WebviewContentOptions) {
