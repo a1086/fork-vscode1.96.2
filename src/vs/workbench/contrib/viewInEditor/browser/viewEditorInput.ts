@@ -11,6 +11,16 @@ import { IViewDescriptor } from '../../../common/views.js';
 
 export const VIEW_EDITOR_INPUT_TYPE_ID = 'workbench.editors.viewEditorInput';
 
+const restartRecoveryViewIds = new Set<string>();
+
+export function markViewEditorInputForRestartRecovery(viewId: string): void {
+	restartRecoveryViewIds.add(viewId);
+}
+
+export function isViewEditorInputMarkedForRestartRecovery(viewId: string): boolean {
+	return restartRecoveryViewIds.delete(viewId);
+}
+
 /**
  * Editor input that hosts a workbench view (ViewPane) inside the editor area.
  * This is the P0 spike implementation for "drag a view (OUTLINE/PROBLEMS/PORTS) into the editor".

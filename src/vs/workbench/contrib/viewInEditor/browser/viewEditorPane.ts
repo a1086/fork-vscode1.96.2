@@ -20,7 +20,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { TerminalViewPane } from '../../../contrib/terminal/browser/terminalView.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
-import { ViewEditorInput, restoreViewEditorInputToOriginalLocation } from './viewEditorInput.js';
+import { ViewEditorInput, restoreViewEditorInputToOriginalLocation, isViewEditorInputMarkedForRestartRecovery } from './viewEditorInput.js';
 import './media/viewEditorPane.css';
 
 interface CachedPane {
@@ -79,7 +79,40 @@ export class ViewEditorPane extends EditorPane {
 		return this._parking;
 	}
 
+	private recoverRestartedViewEditor(input: ViewEditorInput): boolean {
+		if (!isViewEditorInputMarkedForRestartRecovery(input.viewId)) {
+			return false;
+		}
+		const viewId = input.viewId;
+		const homeId = viewId.endsWith('.view') ? viewId.slice(0, viewId.length - '.view'.length) : viewId;
+		const home = this.viewDescriptorService.getViewContainerById(homeId);
+		if (!home || this.viewDescriptorService.getViewContainerLocation(home) !== ViewContainerLocation.Panel) {
+			return false;
+		}
+		const homeModel = this.viewDescriptorService.getViewContainerModel(home);
+		if (homeModel.allViewDescriptors.length > 0) {
+			return false;
+		}
+		const descriptor = this.viewDescriptorService.getViewDescriptorById(viewId);
+		if (!descriptor) {
+			return false;
+		}
+		if (this.viewDescriptorService.getViewLocationById(viewId) !== ViewContainerLocation.Editor) {
+			return false;
+		}
+		this.viewDescriptorService.moveViewsToContainer([descriptor], home, undefined, 'view-editor-restart');
+		console.log('rv');
+		return true;
+	}
+
 	override async setInput(input: ViewEditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
+		if (this.recoverRestartedViewEditor(input)) {
+			await super.setInput(input, options, context, token);
+			timeout(0).then(() => {
+				this.group?.closeEditor(input);
+			});
+			return;
+		}
 		const viewId = input.viewId;
 		let entry = paneCache.get(viewId);
 
