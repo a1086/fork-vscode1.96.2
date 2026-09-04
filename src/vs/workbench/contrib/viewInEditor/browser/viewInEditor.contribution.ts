@@ -8,7 +8,7 @@ import { EditorExtensions, IEditorFactoryRegistry, IEditorSerializer } from '../
 import { IEditorPaneRegistry, EditorPaneDescriptor } from '../../../browser/editor.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ViewEditorInput } from './viewEditorInput.js';
+import { ViewEditorInput, markViewEditorInputForRestartRecovery } from './viewEditorInput.js';
 import { ViewEditorPane } from './viewEditorPane.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -70,6 +70,8 @@ class ViewEditorInputSerializer implements IEditorSerializer {
 				viewDescriptorService.moveViewToLocation(descriptor, ViewContainerLocation.Editor, 'restore-editor');
 			}
 		});
+
+		markViewEditorInputForRestartRecovery(viewId);
 
 		return instantiationService.createInstance(ViewEditorInput, viewId, originalLocation, undefined, undefined);
 	}

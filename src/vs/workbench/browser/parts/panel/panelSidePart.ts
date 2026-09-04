@@ -372,6 +372,32 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 					retryWhenDescriptorAvailable.schedule();
 				}
 			}));
+			const alternateScheduler = new RunOnceScheduler(() => {
+				if (this.getActivePaneComposite() !== composite) {
+					return;
+				}
+				if (viewContainerModel.allViewDescriptors.length > 0) {
+					return;
+				}
+				let alternateId: string | undefined;
+				for (const pinnedId of this.getPinnedPaneCompositeIds()) {
+					if (pinnedId === composite.getId() || !this.isPanelHostedContainer(pinnedId)) {
+						continue;
+					}
+					const pinnedContainer = this.viewDescriptorService.getViewContainerById(pinnedId);
+					const pinnedModel = pinnedContainer ? this.viewDescriptorService.getViewContainerModel(pinnedContainer) : undefined;
+					if (pinnedModel && pinnedModel.allViewDescriptors.length > 0) {
+						alternateId = pinnedId;
+						break;
+					}
+				}
+				if (alternateId) {
+					console.log('al');
+					void this.openPaneComposite(alternateId, false, true);
+				}
+			}, 3000);
+			this.ensureFirstViewWorkingSubscriptions.add(alternateScheduler);
+			alternateScheduler.schedule();
 			return;
 		}
 
@@ -558,8 +584,50 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		}
 	}
 
+	private isPanelHostedContainer(id: string): boolean {
+		const container = this.viewDescriptorService.getViewContainerById(id);
+		return !!container && this.viewDescriptorService.getViewContainerLocation(container) === ViewContainerLocation.Panel;
+	}
+
+	private resolvePanelHostedId(id?: string): string | undefined {
+		if (typeof id !== 'string') {
+			return id;
+		}
+		if (this.isPanelHostedContainer(id)) {
+			return id;
+		}
+		console.log('nh');
+		const storedId = this.storageService.get(PanelSidePart.activePanelSettingsKeyFor(this.side), StorageScope.WORKSPACE);
+		if (typeof storedId === 'string' && storedId !== id && this.isPanelHostedContainer(storedId)) {
+			console.log('rs');
+			return storedId;
+		}
+		for (const pinnedId of this.getPinnedPaneCompositeIds()) {
+			if (pinnedId !== id && this.isPanelHostedContainer(pinnedId)) {
+				console.log('rp');
+				return pinnedId;
+			}
+		}
+		const activeId = this.getActivePaneComposite()?.getId();
+		if (typeof activeId === 'string' && activeId !== id && this.isPanelHostedContainer(activeId)) {
+			console.log('ra');
+			return activeId;
+		}
+		console.log('nf');
+		return undefined;
+	}
+
 	override async openPaneComposite(id?: string, focus?: boolean, skipMaximizeOnShow?: boolean, skipExclusion?: boolean): Promise<IPaneComposite | undefined> {
 		console.log('PC' + this.side[0] + (skipExclusion ? 's' : 'u') + ':' + id);
+		const requestedId = id;
+		const resolvedId = this.resolvePanelHostedId(id);
+		if (resolvedId !== id) {
+			id = resolvedId;
+		}
+		if (id === undefined && typeof requestedId === 'string') {
+			console.log('ns');
+			return undefined;
+		}
 		// 单一容器归属（视图不能同时在左右两个 Panel 中显示）：
 		// 当另一侧已经激活了与 `id` 相同的 container 时，非还原场景下把它
 		// 移动到本侧，确保拖拽/点击等用户操作能正确完成容器换侧；系统还原
@@ -617,12 +685,14 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		// panel up to its maximized width/height (the "drag a panel view and the
 		// panel suddenly becomes widest" bug).
 		if (typeof id === 'string' && !this.layoutService.isVisible(Parts.PANEL_PART)) {
-			// 打开一个视图即代表 Panel 不再处于"用户主动隐藏（空态）"，清除该
-			// 标志，否则拖回/归位等场景会因 `panel.lastHidden` 仍为 true 而跳过
-			// 重新显示，导致 Panel 一直隐藏、视图停留在隐藏态。
-			this.storageService.store('panel.lastHidden', false, StorageScope.WORKSPACE, StorageTarget.MACHINE);
-			console.log('sv');
-			this.layoutService.setPartHidden(false, Parts.PANEL_PART, mainWindow, skipMaximizeOnShow);
+			const lh = this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE, false);
+			if (!lh) {
+				this.storageService.store('panel.lastHidden', false, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+				console.log('sv');
+				this.layoutService.setPartHidden(false, Parts.PANEL_PART, mainWindow, skipMaximizeOnShow);
+			} else {
+				console.log('lh');
+			}
 		}
 
 		// Opening a view on this side must re-show it if the user had closed it
