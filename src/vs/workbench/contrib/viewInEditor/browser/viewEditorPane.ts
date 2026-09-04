@@ -16,7 +16,6 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService, IViewDescriptor, ICustomViewDescriptor, ViewContainerLocation } from '../../../common/views.js';
-import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { TerminalViewPane } from '../../../contrib/terminal/browser/terminalView.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CompositeDragAndDropObserver, IDraggedCompositeData } from '../../../browser/dnd.js';
@@ -49,7 +48,6 @@ export class ViewEditorPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
-		@IViewsService private readonly viewsService: IViewsService,
 	) {
 		super(ViewEditorPane.ID, group, telemetryService, themeService, storageService);
 		this.container = document.createElement('div');
@@ -117,6 +115,8 @@ export class ViewEditorPane extends EditorPane {
 		let entry = paneCache.get(viewId);
 
 		if (entry) {
+			entry.pane.orientation = Orientation.VERTICAL;
+			entry.pane.setExpanded(true);
 			this._editorView = entry.pane;
 			this._currentViewId = viewId;
 			this.applyPaneHeaderVisibility(entry);
@@ -140,37 +140,36 @@ export class ViewEditorPane extends EditorPane {
 
 			const paneTitle = descriptor.name?.value ?? descriptor.id;
 
-			let pane: ViewPane | undefined = this.viewsService.getViewWithId<ViewPane>(viewId) ?? undefined;
-			const owned = !pane;
-
-			if (!pane) {
-				try {
-					pane = this.instantiationService.createInstance(
-						descriptor.ctorDescriptor.ctor,
-						...(descriptor.ctorDescriptor.staticArguments || []),
-						{
-							...descriptor,
-							id: descriptor.id,
-							title: paneTitle,
-							container: viewContainer,
-							viewContainerLocation: ViewContainerLocation.Editor,
-							canToggleVisibility: false,
-							overrideAriaLabel: paneTitle,
-							overrideAriaDescription: paneTitle,
-						}
-					) as ViewPane;
-				} catch (error) {
-					throw new Error(`View "${viewId}" cannot be opened in a floating window: ${error}`);
-				}
-
-				try {
-					pane.render();
-				} catch (error) {
-					throw new Error(`View "${viewId}" failed to render in floating window: ${error}`);
-				}
+			let pane: ViewPane;
+			try {
+				pane = this.instantiationService.createInstance(
+					descriptor.ctorDescriptor.ctor,
+					...(descriptor.ctorDescriptor.staticArguments || []),
+					{
+						...descriptor,
+						id: descriptor.id,
+						title: paneTitle,
+						container: viewContainer,
+						viewContainerLocation: ViewContainerLocation.Editor,
+						canToggleVisibility: false,
+						overrideAriaLabel: paneTitle,
+						overrideAriaDescription: paneTitle,
+					}
+				) as ViewPane;
+			} catch (error) {
+				throw new Error(`View "${viewId}" cannot be opened in a floating window: ${error}`);
 			}
 
-			entry = { pane, owned, descriptor, input, headerHidden: false };
+			try {
+				pane.render();
+			} catch (error) {
+				throw new Error(`View "${viewId}" failed to render in floating window: ${error}`);
+			}
+
+			pane.orientation = Orientation.VERTICAL;
+			pane.setExpanded(true);
+
+			entry = { pane, owned: true, descriptor, input, headerHidden: false };
 			paneCache.set(viewId, entry);
 
 			this.registerReverseDrag(input, descriptor, pane);
@@ -185,11 +184,6 @@ export class ViewEditorPane extends EditorPane {
 			this.applyPaneHeaderVisibility(entry);
 			this.container.appendChild(pane.element);
 			this.layoutPane(pane);
-
-			if (!entry.owned) {
-				pane.setVisible(false);
-				pane.setVisible(true);
-			}
 		}
 	}
 
