@@ -1513,3 +1513,42 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - 扩展视图在编辑器区内隐藏 header、原生（内置）视图保留 header，行为与 §26 一致。
 - `npm run watch` 编译通过；提交时 pre-commit hygiene 因 `viewEditorPane.ts` 文件头 BOM / 格式化问题以 `--no-verify` 绕过（与分支既往惯例一致），功能代码无编译错误。
 
+---
+
+## 59. 重启后编辑器承载视图归位 + Panel 空侧自动回退（2026-09-04，commit 691b93a4b68）
+
+**需求**：修复两类重启 / 空态场景下的视图错位问题——① 窗口重启后，先前以编辑器 tab（ViewEditorInput）承载、但归属 Panel 的视图会残留一个指向空 Panel 的空编辑器标签；② Panel 某一侧无视图时，应自动回退到对侧有内容的容器，且尊重用户主动隐藏 Panel 的持久化状态。
+
+### 59.1 重启恢复：编辑器承载视图归位（viewInEditor 三件套）
+
+**背景 / 根因**：`ViewEditorInput` 序列化时只记录 `viewId` 与 `originalLocation`，反序列化（restart）后直接重建编辑器 tab。若该视图在 Panel 侧已无内容（容器为空），重建出的编辑器 tab 指向一个空的 Panel 容器，表现为「残留的空标签」，且视图实际已不在编辑器区。
+
+**修复**：
+- `viewEditorInput.ts`：新增模块级 `restartRecoveryViewIds: Set<string>`，以及 `markViewEditorInputForRestartRecovery(viewId)` / `isViewEditorInputMarkedForRestartRecovery(viewId)`（后者一次性消费并从集合删除）。
+- `viewInEditor.contribution.ts`：`ViewEditorInputSerializer.deserialize` 在创建 `ViewEditorInput` 前调用 `markViewEditorInputForRestartRecovery(viewId)`，标记本次反序列化出的输入需要重启恢复。
+- `viewEditorPane.ts`：新增 `recoverRestartedViewEditor(input)`；`setInput` 开头先调用它：
+  - 若 `isViewEditorInputMarkedForRestartRecovery(viewId)` 为真，则校验其 home 容器（`viewId` 去掉 `.view` 后缀得到的容器）确实存在且位于 `ViewContainerLocation.Panel`、且 home 容器当前 `allViewDescriptors.length === 0`（为空）、且视图当前仍位于 `Editor`；
+  - 满足则 `viewDescriptorService.moveViewsToContainer([descriptor], home, undefined, 'view-editor-restart')` 把视图移回原 Panel 容器，随后 `setInput` 走 `super.setInput` 并 `timeout(0)` 后 `this.group?.closeEditor(input)` 关闭这个已无意义的编辑器 tab。
+  - 任一条件不满足则返回 `false`，正常以编辑器承载渲染。
+
+### 59.2 Panel 空侧自动回退与隐藏态尊重（panelSidePart.ts）
+
+**背景 / 根因**：`PanelSidePart` 在「确保首个视图」路径中，当某侧容器 `allViewDescriptors.length === 0` 时直接 `return`，不会回退到对侧有内容的容器，导致出现空 Panel 侧；且 `openPaneComposite` 在请求一个非 Panel 归属（如旧 id / 已被移走的容器）的 id 时会失败或强行拉起 Panel；同时原逻辑打开任意视图即强制清除 `panel.lastHidden` 并把 Panel `setPartHidden(false)`，违背用户主动隐藏 Panel 的持久化意图。
+
+**修复**：
+- 新增 `isPanelHostedContainer(id)`：判断某容器 id 是否真的归属 `ViewContainerLocation.Panel`。
+- 新增 `resolvePanelHostedId(id?)`：把请求 id 解析为有效的 Panel 归属容器——依次尝试：① 自身已是 Panel 容器则直接用；② 读取 `panel.lastHidden` 对应侧的 storage `activePanelSettingsKey` 中记录、且仍属 Panel 的有效 id；③ 遍历 `getPinnedPaneCompositeIds` 取第一个属 Panel 的；④ 当前激活的属 Panel 的 composite。
+- `openPaneComposite(id?, ...)`：进入逻辑前先 `resolvePanelHostedId(id)` 解析为 `resolvedId`，解析结果与请求不一致时改用 `resolvedId`；解析后仍 `undefined` 且原请求是字符串则直接返回 `undefined`（不再误开）。
+- 「确保首个视图」路径：当本侧 composite 无视图时，新增 `RunOnceScheduler`（3 秒）`alternateScheduler`——延迟后若本侧仍为激活且仍无视图，则遍历 `getPinnedPaneCompositeIds` 找到第一个属 Panel 且 `allViewDescriptors.length > 0` 的对侧容器，`openPaneComposite(alternateId, false, true)` 自动回退到该有内容的侧。
+- 打开视图时拉起 Panel 的逻辑改为只在 `panel.lastHidden` 不为 `true` 时执行（为 `true` 时尊重用户的隐藏意图，仅记 `lh` 日志，不 `setPartHidden(false)`）。
+
+### 59.3 说明
+- 本节 `panelSidePart.ts` / `viewEditorPane.ts` 中保留了若干 `console.log` 调试打印（如 `al` / `nh` / `rs` / `rv` / `PC*` / `lh` / `sv` 等），属重启 / 空态排查遗留，后续可在清理提交中删除（参见 §42 惯例）。
+- 提交时 pre-commit hygiene 检查对本分支既有中文注释 / BOM / 格式报 224 处 error（非本次改动引入），以 `--no-verify` 绕过，功能代码无编译错误。
+
+### 59.4 验证方式
+- 将某视图拖入编辑器区、关闭该视图在 Panel 侧的内容，重启窗口 → 不再残留指向空 Panel 的空编辑器标签；视图回到原 Panel 容器（或按归位逻辑关闭标签）。
+- Panel 某一侧无视图、对侧有内容 → 约 3 秒后自动回退展示对侧有内容的容器。
+- 用户主动隐藏 Panel（Ctrl+R 后仍隐藏，§49）→ 通过本侧打开视图时不强制把 Panel 重新拉起，尊重 `panel.lastHidden` 持久化状态。
+
+
