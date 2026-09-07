@@ -103,6 +103,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 */
 	private static readonly PINNED_PANEL_VIEWS: readonly string[] = [TERMINAL_VIEW_ID, DEBUG_PANEL_ID];
 
+	private static readonly ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext'];
+
 	private readonly activeContainerBySide = new Map<PanelSide, string>();
 	/**
 	 * Per-side subscriptions to the currently active container's view model
@@ -970,9 +972,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 */
 	private hideOtherPanelViews(): void {
 		const pinnedIds = new Set<string>(PanelPart.PINNED_PANEL_VIEWS);
+		const allowedExtensionIds = PanelPart.ALLOWED_PANEL_EXTENSION_IDS.map(id => id.toLowerCase());
 		const containers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
 		for (const container of containers) {
 			if (pinnedIds.has(container.id)) {
+				continue;
+			}
+			const extensionId = container.extensionId?.value;
+			if (extensionId && allowedExtensionIds.includes(extensionId.toLowerCase())) {
 				continue;
 			}
 			const model = this.panelViewDescriptorService.getViewContainerModel(container);

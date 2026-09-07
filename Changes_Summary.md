@@ -1,12 +1,39 @@
 ﻿# VS Code 工作区改动总结
 
-> 改动日期：2026-07-16 ~ 2026-08-07
+> 改动日期：2026-07-16 ~ 2026-09-07
 > 本文档汇总当前工作区（未提交）的全部代码改动，按功能模块分类说明。
 > 由 `Changes_Summary.md` 与 `改动总结.md` 合并而成，已去重并按时间/主题重新编号。
 
 ---
 
 <!-- MERGE_ANCHOR -->
+
+## 60. Panel 放行指定自定义插件的视图容器（2026-09-07）
+
+**需求**：Panel 默认只显示 Terminal + Debug Console（`PINNED_PANEL_VIEWS` 写死），`hideOtherPanelViews()` 会把其余所有 Panel 容器（含自定义插件贡献的）`setVisible(false)` 并从左右两栏 `unpinPaneComposite`，导致插件按钮动态切换的视图“能注册但显示不正常”。现需放行特定插件 `AccoTEST.ate-tool-ext` 的 Panel 容器：不被隐藏、tab 不被取消，由插件 `when` 上下文键（`layout` + `ate:panel:xxxShow`）按按钮动态控制显隐。Terminal / Debug Console 维持常驻。
+
+### 60.1 核心改动文件
+
+`src/vs/workbench/browser/parts/panel/panelPart.ts`
+- 新增白名单常量 `ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext']`。
+- `hideOtherPanelViews()` 遍历 Panel 容器时新增判定：取 `container.extensionId?.value`，命中白名单（忽略大小写）则 `continue`，既不对其视图执行 `setVisible(id, false)`，也不调用两侧 `unpinPaneComposite(container.id)`。
+
+### 60.2 行为变化
+
+| 对象 | 旧行为 | 新行为 |
+|------|--------|--------|
+| Terminal / Debug Console | 常驻 tab | 不变，仍常驻 |
+| `AccoTEST.ate-tool-ext` 贡献的 Panel 容器 | 被隐藏 + unpin，tab 不显示 | 放行，tab 显隐完全由插件 `when` 上下文键决定（按钮动态切换） |
+| 其他内置视图（OUTPUT / PROBLEMS / PORTS / TEST…） | 隐藏 | 不变，仍隐藏 |
+| 第三方插件的 Panel 容器 | 隐藏 | 不变，仍隐藏（非白名单） |
+
+### 60.3 注意点
+
+- 本改动是“放行”而非“强制显示”：白名单插件容器仍依赖其 `package.json` 中 view 的 `when` 决定启动/切换时是否出现对应 tab；若 `when` 默认依赖 `ate:panel:xxxShow`（初始 false）或 `layout`（初始未设置），则启动不显示，点按钮后才出现。
+- `hideOtherPanelViews()` 仍在 `create()` 与 `runInitialEnsureWorking()`（扩展注册完成后）两处调用，放行逻辑对两次均生效。
+- 切换布局瞬间（插件用上下文键把某容器全部 view 置不可见）容器可能变空，可能触发 §59.2 的 3 秒 fallback 与 §20 空 Panel 自动隐藏；若实测出现 Panel 收起 / tab 闪没，需对扩展容器加判空豁免（待观察）。
+
+---
 
 ## 14. 视图拖入编辑器区（view-in-editor）功能及 UNDEFINED 标题修复（2026-08-03）
 
