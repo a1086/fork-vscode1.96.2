@@ -111,26 +111,26 @@ export class TerminalViewPane extends ViewPane {
 				this._createTabsView();
 			}
 			// If we just opened our first terminal, layout
-		if (this._terminalGroupService.instances.length === 1) {
-			const width = this._parentDomElement.offsetWidth;
-			const height = this._parentDomElement.offsetHeight;
-			if (width > 0 && height > 0) {
-				this.layoutBody(height, width);
-			} else {
-				// The container may not be laid out yet when a terminal is created
-				// asynchronously (e.g. dropped into the editor area, or opened in the
-				// dual-panel layout). Laying out with a zero-sized container makes
-				// xterm skip rendering entirely (TerminalInstance.layout returns early
-				// on width/height <= 0), leaving a blank pane until the user clicks it.
-				// Defer one frame so the DOM has its real dimensions, then re-layout.
-				const container = this._parentDomElement;
-				requestAnimationFrame(() => {
-					if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-						this.layoutBody(container.offsetHeight, container.offsetWidth);
-					}
-				});
+			if (this._terminalGroupService.instances.length === 1) {
+				const width = this._parentDomElement.offsetWidth;
+				const height = this._parentDomElement.offsetHeight;
+				if (width > 0 && height > 0) {
+					this.layoutBody(height, width);
+				} else {
+					// The container may not be laid out yet when a terminal is created
+					// asynchronously (e.g. dropped into the editor area, or opened in the
+					// dual-panel layout). Laying out with a zero-sized container makes
+					// xterm skip rendering entirely (TerminalInstance.layout returns early
+					// on width/height <= 0), leaving a blank pane until the user clicks it.
+					// Defer one frame so the DOM has its real dimensions, then re-layout.
+					const container = this._parentDomElement;
+					requestAnimationFrame(() => {
+						if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+							this.layoutBody(container.offsetHeight, container.offsetWidth);
+						}
+					});
+				}
 			}
-		}
 		}));
 		this._dropdownMenu = this._register(this._menuService.createMenu(MenuId.TerminalNewDropdownContext, this._contextKeyService));
 		this._singleTabMenu = this._register(this._menuService.createMenu(MenuId.TerminalTabContext, this._contextKeyService));

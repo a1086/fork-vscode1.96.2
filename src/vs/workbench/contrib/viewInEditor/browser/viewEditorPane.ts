@@ -38,8 +38,10 @@ export class ViewEditorPane extends EditorPane {
 	private _editorView?: ViewPane;
 	private readonly container: HTMLElement;
 	private _currentViewId?: string;
+	private _hostedViewId?: string;
 	private readonly _restored = new Set<string>();
 	private _parking?: HTMLElement;
+	private _relayoutTimer: any;
 
 	constructor(
 		group: IEditorGroup,
@@ -119,9 +121,12 @@ export class ViewEditorPane extends EditorPane {
 			entry.pane.setExpanded(true);
 			this._editorView = entry.pane;
 			this._currentViewId = viewId;
+			this._hostedViewId = viewId;
 			this.applyPaneHeaderVisibility(entry);
 			this.container.appendChild(entry.pane.element);
+			entry.pane.setVisible(false);
 			this.layoutPane(entry.pane);
+			this.scheduleRelayout(entry.pane);
 		}
 
 		await super.setInput(input, options, context, token);
@@ -181,9 +186,11 @@ export class ViewEditorPane extends EditorPane {
 
 			this._editorView = pane;
 			this._currentViewId = viewId;
+			this._hostedViewId = viewId;
 			this.applyPaneHeaderVisibility(entry);
 			this.container.appendChild(pane.element);
 			this.layoutPane(pane);
+			this.scheduleRelayout(pane);
 		}
 	}
 
@@ -235,18 +242,20 @@ export class ViewEditorPane extends EditorPane {
 	override setEditorVisible(visible: boolean): void {
 		if (visible && this._editorView) {
 			this._editorView.setVisible(true);
+			this.layoutPane(this._editorView);
+			this.scheduleRelayout(this._editorView);
 		}
 	}
 
 	override clearInput(): void {
+		this.clearRelayout();
+
 		if (this._currentViewId) {
 			const entry = paneCache.get(this._currentViewId);
-			if (entry) {
+			if (entry && this.isHostingPane(entry)) {
 				this.restorePaneHeaderVisibility(entry);
 				entry.pane.setVisible(false);
-				if (entry.pane.element.parentElement === this.container) {
-					this.getParking().appendChild(entry.pane.element);
-				}
+				this.getParking().appendChild(entry.pane.element);
 			}
 		}
 
@@ -255,27 +264,47 @@ export class ViewEditorPane extends EditorPane {
 		super.clearInput();
 	}
 
+	private isHostingPane(entry: CachedPane): boolean {
+		const parent = entry.pane.element.parentElement;
+		return parent === this.container || parent === this._parking;
+	}
+
 	override dispose(): void {
-		for (const entry of paneCache.values()) {
-			this.restorePaneHeaderVisibility(entry);
-			this.restore(entry.input);
-			if (entry.owned) {
-				entry.pane.dispose();
+		this.clearRelayout();
+
+		const viewId = this._currentViewId ?? this._hostedViewId;
+		if (viewId) {
+			const entry = paneCache.get(viewId);
+			if (entry && this.isHostingPane(entry)) {
+				this.restorePaneHeaderVisibility(entry);
+				this.restore(entry.input);
+				if (entry.owned) {
+					entry.pane.dispose();
+				}
+				paneCache.delete(viewId);
 			}
 		}
-		paneCache.clear();
+
+		this._currentViewId = undefined;
+		this._hostedViewId = undefined;
+		this._editorView = undefined;
 		super.dispose();
 	}
 
 	private layoutPane(pane: ViewPane, dimension?: Dimension): void {
+		if (this._editorView !== pane || pane.element.parentElement !== this.container) {
+			return;
+		}
+
 		const width = dimension?.width ?? this.container.clientWidth;
 		const height = dimension?.height ?? this.container.clientHeight;
+
+		pane.setVisible(true);
 
 		if (width <= 0 || height <= 0) {
 			return;
 		}
 
-		pane.setVisible(true);
 		if (pane.orientation === Orientation.VERTICAL) {
 			pane.orthogonalSize = width;
 			pane.layout(height);
@@ -288,6 +317,34 @@ export class ViewEditorPane extends EditorPane {
 	override layout(dimension: Dimension): void {
 		if (this._editorView) {
 			this.layoutPane(this._editorView, dimension);
+		}
+	}
+
+	private scheduleRelayout(pane: ViewPane): void {
+		if (this._relayoutTimer) {
+			clearTimeout(this._relayoutTimer);
+			this._relayoutTimer = undefined;
+		}
+
+		const delays = [0, 50, 200];
+		const run = (index: number) => {
+			this._relayoutTimer = undefined;
+			if (this._editorView !== pane) {
+				return;
+			}
+			this.layoutPane(pane);
+			if (index + 1 < delays.length) {
+				this._relayoutTimer = setTimeout(() => run(index + 1), delays[index + 1]);
+			}
+		};
+
+		this._relayoutTimer = setTimeout(() => run(0), delays[0]);
+	}
+
+	private clearRelayout(): void {
+		if (this._relayoutTimer) {
+			clearTimeout(this._relayoutTimer);
+			this._relayoutTimer = undefined;
 		}
 	}
 }

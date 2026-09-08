@@ -1838,7 +1838,6 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	layout(dimension: dom.Dimension): void {
-		console.log('il', Math.round(dimension.width), Math.round(dimension.height), this.disableLayout, !!this.xterm);
 		this._lastLayoutDimensions = dimension;
 		if (this.disableLayout) {
 			return;
