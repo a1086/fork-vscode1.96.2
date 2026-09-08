@@ -46,6 +46,71 @@ export class WebviewViewPane extends ViewPane {
 		return this._originStore;
 	}
 
+	private static readonly _recycledWebviews = new Map<string, IOverlayWebview>();
+	private static readonly _handoffWebviews = new Map<string, IOverlayWebview>();
+
+	private static readonly _livePanes = new Set<WebviewViewPane>();
+	private static readonly _viewStates = new Map<string, string | undefined>();
+	private static readonly _recycleTTL = 30000;
+	private static readonly _lastMoveAt = new Map<string, number>();
+
+	private static _recycle(id: string, webview: IOverlayWebview): void {
+		if (webview.state !== undefined) {
+			WebviewViewPane._viewStates.set(id, webview.state);
+		}
+		const displaced = WebviewViewPane._recycledWebviews.get(id);
+		if (displaced && displaced !== webview) {
+			displaced.dispose();
+		}
+		WebviewViewPane._recycledWebviews.set(id, webview);
+		setTimeout(() => {
+			if (WebviewViewPane._recycledWebviews.get(id) === webview) {
+				WebviewViewPane._recycledWebviews.delete(id);
+				webview.dispose();
+			}
+		}, WebviewViewPane._recycleTTL);
+	}
+
+	static markMove(viewIds: string[]): void {
+		const now = Date.now();
+		const ids = viewIds.filter(id => {
+			const last = WebviewViewPane._lastMoveAt.get(id);
+			if (last !== undefined && now - last < 1000) {
+				return false;
+			}
+			WebviewViewPane._lastMoveAt.set(id, now);
+			return true;
+		});
+
+		for (const id of ids) {
+			for (const pane of WebviewViewPane._livePanes) {
+				if (pane.id === id && pane._webview.value) {
+					const webview = pane._webview.clearAndLeak();
+					if (webview) {
+						webview.release(pane);
+						if (webview.state !== undefined) {
+							WebviewViewPane._viewStates.set(id, webview.state);
+						}
+						WebviewViewPane._handoffWebviews.set(id, webview);
+						pane._activated = false;
+						pane._webviewDisposables.clear();
+					}
+					break;
+				}
+			}
+		}
+
+		setTimeout(() => {
+			for (const id of ids) {
+				const wv = WebviewViewPane._handoffWebviews.get(id);
+				if (wv) {
+					WebviewViewPane._handoffWebviews.delete(id);
+					WebviewViewPane._recycle(id, wv);
+				}
+			}
+		}, 1000);
+	}
+
 	private readonly _webview = this._register(new MutableDisposable<IOverlayWebview>());
 	private readonly _webviewDisposables = this._register(new DisposableStore());
 	private _activated = false;
@@ -102,6 +167,7 @@ export class WebviewViewPane extends ViewPane {
 			}
 		}));
 
+		WebviewViewPane._livePanes.add(this);
 		this.updateTreeVisibility();
 	}
 
@@ -112,6 +178,14 @@ export class WebviewViewPane extends ViewPane {
 	readonly onDispose = this._onDispose.event;
 
 	override dispose() {
+		WebviewViewPane._livePanes.delete(this);
+
+		const webview = this._webview.clearAndLeak();
+		if (webview) {
+			webview.release(this);
+			WebviewViewPane._recycle(this.id, webview);
+		}
+
 		this._onDispose.fire();
 
 		clearTimeout(this._repositionTimeout);
@@ -147,6 +221,11 @@ export class WebviewViewPane extends ViewPane {
 	public override saveState() {
 		if (this._webview.value) {
 			this.viewState[storageKeys.webviewState] = this._webview.value.state;
+		} else {
+			const cachedState = WebviewViewPane._viewStates.get(this.id);
+			if (cachedState !== undefined) {
+				this.viewState[storageKeys.webviewState] = cachedState;
+			}
 		}
 
 		this.memento.saveMemento();
@@ -159,7 +238,7 @@ export class WebviewViewPane extends ViewPane {
 		this.layoutWebview(new Dimension(width, height));
 	}
 
-	private updateTreeVisibility() {
+		private updateTreeVisibility() {
 		if (this.isBodyVisible()) {
 			this.activate();
 			this._webview.value?.claim(this, getWindow(this.element), undefined);
@@ -175,6 +254,31 @@ export class WebviewViewPane extends ViewPane {
 
 		this._activated = true;
 
+		const handoff = WebviewViewPane._handoffWebviews.get(this.id);
+		if (handoff) {
+			WebviewViewPane._handoffWebviews.delete(this.id);
+			this.attachWebview(handoff);
+			return;
+		}
+
+		if (this.takeRecycled()) {
+			return;
+		}
+
+		this.createNewWebview();
+	}
+
+	private takeRecycled(): boolean {
+		const webview = WebviewViewPane._recycledWebviews.get(this.id);
+		if (!webview) {
+			return false;
+		}
+		WebviewViewPane._recycledWebviews.delete(this.id);
+		this.attachWebview(webview);
+		return true;
+	}
+
+	private createNewWebview(): void {
 		const origin = this.extensionId ? WebviewViewPane.getOriginStore(this.storageService).getOrigin(this.id, this.extensionId) : undefined;
 		const webview = this.webviewService.createWebviewOverlay({
 			origin,
@@ -184,12 +288,46 @@ export class WebviewViewPane extends ViewPane {
 			contentOptions: {},
 			extension: this.extensionId ? { id: this.extensionId } : undefined
 		});
-		webview.state = this.viewState[storageKeys.webviewState];
+		this.attachWebview(webview);
+		this.resolveWebviewView(webview);
+	}
+
+	private claimWhenConnected(webview: IOverlayWebview): void {
+		let attempts = 0;
+		const tryClaim = (): void => {
+			if (this._webview.value !== webview) {
+				return;
+			}
+		if (this._container && this.element?.isConnected) {
+			webview.claim(this, getWindow(this.element), undefined);
+				this.layoutWebview();
+				return;
+			}
+			if (attempts++ < 40) {
+				setTimeout(tryClaim, 25);
+		} else {
+		}
+		};
+
+		tryClaim();
+	}
+
+	private attachWebview(webview: IOverlayWebview): void {
+		if (webview.state === undefined) {
+			const cachedState = WebviewViewPane._viewStates.get(this.id);
+			const savedState = this.viewState[storageKeys.webviewState];
+			const restore = cachedState !== undefined ? cachedState : savedState;
+			if (restore !== undefined) {
+				webview.state = restore;
+			}
+		}
 		this._webview.value = webview;
 
 		if (this._container) {
 			this.layoutWebview();
 		}
+
+		this.claimWhenConnected(webview);
 
 		this._webviewDisposables.add(toDisposable(() => {
 			this._webview.value?.release(this);
@@ -197,6 +335,7 @@ export class WebviewViewPane extends ViewPane {
 
 		this._webviewDisposables.add(webview.onDidUpdateState(() => {
 			this.viewState[storageKeys.webviewState] = webview.state;
+			WebviewViewPane._viewStates.set(this.id, webview.state);
 		}));
 
 		// Re-dispatch all drag events back to the drop target to support view drag drop
@@ -209,7 +348,9 @@ export class WebviewViewPane extends ViewPane {
 		}
 
 		this._webviewDisposables.add(new WebviewWindowDragMonitor(getWindow(this.element), () => this._webview.value));
+	}
 
+	private resolveWebviewView(webview: IOverlayWebview): void {
 		const source = this._webviewDisposables.add(new CancellationTokenSource());
 
 		this.withProgress(async () => {

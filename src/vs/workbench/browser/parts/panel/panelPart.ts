@@ -21,6 +21,7 @@ import { IExtensionService } from '../../../services/extensions/common/extension
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { DEBUG_PANEL_ID } from '../../../contrib/debug/common/debug.js';
+import { WebviewViewPane } from '../../../contrib/webviewView/browser/webviewViewPane.js';
 import { AbstractPaneCompositePart, CompositeBarPosition } from '../paneCompositePart.js';
 import { IPaneCompositeBarOptions } from '../paneCompositeBar.js';
 import { IPaneComposite } from '../../../common/panecomposite.js';
@@ -653,7 +654,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// Track which container is active on each side so we can prevent the
 		// same view from being shown in both sides at once.
 		this._register(sidePart.onDidPaneCompositeOpen(e => {
-			console.log('po' + side + ':' + e.getId());
 			// A composite has just become active on this side, so any scheduled
 			// "this side is empty" fallback is no longer needed.
 			fallbackScheduler.cancel();
@@ -1420,6 +1420,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// sees `isShowingEmptyPanel() === true` and opens nothing). See the
 		// assignment in `runInitialEnsureWorking()`.
 
+		this._register(this.panelViewDescriptorService.onDidChangeContainer(e => {
+			WebviewViewPane.markMove(e.views.map(v => v.id));
+		}));
+
 		// 关闭拖出的浮动窗口（或关掉编辑器区里的该 tab）后，视图经
 		// `ViewEditorInput` 的归位逻辑 `moveViewToLocation(view, Panel)` 回到
 		// `workbench.panel.*` 容器。但拖出时 `moveViewToLocation(view, Editor)`
@@ -1752,7 +1756,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 		const model = this.panelViewDescriptorService.getViewContainerModel(container);
 		store.add(model.onDidChangeActiveViewDescriptors(e => {
-			console.log('sc' + side + ':' + containerId + (e.added.length ? '+'+e.added.length : '') + (e.removed.length ? '-'+e.removed.length : ''));
 			// If a view was just added to this side and the other side already
 			// shows the same view, the other side must be released - the view
 			// cannot be visible in both places at once.
@@ -2060,7 +2063,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 	private applyPanelStripHeight(splitEmpty: boolean): void {
 		if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
-			console.log('s0');
 			return;
 		}
 		if (splitEmpty === this.panelStripCollapsed) {
@@ -2068,12 +2070,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 		const size = this.layoutService.getSize(Parts.PANEL_PART);
 		if (splitEmpty) {
-			console.log('s1');
 			this.collapsedPanelStripHeight = size.height;
 			this.layoutService.setSize(Parts.PANEL_PART, { width: size.width, height: 0 });
 			this.panelStripCollapsed = true;
 		} else {
-			console.log('s2');
 			this.layoutService.setSize(Parts.PANEL_PART, { width: size.width, height: this.collapsedPanelStripHeight || this.preferredHeight || 350 });
 			this.panelStripCollapsed = false;
 		}
@@ -2456,7 +2456,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 * `PanelSidePart.openPaneComposite`.
 	 */
 	async movePaneCompositeToSide(id: string, toSide: PanelSide): Promise<IPaneComposite | undefined> {
-		console.log('mx');
 		this.isInCrossSideMove = true;
 		const fromPart = toSide === 'left' ? this.rightPart : this.leftPart;
 		const targetPart = toSide === 'left' ? this.leftPart : this.rightPart;
@@ -2647,23 +2646,18 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (typeof id === 'string') {
 			const leftActiveId = this.leftPart.getActivePaneComposite()?.getId();
 			const rightActiveId = this.rightPart.getActivePaneComposite()?.getId();
-			console.log('OP ' + id + ' L=' + leftActiveId + ' R=' + rightActiveId);
 			if (this.lastDismissedContainerBySide.get('right') === id) {
 				this.lastDismissedContainerBySide.delete('right');
-				console.log('OPdR');
 				return this.rightPart.openPaneComposite(id, focus);
 			}
 			if (this.lastDismissedContainerBySide.get('left') === id) {
 				this.lastDismissedContainerBySide.delete('left');
-				console.log('OPdL');
 				return this.leftPart.openPaneComposite(id, focus);
 			}
 			if (rightActiveId === id) {
-				console.log('OPR');
 				return this.rightPart.openPaneComposite(id, focus);
 			}
 			if (leftActiveId === id) {
-				console.log('OPL');
 				return this.leftPart.openPaneComposite(id, focus);
 			}
 			const oc = this.panelViewDescriptorService.getViewContainerById(id);
@@ -2679,16 +2673,13 @@ export class PanelPart extends AbstractPaneCompositePart {
 			const leftOccupied = !!leftActiveId;
 			const rightEmpty = !rightActiveId;
 			const noViewOverlap = !leftActiveId || !this.containersShareView(leftActiveId, id);
-			console.log('OP? lo=' + leftOccupied + ' re=' + rightEmpty + ' nvo=' + noViewOverlap + ' ris=' + this.rightViewInSplit);
 			if (leftOccupied && rightEmpty && noViewOverlap) {
 				if (!this.rightViewInSplit) {
 					this.addRightToSplit();
 				}
-				console.log('OPr');
 				return this.rightPart.openPaneComposite(id, focus);
 			}
 		}
-		console.log('OPl');
 		return this.leftPart.openPaneComposite(id, focus);
 	}
 
@@ -2988,20 +2979,17 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 		const leftActive = this.leftPart.hasActiveView();
 		const rightActive = this.rightPart.hasActiveView();
-		console.log('ac' + (leftActive ? 'L' : 'l') + (rightActive ? 'R' : 'r'));
 
 		if (!rightActive && this.rightViewInSplit) {
 			if (!this.isDragInProgress && this.splitPreviewSide !== undefined) {
 				this.splitView.layout(this.sideWidth);
 			} else {
-				console.log('a1');
 				this.removeRightFromSplit();
 				this.updatePanelStripForFullHeight();
 			}
 		}
 		if (!leftActive && rightActive && !this.isSideHidden('left') && this.splitPreviewSide === undefined) {
 			if (!this.isDragInProgress) {
-				console.log('lh');
 				this.hideSide('left');
 			}
 		}
@@ -3154,17 +3142,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 			return false;
 		}
 		if (this.hidingEntirePanel || isSuppressPanelRelayoutOnDragOut() || this.isDragInProgress || this.splitPreviewSide !== undefined) {
-			console.log('c0');
 			return false;
 		}
 		if (this.rightViewInSplit && !this.rightPart.getActivePaneComposite()) {
-			console.log('c1');
 			this.removeRightFromSplit();
 			this.updatePanelStripForFullHeight();
 			return true;
 		}
 		if (this.rightViewInSplit && !this.fullHeightSides.has('left') && !this.isSideHidden('left') && !this.leftPart.getActivePaneComposite()) {
-			console.log('c2');
 			this.splitView.resizeView(0, 0);
 			this.splitView.resizeView(1, this.sideWidth);
 			this.leftPart.layout(0, this.sideHeight, 0, 0);
@@ -3326,10 +3311,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 		}
 
 		if (!this.leftPart.hasActiveView() && !!this.leftPart.getActivePaneComposite()) {
-			console.log('uL');
 		}
 		if (!this.rightPart.hasActiveView() && !!this.rightPart.getActivePaneComposite()) {
-			console.log('uR');
 		}
 		this.updateSplitDividerVisibility();
 	}

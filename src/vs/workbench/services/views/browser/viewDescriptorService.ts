@@ -10,6 +10,7 @@ import { IExtensionService } from '../../extensions/common/extensions.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { toDisposable, DisposableStore, Disposable, IDisposable, DisposableMap } from '../../../../base/common/lifecycle.js';
 import { ViewPaneContainer, ViewPaneContainerAction, ViewsSubMenu } from '../../../browser/parts/views/viewPaneContainer.js';
+import { WebviewViewPane } from '../../../contrib/webviewView/browser/webviewViewPane.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
@@ -349,6 +350,8 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 		const to = viewContainer;
 
 		if (from && to && from !== to) {
+			WebviewViewPane.markMove(views.map(view => view.id));
+
 			// Move views
 			this.moveViewsWithoutSaving(views, from, to, visibilityState);
 			this.cleanUpGeneratedViewContainer(from.id);
