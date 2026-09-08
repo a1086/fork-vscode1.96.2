@@ -16,7 +16,12 @@
 
 `src/vs/workbench/browser/parts/panel/panelPart.ts`
 - 新增白名单常量 `ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext']`。
-- `hideOtherPanelViews()` 遍历 Panel 容器时新增判定：取 `container.extensionId?.value`，命中白名单（忽略大小写）则 `continue`，既不对其视图执行 `setVisible(id, false)`，也不调用两侧 `unpinPaneComposite(container.id)`。
+- 新增容器 id 前缀白名单 `ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['panel-']`，覆盖插件贡献的全部 Panel 容器（如 `panel-view-container`、`panel-error-map-container`、`panel-log-manager-container` 等）。
+- `hideOtherPanelViews()` 遍历 Panel 容器时新增判定：
+  - 取 `container.extensionId?.value`，命中 extensionId 白名单（忽略大小写）则跳过；
+  - 取 `container.id`，命中容器 id 前缀白名单也跳过；
+  - 命中的容器既不对其视图执行 `setVisible(id, false)`，也不调用两侧 `unpinPaneComposite(container.id)`。
+- 增加 `console.log` 调试输出，确认每个 Panel 容器是否命中放行及匹配来源；稳定后可删除。
 
 ### 60.2 行为变化
 
@@ -32,6 +37,7 @@
 - 本改动是“放行”而非“强制显示”：白名单插件容器仍依赖其 `package.json` 中 view 的 `when` 决定启动/切换时是否出现对应 tab；若 `when` 默认依赖 `ate:panel:xxxShow`（初始 false）或 `layout`（初始未设置），则启动不显示，点按钮后才出现。
 - `hideOtherPanelViews()` 仍在 `create()` 与 `runInitialEnsureWorking()`（扩展注册完成后）两处调用，放行逻辑对两次均生效。
 - 切换布局瞬间（插件用上下文键把某容器全部 view 置不可见）容器可能变空，可能触发 §59.2 的 3 秒 fallback 与 §20 空 Panel 自动隐藏；若实测出现 Panel 收起 / tab 闪没，需对扩展容器加判空豁免（待观察）。
+- 若后续发现 `panel-` 前缀误匹配其它扩展的容器，可把 `ALLOWED_PANEL_CONTAINER_ID_PREFIXES` 收窄为精确列表（如 `['panel-view-container', 'panel-error-map-container', ...]`）。
 
 ---
 

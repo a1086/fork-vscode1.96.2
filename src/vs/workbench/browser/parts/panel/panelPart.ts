@@ -105,6 +105,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 	private static readonly ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext'];
 
+	/**
+	 * 按容器 id 前缀放行：插件贡献的 Panel 容器 id 都以 `panel-` 开头（如
+	 * panel-view-container、panel-error-map-container、panel-log-manager-container 等）。
+	 * 作为 extensionId 白名单的双保险，避免 extensionId 解析/大小写/打包后变化导致
+	 * 匹配失败，进而使自定义视图被错误隐藏。
+	 */
+	private static readonly ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['panel-'];
+
 	private readonly activeContainerBySide = new Map<PanelSide, string>();
 	/**
 	 * Per-side subscriptions to the currently active container's view model
@@ -969,17 +977,27 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 *  2) 把非固定容器从两侧 bar 上 `unpin`，使其标签页不再出现于初始 composite bar。
 	 * 都不影响视图注册体系，用户后续仍可通过拖拽把任意视图拖入当前 Panel（拖到另一侧
 	 * 会触发左右双栏，见 `registerSplitDropTarget`）。
+	 *
+	 * 放行规则（满足其一即跳过）：
+	 *  - 容器 id 在 `PINNED_PANEL_VIEWS` 中（Terminal / Debug Console）；
+	 *  - 容器所属 extensionId 在白名单 `ALLOWED_PANEL_EXTENSION_IDS` 中；
+	 *  - 容器 id 以 `ALLOWED_PANEL_CONTAINER_ID_PREFIXES` 中的前缀开头（如 panel-view-container）。
 	 */
 	private hideOtherPanelViews(): void {
 		const pinnedIds = new Set<string>(PanelPart.PINNED_PANEL_VIEWS);
 		const allowedExtensionIds = PanelPart.ALLOWED_PANEL_EXTENSION_IDS.map(id => id.toLowerCase());
+		const allowedContainerPrefixes = PanelPart.ALLOWED_PANEL_CONTAINER_ID_PREFIXES;
 		const containers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
 		for (const container of containers) {
 			if (pinnedIds.has(container.id)) {
 				continue;
 			}
 			const extensionId = container.extensionId?.value;
-			if (extensionId && allowedExtensionIds.includes(extensionId.toLowerCase())) {
+			const extensionIdMatched = !!extensionId && allowedExtensionIds.includes(extensionId.toLowerCase());
+			const containerIdMatched = allowedContainerPrefixes.some(prefix => container.id.startsWith(prefix));
+			if (extensionIdMatched || containerIdMatched) {
+				// 调试日志：确认匹配命中；可在稳定后删除。
+				console.log('[PanelPart.hideOtherPanelViews] skip allowed container:', container.id, 'extensionId=', extensionId, 'matchedBy=', extensionIdMatched ? 'extensionId' : 'containerId');
 				continue;
 			}
 			const model = this.panelViewDescriptorService.getViewContainerModel(container);
