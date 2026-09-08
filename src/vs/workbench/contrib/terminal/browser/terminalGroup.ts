@@ -665,7 +665,6 @@ export class TerminalGroup extends Disposable implements ITerminalGroup {
 	}
 
 	layout(width: number, height: number): void {
-		console.log('gl', width, height, !!this._splitPaneContainer, this._splitPaneContainer?.orientation);
 		if (this._splitPaneContainer) {
 			// Check if the panel position changed and rotate panes if so
 			const newPanelPosition = this._layoutService.getPanelPosition();

@@ -280,7 +280,7 @@ export class WebviewViewPane extends ViewPane {
 			return;
 		}
 
-		if (!this._rootContainer || !this._rootContainer.isConnected) {
+		if (!this._rootContainer || !this._rootContainer.isConnected || this._rootContainer.ownerDocument !== this._container.ownerDocument) {
 			this._rootContainer = this.findRootContainer(this._container);
 		}
 
@@ -296,6 +296,10 @@ export class WebviewViewPane extends ViewPane {
 	}
 
 	private findRootContainer(container: HTMLElement): HTMLElement | undefined {
+		if (findParentWithClass(container, 'view-editor-pane')) {
+			return undefined;
+		}
+
 		return findParentWithClass(container, 'monaco-scrollable-element') ?? undefined;
 	}
 }
