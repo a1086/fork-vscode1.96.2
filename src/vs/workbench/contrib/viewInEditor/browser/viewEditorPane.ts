@@ -137,7 +137,7 @@ export class ViewEditorPane extends EditorPane {
 				throw new Error('No view descriptor found for view id: ' + viewId);
 			}
 
-			await timeout(50);
+			await timeout(0);
 			const viewContainer = this.viewDescriptorService.getViewContainerByViewId(viewId);
 			if (!viewContainer) {
 				throw new Error('No view container found for view id: ' + viewId);

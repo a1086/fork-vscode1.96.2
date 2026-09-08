@@ -161,7 +161,6 @@ class SplitPaneContainer extends Disposable {
 	}
 
 	layout(width: number, height: number): void {
-		console.log('sl', width, height);
 		this._width = width;
 		this._height = height;
 		if (this.orientation === Orientation.HORIZONTAL) {

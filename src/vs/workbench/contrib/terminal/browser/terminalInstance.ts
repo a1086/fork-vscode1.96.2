@@ -995,7 +995,6 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		if (this.isDisposed) {
 			return;
 		}
-		console.log('rx');
 		this.xterm?.dispose();
 		this.xterm = undefined;
 		this._wrapperElement.xterm = undefined;
