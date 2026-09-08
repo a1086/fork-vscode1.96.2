@@ -228,7 +228,6 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 		// appendChild), so the terminal is now live on the side the user just
 		// dragged it to.
 		const crossDocument = !!oldPrimary && oldPrimary.ownerDocument !== container.ownerDocument;
-		console.log('cd', crossDocument);
 		this._primaryContainer = container;
 		for (const group of this.groups) {
 			group.attachToElement(container, true);
@@ -666,7 +665,6 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 		if (!visible && this._primaryContainer?.isConnected) {
 			visible = true;
 		}
-		console.log('uv', location, visible, this._primaryContainer?.isConnected, this.groups.length, this.activeGroupIndex);
 
 		// When there is exactly one group (the overwhelmingly common case: a
 		// single terminal, or the only terminal in a dual-panel side), force it

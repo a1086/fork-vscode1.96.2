@@ -392,7 +392,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 						}
 					}
 					if (alternateId) {
-						console.log('al');
 						void this.openPaneComposite(alternateId, false, true);
 					}
 				}, 3000);
@@ -501,7 +500,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				const allOnOtherSide = viewContainerModel.allViewDescriptors.length > 0
 					&& viewContainerModel.allViewDescriptors.every(d => otherViewIds.has(d.id));
 				if (allOnOtherSide) {
-					console.log('oc' + this.side);
 					if (this.getActivePaneComposite()?.getId() === composite.getId()) {
 						this.clearActivePaneComposite();
 					}
@@ -518,7 +516,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				if (pane.isExpanded() && viewPaneContainer.isVisible()) {
 					return;
 				}
-				console.log('ov' + this.side + ':' + firstDescriptor.id);
 				composite.openView(firstDescriptor.id, false);
 			};
 
@@ -542,7 +539,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 					return;
 				}
 				if (viewPaneContainer.getView(firstDescriptor.id)) {
-					console.log('AV');
 					openFirstScheduler.schedule();
 				}
 			}));
@@ -596,24 +592,19 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		if (this.isPanelHostedContainer(id)) {
 			return id;
 		}
-		console.log('nh');
 		const storedId = this.storageService.get(PanelSidePart.activePanelSettingsKeyFor(this.side), StorageScope.WORKSPACE);
 		if (typeof storedId === 'string' && storedId !== id && this.isPanelHostedContainer(storedId)) {
-			console.log('rs');
 			return storedId;
 		}
 		for (const pinnedId of this.getPinnedPaneCompositeIds()) {
 			if (pinnedId !== id && this.isPanelHostedContainer(pinnedId)) {
-				console.log('rp');
 				return pinnedId;
 			}
 		}
 		const activeId = this.getActivePaneComposite()?.getId();
 		if (typeof activeId === 'string' && activeId !== id && this.isPanelHostedContainer(activeId)) {
-			console.log('ra');
 			return activeId;
 		}
-		console.log('nf');
 		return undefined;
 	}
 
@@ -624,7 +615,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			id = resolvedId;
 		}
 		if (id === undefined && typeof requestedId === 'string') {
-			console.log('ns');
 			return undefined;
 		}
 		// 单一容器归属（视图不能同时在左右两个 Panel 中显示）：
@@ -635,7 +625,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			const otherPart = this.panelPart.getOtherSidePart(this.side);
 			const otherActiveId = otherPart.getActivePaneComposite()?.getId();
 			if (otherActiveId === id) {
-				console.log('oe');
 				if (!skipExclusion) {
 					return this.panelPart.movePaneCompositeToSide(id, this.side);
 				}
@@ -687,10 +676,8 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			const lh = this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE, false);
 			if (!lh) {
 				this.storageService.store('panel.lastHidden', false, StorageScope.WORKSPACE, StorageTarget.MACHINE);
-				console.log('sv');
 				this.layoutService.setPartHidden(false, Parts.PANEL_PART, mainWindow, skipMaximizeOnShow);
 			} else {
-				console.log('lh');
 			}
 		}
 
@@ -743,7 +730,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 		const otherViewIds = new Set(otherModel ? otherModel.allViewDescriptors.map(d => d.id) : []);
 		const allOnOtherSide = otherViewIds.size > 0 && viewContainerModel.allViewDescriptors.every(d => otherViewIds.has(d.id));
 		const result = !allOnOtherSide;
-		console.log(`[hAV ${this.side}] composite=${composite.getId()} views=[${viewContainerModel.allViewDescriptors.map(d => d.id).join(' | ')}] otherActive=${otherActiveId} otherViews=[${[...otherViewIds].join(' | ')}] allOnOtherSide=${allOnOtherSide} => ${result}`);
 		return result;
 	}
 
@@ -849,7 +835,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 				)
 				: undefined);
 		if (!composite || !viewContainerModel || !viewPaneContainer) {
-			console.log('we');
 			return;
 		}
 		const firstRemaining = viewContainerModel.allViewDescriptors[0];
@@ -1218,7 +1203,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	 */
 	handleEmptyAreaDrop(e: DragEvent, dragAndDropData: CompositeDragAndDropData): boolean {
 		const dragData = dragAndDropData.getData();
-		console.log('hd' + this.side[0] + dragData.type + ':' + dragData.id);
 
 		if (this.paneCompositeBar.value && dragData.id) {
 			// A bare `view` drag (e.g. dragging the PROBLEMS tab, whose title is
