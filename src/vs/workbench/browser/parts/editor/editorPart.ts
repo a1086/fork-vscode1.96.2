@@ -1922,6 +1922,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		top: number,
 		left: number,
 	): void {
+		console.log('ep', this.windowId, width, height, top, left);
 		this.top = top;
 		this.left = left;
 

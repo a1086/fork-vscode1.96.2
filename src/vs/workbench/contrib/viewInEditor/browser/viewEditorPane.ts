@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Dimension } from '../../../../base/browser/dom.js';
+import { Dimension, getWindow } from '../../../../base/browser/dom.js';
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { timeout } from '../../../../base/common/async.js';
@@ -138,6 +138,7 @@ export class ViewEditorPane extends EditorPane {
 			}
 
 			await timeout(0);
+			await this.waitForContainerSize();
 			const viewContainer = this.viewDescriptorService.getViewContainerByViewId(viewId);
 			if (!viewContainer) {
 				throw new Error('No view container found for view id: ' + viewId);
@@ -165,6 +166,8 @@ export class ViewEditorPane extends EditorPane {
 				throw new Error(`View "${viewId}" cannot be opened in a floating window: ${error}`);
 			}
 
+			this.container.appendChild(pane.element);
+
 			try {
 				pane.render();
 			} catch (error) {
@@ -188,9 +191,19 @@ export class ViewEditorPane extends EditorPane {
 			this._currentViewId = viewId;
 			this._hostedViewId = viewId;
 			this.applyPaneHeaderVisibility(entry);
-			this.container.appendChild(pane.element);
+			console.log('cp', getWindow(this.container).vscodeWindowId, this.container.clientWidth, this.container.clientHeight, pane.element.clientHeight);
 			this.layoutPane(pane);
 			this.scheduleRelayout(pane);
+		}
+	}
+
+	private async waitForContainerSize(): Promise<void> {
+		for (let i = 0; i < 20; i++) {
+			if (this.container.clientWidth > 0 && this.container.clientHeight > 0) {
+				console.log('cs', i, this.container.clientWidth, this.container.clientHeight);
+				return;
+			}
+			await timeout(25);
 		}
 	}
 
@@ -298,6 +311,7 @@ export class ViewEditorPane extends EditorPane {
 
 		const width = dimension?.width ?? this.container.clientWidth;
 		const height = dimension?.height ?? this.container.clientHeight;
+		console.log('lp', width, height, !!dimension);
 
 		pane.setVisible(true);
 
@@ -326,13 +340,17 @@ export class ViewEditorPane extends EditorPane {
 			this._relayoutTimer = undefined;
 		}
 
-		const delays = [0, 50, 200];
+		const delays = [0, 50, 200, 500, 1000, 2000];
 		const run = (index: number) => {
 			this._relayoutTimer = undefined;
 			if (this._editorView !== pane) {
 				return;
 			}
 			this.layoutPane(pane);
+			console.log('rl', index, this.container.clientWidth, this.container.clientHeight);
+			if (this.container.clientWidth > 0 && this.container.clientHeight > 0) {
+				return;
+			}
 			if (index + 1 < delays.length) {
 				this._relayoutTimer = setTimeout(() => run(index + 1), delays[index + 1]);
 			}
