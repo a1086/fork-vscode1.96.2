@@ -8,6 +8,31 @@
 
 <!-- MERGE_ANCHOR -->
 
+## 65. 辅助侧边栏（Auxiliary Bar）启动时默认显示运行和调试视图（2026-09-09）
+
+**需求**：VS Code 刚打开（窗口启动 / 插件激活）时，右侧辅助侧边栏应直接显示原生「运行和调试（Run and Debug）」视图，而不是空白占位 `Drag a view here to display.`。
+
+### 65.1 根因
+
+- `src/vs/workbench/contrib/debug/browser/debug.contribution.ts` 把「运行和调试」容器注册在 `ViewContainerLocation.AuxiliaryBar`，但注册时未传 `{ isDefault: true }`，导致 `viewDescriptorService.getDefaultViewContainer(AuxiliaryBar)` 返回 `undefined`。
+- 由此 `layout.ts:750` 在启动时读取 `workbench.auxiliarybar.activepanelid` 时拿不到默认兜底值，`initLayoutState` 不会把任何容器写入 `containerToRestore.auxiliaryBar`；后续恢复流程（`layout.ts:1106` 的 `if (!this.state.initialization.views.containerToRestore.auxiliaryBar) return;`）直接跳过，辅助栏内容区便保持空白占位。
+
+### 65.2 核心改动文件
+
+`src/vs/workbench/contrib/debug/browser/debug.contribution.ts`（+1）
+- 将「运行和调试」视图容器注册为 Auxiliary Bar 的默认容器：`}, ViewContainerLocation.AuxiliaryBar, { isDefault: true });`。
+- 影响面：`getDefaultViewContainer(AuxiliaryBar)` 现在返回 `workbench.view.debug`，使 `layout.ts` 的存储读取兜底、`layout.ts:1114` 的打开失败兜底，以及 `AbstractPaneCompositePart` 的 `defaultCompositeId` 全部指向该容器。
+
+`src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts`（+11）
+- 新增 `restoreDefaultViewContainer()`，在 `this.layoutService.whenRestored` 之后兜底一次：若辅助栏可见但当前没有任何活动视图容器，则调用 `openPaneComposite` 打开默认容器（即运行和调试）。
+- 挂在 `whenRestored` 之后，避免抢占用户上次会话已恢复的容器，也避开 part 未 `create()` 时 `openComposite` 静默返回的时机问题；并用 `_store.isDisposed` 做释放防护。
+
+### 65.3 验证要点
+
+- 全新 / 无 `workbench.auxiliarybar.activepanelid` 存储的会话启动 → 辅助栏直接显示「运行和调试」视图（含运行 / 调试配置入口与欢迎区），标题栏出现对应图标（由 `PaneCompositeBar.onDidViewContainerVisible` 自动 pin + 激活）。
+- 若上次会话已恢复其它容器（如从编辑器拖入的视图），启动仍尊重该恢复结果，不会强制覆盖。
+- 关闭辅助栏内非默认容器时，按 `CompositeBar.resetActiveComposite` 逻辑自动切回默认的「运行和调试」容器（与侧边栏 Explorer 默认行为一致）。
+
 ## 64. 视图拖出到新窗口的布局时机修复（2026-09-09）
 
 **需求**：把 Panel / Auxiliary Bar 里的视图 tab 直接拖出窗口、弹出独立浮动窗口承载时，新窗口内视图常出现空白、尺寸为 0 或首屏不稳定（根因为 `AuxiliaryEditorPart` 在窗口样式未加载、窗口尺寸尚未就绪时就过早 `layout()`）。本次修复布局时机，并扩展编辑器承载视图的重布局重试。
