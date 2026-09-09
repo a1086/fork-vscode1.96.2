@@ -4,8 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ViewContainerLocation, IViewDescriptorService, ViewContainer, IViewsRegistry, IViewContainersRegistry, IViewDescriptor, Extensions as ViewExtensions, ViewVisibilityState, defaultViewIcon, ViewContainerLocationToString, VIEWS_LOG_ID, VIEWS_LOG_NAME, EDITOR_VIEW_CONTAINER_ID } from '../../../common/views.js';
+import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
+import { REPL_VIEW_ID } from '../../../contrib/debug/common/debug.js';
 import { IContextKey, RawContextKey, IContextKeyService, ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope, StorageTarget, WillSaveStateReason } from '../../../../platform/storage/common/storage.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { toDisposable, DisposableStore, Disposable, IDisposable, DisposableMap } from '../../../../base/common/lifecycle.js';
@@ -115,6 +117,8 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 
 		this._register(this.storageService.onDidChangeValue(StorageScope.PROFILE, ViewDescriptorService.VIEWS_CUSTOMIZATIONS, this._store)(() => this.onDidStorageChange()));
 
+		this._register(this.storageService.onWillSaveState(e => { if (e.reason === WillSaveStateReason.SHUTDOWN) { this.clearPanelCustomViewsOnShutdown(); } }));
+
 		this.extensionService.whenInstalledExtensionsRegistered().then(() => this.whenExtensionsRegistered());
 
 	}
@@ -222,6 +226,51 @@ export class ViewDescriptorService extends Disposable implements IViewDescriptor
 		// bug). This runs exactly once during initialization so it does not re-open unrelated
 		// views (e.g. Problems) every time the user opens any view from the View menu.
 		this.recoverStrayViews();
+	}
+
+	private clearPanelCustomViewsOnShutdown(): void {
+		const keep = new Set<string>([TERMINAL_VIEW_ID, REPL_VIEW_ID]);
+		for (const viewId of [...this.viewDescriptorsCustomLocations.keys()]) {
+			if (keep.has(viewId)) {
+				continue;
+			}
+			const containerId = this.viewDescriptorsCustomLocations.get(viewId);
+			if (!containerId) {
+				continue;
+			}
+			const container = this.getViewContainerById(containerId);
+			if (container && this.getViewContainerLocation(container) === ViewContainerLocation.Panel) {
+				this.viewDescriptorsCustomLocations.delete(viewId);
+			}
+		}
+		for (const containerId of [...this.viewContainersCustomLocations.keys()]) {
+			if (keep.has(containerId)) {
+				continue;
+			}
+			if (this.viewContainersCustomLocations.get(containerId) === ViewContainerLocation.Panel) {
+				this.viewContainersCustomLocations.delete(containerId);
+			}
+		}
+		for (const viewContainer of this.viewContainers) {
+			if (!viewContainer.extensionId) {
+				continue;
+			}
+			if (this.getViewContainerLocation(viewContainer) !== ViewContainerLocation.Panel) {
+				continue;
+			}
+			const entry = this.viewContainerModels.get(viewContainer);
+			if (!entry) {
+				continue;
+			}
+			const model = entry.viewContainerModel;
+			for (const viewDescriptor of model.allViewDescriptors) {
+				if (keep.has(viewDescriptor.id) || !model.isVisible(viewDescriptor.id)) {
+					continue;
+				}
+				model.setVisible(viewDescriptor.id, false);
+			}
+		}
+		this.saveViewCustomizations();
 	}
 
 	private onDidRegisterViews(views: { views: IViewDescriptor[]; viewContainer: ViewContainer }[]): void {

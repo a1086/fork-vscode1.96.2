@@ -252,7 +252,7 @@ export class ViewEditorPane extends EditorPane {
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement, draggableProvider, { onDragEnd }));
 	}
 
-	override setEditorVisible(visible: boolean): void {
+	protected override setEditorVisible(visible: boolean): void {
 		if (visible && this._editorView) {
 			this._editorView.setVisible(true);
 			this.layoutPane(this._editorView);
