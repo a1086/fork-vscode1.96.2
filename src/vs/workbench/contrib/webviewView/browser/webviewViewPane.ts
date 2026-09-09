@@ -118,6 +118,7 @@ export class WebviewViewPane extends ViewPane {
 	private _container?: HTMLElement;
 	private _rootContainer?: HTMLElement;
 	private _resizeObserver?: any;
+	private _observedContainer?: HTMLElement;
 
 	private readonly defaultTitle: string;
 	private setTitle: string | undefined;
@@ -130,6 +131,7 @@ export class WebviewViewPane extends ViewPane {
 	private readonly extensionId?: ExtensionIdentifier;
 
 	private _repositionTimeout?: any;
+	private _layoutTimeout?: any;
 
 	constructor(
 		options: IViewletViewOptions,
@@ -189,6 +191,7 @@ export class WebviewViewPane extends ViewPane {
 		this._onDispose.fire();
 
 		clearTimeout(this._repositionTimeout);
+		clearTimeout(this._layoutTimeout);
 
 		super.dispose();
 	}
@@ -201,19 +204,26 @@ export class WebviewViewPane extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 
+		if (this._observedContainer && this._observedContainer !== container) {
+			this._resizeObserver?.unobserve(this._observedContainer);
+			this._observedContainer = undefined;
+		}
+
 		this._container = container;
 		this._rootContainer = undefined;
 
 		if (!this._resizeObserver) {
 			this._resizeObserver = new ResizeObserver(() => {
-				setTimeout(() => {
-					this.layoutWebview();
-				}, 0);
+				this.scheduleLayoutWebview();
 			});
 
 			this._register(toDisposable(() => {
 				this._resizeObserver.disconnect();
 			}));
+		}
+
+		if (!this._observedContainer) {
+			this._observedContainer = container;
 			this._resizeObserver.observe(container);
 		}
 	}
@@ -242,6 +252,8 @@ export class WebviewViewPane extends ViewPane {
 		if (this.isBodyVisible()) {
 			this.activate();
 			this._webview.value?.claim(this, getWindow(this.element), undefined);
+			this._rootContainer = undefined;
+			this.scheduleLayoutWebview();
 		} else {
 			this._webview.value?.release(this);
 		}
@@ -423,7 +435,7 @@ export class WebviewViewPane extends ViewPane {
 			return;
 		}
 
-		if (!this._rootContainer || !this._rootContainer.isConnected || this._rootContainer.ownerDocument !== this._container.ownerDocument) {
+		if (!this._rootContainer || !this._rootContainer.isConnected || this._rootContainer.ownerDocument !== this._container.ownerDocument || !this._rootContainer.contains(this._container)) {
 			this._rootContainer = this.findRootContainer(this._container);
 		}
 
@@ -432,10 +444,21 @@ export class WebviewViewPane extends ViewPane {
 
 	private layoutWebview(dimension?: Dimension) {
 		this.doLayoutWebview(dimension);
-		// Temporary fix for https://github.com/microsoft/vscode/issues/110450
-		// There is an animation that lasts about 200ms, update the webview positioning once this animation is complete.
 		clearTimeout(this._repositionTimeout);
-		this._repositionTimeout = setTimeout(() => this.doLayoutWebview(dimension), 200);
+		this._repositionTimeout = setTimeout(() => this.doLayoutWebview(), 200);
+	}
+
+	private scheduleLayoutWebview(): void {
+		clearTimeout(this._layoutTimeout);
+		const delays = [0, 50, 200];
+		let index = 0;
+		const run = () => {
+			this.doLayoutWebview();
+			if (index < delays.length) {
+				this._layoutTimeout = setTimeout(run, delays[index++]);
+			}
+		};
+		run();
 	}
 
 	private findRootContainer(container: HTMLElement): HTMLElement | undefined {

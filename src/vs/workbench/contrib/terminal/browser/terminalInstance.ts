@@ -778,14 +778,29 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			() => this._isVisible,
 			() => xterm,
 			async (cols, rows) => {
+				// Guard against resizing a terminal whose xterm renderer is not
+				// ready yet (open() has not completed, e.g. when the view is being
+				// relocated between the editor and a panel/auxiliary window).
+				// Calling resize() before open() crashes inside xterm's
+				// RenderService ('Cannot read properties of undefined (reading
+				// 'dimensions')'). Same for a terminal that is already disposed.
+				if (this.isDisposed || !xterm.raw.element) {
+					return;
+				}
 				xterm.raw.resize(cols, rows);
 				await this._updatePtyDimensions(xterm.raw);
 			},
 			async (cols) => {
+				if (this.isDisposed || !xterm.raw.element) {
+					return;
+				}
 				xterm.raw.resize(cols, xterm.raw.rows);
 				await this._updatePtyDimensions(xterm.raw);
 			},
 			async (rows) => {
+				if (this.isDisposed || !xterm.raw.element) {
+					return;
+				}
 				xterm.raw.resize(xterm.raw.cols, rows);
 				await this._updatePtyDimensions(xterm.raw);
 			}
@@ -1876,7 +1891,12 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private async _resize(immediate?: boolean): Promise<void> {
-		if (!this.xterm) {
+		if (!this.xterm || !this.xterm.raw.element) {
+			// The xterm renderer is not ready yet (open() has not completed, e.g.
+			// while a terminal view is being relocated between the editor and a
+			// panel/auxiliary window). Calling resize() on a not-yet-opened xterm
+			// crashes inside xterm's RenderService with
+			// "Cannot read properties of undefined (reading 'dimensions')".
 			return;
 		}
 
