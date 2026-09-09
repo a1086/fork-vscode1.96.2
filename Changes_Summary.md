@@ -8,6 +8,30 @@
 
 <!-- MERGE_ANCHOR -->
 
+## 66. 关闭时清理拖入 Panel 的自定义视图位置（保留终端与 REPL）（2026-09-09）
+
+**需求**：视图拖拽（view-drag）过程中，把视图拖入 Panel 会写入 `viewDescriptorsCustomLocations` / `viewContainersCustomLocations` 持久化自定义位置。为避免本次会话内拖入的 Panel 自定义视图位置在下次启动被错误恢复，在窗口关闭（SHUTDOWN）保存状态前统一清理，仅保留终端（Terminal）与调试控制台（REPL）两个白名单视图。
+
+### 66.1 核心改动文件
+
+`src/vs/workbench/services/views/browser/viewDescriptorService.ts`（+50）
+- 导入 `TERMINAL_VIEW_ID`（`contrib/terminal/common/terminal.js`）与 `REPL_VIEW_ID`（`contrib/debug/common/debug.js`）作为白名单；并导入 `WillSaveStateReason`。
+- 构造时注册 `storageService.onWillSaveState`：当 `e.reason === WillSaveStateReason.SHUTDOWN` 时调用 `clearPanelCustomViewsOnShutdown()`。
+- 新增私有方法 `clearPanelCustomViewsOnShutdown()`：
+  - 遍历 `viewDescriptorsCustomLocations`，凡位于 Panel 且非白名单（Terminal / REPL）的视图，删除其自定义位置；
+  - 遍历 `viewContainersCustomLocations`，凡自定义位置为 Panel 且非白名单的容器，删除其自定义位置；
+  - 遍历所有带 `extensionId` 且位于 Panel 的视图容器，将其中可见（非白名单）的视图通过 `viewContainerModel.setVisible(id, false)` 隐藏；
+  - 最后 `saveViewCustomizations()` 落盘。
+
+`src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`（+1 / -1）
+- 将 `setEditorVisible(visible: boolean)` 的可见性由 `override` 改为 `protected override`，使其可被子类覆写 / 调用。
+
+### 66.2 验证要点
+
+- 将任意视图拖入 Panel 后关闭窗口并重启 → 该自定义 Panel 位置不被持久恢复（回到默认位置）。
+- 终端 / 调试控制台即使位于 Panel 也始终保留，不受本次清理影响。
+- 注：已清理清理方法内的调试 `console.log('pc')`，本提交不保留额外调试日志。
+
 ## 65. 辅助侧边栏（Auxiliary Bar）启动时默认显示运行和调试视图（2026-09-09）
 
 **需求**：VS Code 刚打开（窗口启动 / 插件激活）时，右侧辅助侧边栏应直接显示原生「运行和调试（Run and Debug）」视图，而不是空白占位 `Drag a view here to display.`。
