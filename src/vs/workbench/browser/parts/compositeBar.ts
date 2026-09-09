@@ -24,6 +24,7 @@ import { CompositeDragAndDropData, CompositeDragAndDropObserver, IDraggedComposi
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { IHostService } from '../../services/host/browser/host.js';
 import { ViewEditorInput } from '../../contrib/viewInEditor/browser/viewEditorInput.js';
+import { WebviewViewPane } from '../../contrib/webviewView/browser/webviewViewPane.js';
 import { Gesture, EventType as TouchEventType, GestureEvent } from '../../../base/browser/touch.js';
 
 export interface ICompositeBarItem {
@@ -434,6 +435,7 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				})()
 				: [descriptor];
 
+			WebviewViewPane.markMove(viewsToOpen.map(v => v.id));
 			for (const v of viewsToOpen) {
 				const vOriginalLocation = this.viewDescriptorService.getViewLocationById(v.id) ?? undefined;
 				const vOriginalContainer = this.viewDescriptorService.getViewContainerByViewId(v.id);

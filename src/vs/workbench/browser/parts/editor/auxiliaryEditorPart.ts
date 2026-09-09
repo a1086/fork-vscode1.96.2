@@ -5,6 +5,7 @@
 
 import { onDidChangeFullscreen } from '../../../../base/browser/browser.js';
 import { hide, show } from '../../../../base/browser/dom.js';
+import { timeout } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { isNative } from '../../../../base/common/platform.js';
@@ -19,7 +20,7 @@ import { IEditorGroupView, IEditorPartsView } from './editor.js';
 import { EditorPart, IEditorPartUIState } from './editorPart.js';
 import { IAuxiliaryTitlebarPart } from '../titlebar/titlebarPart.js';
 import { WindowTitle } from '../titlebar/windowTitle.js';
-import { IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+import { IAuxiliaryWindow, IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IHostService } from '../../../services/host/browser/host.js';
@@ -202,6 +203,8 @@ export class AuxiliaryEditorPart {
 
 			statusbarPart.layout(dimension.width, statusbarPart.height, dimension.height - statusbarPart.height, 0);
 		}));
+		await Promise.race([auxiliaryWindow.whenStylesHaveLoaded, timeout(1000)]);
+		await this.waitForWindowSize(auxiliaryWindow);
 		auxiliaryWindow.layout();
 
 		// Have a InstantiationService that is scoped to the auxiliary window
@@ -215,6 +218,33 @@ export class AuxiliaryEditorPart {
 			instantiationService,
 			disposables
 		};
+	}
+
+	private async waitForWindowSize(auxiliaryWindow: IAuxiliaryWindow): Promise<void> {
+		const targetWindow = auxiliaryWindow.window;
+
+		let lastWidth = 0;
+		let lastHeight = 0;
+		let stableRounds = 0;
+
+		for (let i = 0; i < 80; i++) {
+			const width = targetWindow.innerWidth;
+			const height = targetWindow.innerHeight;
+
+			if (width > 0 && height > 0 && width === lastWidth && height === lastHeight) {
+				stableRounds++;
+				if (stableRounds >= 3) {
+					console.log('ws', i, width, height);
+					return;
+				}
+			} else {
+				stableRounds = 0;
+			}
+
+			lastWidth = width;
+			lastHeight = height;
+			await timeout(25);
+		}
 	}
 }
 

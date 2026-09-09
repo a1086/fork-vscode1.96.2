@@ -194,6 +194,7 @@ export class AuxiliaryWindow extends BaseWindow implements IAuxiliaryWindow {
 		// react when the overall layout has finished in `onDidLayout`.
 
 		const dimension = getClientArea(this.window.document.body, this.container);
+		console.log('aw', this.window.vscodeWindowId, dimension.width, dimension.height, this.window.innerWidth, this.window.innerHeight, this.window.document.body.clientWidth, this.window.document.body.clientHeight);
 		this._onWillLayout.fire(dimension);
 		this._onDidLayout.fire(dimension);
 	}
