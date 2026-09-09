@@ -107,12 +107,31 @@ export class PanelPart extends AbstractPaneCompositePart {
 	private static readonly ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext'];
 
 	/**
-	 * 按容器 id 前缀放行：插件贡献的 Panel 容器 id 都以 `panel-` 开头（如
-	 * panel-view-container、panel-error-map-container、panel-log-manager-container 等）。
-	 * 作为 extensionId 白名单的双保险，避免 extensionId 解析/大小写/打包后变化导致
-	 * 匹配失败，进而使自定义视图被错误隐藏。
+	 * 按容器 id 前缀放行（extensionId 白名单的双保险）。
+	 *
+	 * 注意：扩展在 `viewsContainers` 里声明的容器 id（如 `panel-view-container`）会被
+	 * `viewsExtensionPoint.ts#registerCustomViewContainers` 拼成真实容器 id
+	 * `workbench.view.extension.<descriptor.id>`，所以前缀必须带
+	 * `workbench.view.extension.` 这一段，否则永远匹配不上。
 	 */
-	private static readonly ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['panel-'];
+	private static readonly ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['workbench.view.extension.panel-'];
+
+	/**
+	 * 判断一个 Panel 容器是否为“放行的自定义插件容器”：命中 extensionId 白名单，
+	 * 或容器 id 命中前缀白名单，任一满足即为 true。
+	 *
+	 * 放行容器有两个待遇：
+	 *  1) `hideOtherPanelViews()` 不对其视图 `setVisible(false)`、不 `unpin`；
+	 *  2) `pinAllowedPanelContainers()` 主动 `pin`，抵消 `panelSidePart` 的
+	 *     `pinNewCompositesOnRegister: false` 造成的“注册即 unpin”。
+	 */
+	public static isAllowedPanelContainer(containerId: string, extensionIdValue?: string): boolean {
+		const allowedExtensionIds = PanelPart.ALLOWED_PANEL_EXTENSION_IDS.map(id => id.toLowerCase());
+		if (extensionIdValue && allowedExtensionIds.includes(extensionIdValue.toLowerCase())) {
+			return true;
+		}
+		return PanelPart.ALLOWED_PANEL_CONTAINER_ID_PREFIXES.some(prefix => containerId.startsWith(prefix));
+	}
 
 	private readonly activeContainerBySide = new Map<PanelSide, string>();
 	/**
@@ -985,19 +1004,14 @@ export class PanelPart extends AbstractPaneCompositePart {
 	 */
 	private hideOtherPanelViews(): void {
 		const pinnedIds = new Set<string>(PanelPart.PINNED_PANEL_VIEWS);
-		const allowedExtensionIds = PanelPart.ALLOWED_PANEL_EXTENSION_IDS.map(id => id.toLowerCase());
-		const allowedContainerPrefixes = PanelPart.ALLOWED_PANEL_CONTAINER_ID_PREFIXES;
 		const containers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
 		for (const container of containers) {
 			if (pinnedIds.has(container.id)) {
 				continue;
 			}
-			const extensionId = container.extensionId?.value;
-			const extensionIdMatched = !!extensionId && allowedExtensionIds.includes(extensionId.toLowerCase());
-			const containerIdMatched = allowedContainerPrefixes.some(prefix => container.id.startsWith(prefix));
-			if (extensionIdMatched || containerIdMatched) {
-				// 调试日志：确认匹配命中；可在稳定后删除。
-				console.log('[PanelPart.hideOtherPanelViews] skip allowed container:', container.id, 'extensionId=', extensionId, 'matchedBy=', extensionIdMatched ? 'extensionId' : 'containerId');
+			if (PanelPart.isAllowedPanelContainer(container.id, container.extensionId?.value)) {
+				// 调试日志：确认放行命中；可在稳定后删除。
+				console.log('[PanelPart.hideOtherPanelViews] skip allowed container:', container.id, 'extensionId=', container.extensionId?.value);
 				continue;
 			}
 			const model = this.panelViewDescriptorService.getViewContainerModel(container);
@@ -1009,6 +1023,36 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// 从两侧 bar 上 unpin，隐藏其标签页（初始单栏只显示固定视图）。
 			this.leftPart?.unpinPaneComposite(container.id);
 			this.rightPart?.unpinPaneComposite(container.id);
+		}
+	}
+
+	/**
+	 * 把放行的自定义插件 Panel 容器显式 pin 到左侧 bar，恢复其 tab。
+	 *
+	 * 【根因】`panelSidePart.ts#getCompositeBarOptions` 里设了
+	 * `pinNewCompositesOnRegister: false`（双栏布局两侧共用 Panel location，
+	 * 避免一个容器被自动 pin 到另一侧）。于是 `paneCompositeBar.ts#onDidRegisterViewContainers`
+	 * 会在**注册时**就对每个新容器执行 `compositeBar.unpin(id)`。插件贡献的 Panel 容器
+	 * 注册成功后 tab 立刻被取消固定 → 界面上永远只剩 Terminal / Debug Console（它俩是
+	 * `create()` 里显式 `pinPaneComposite` 的）。
+	 *
+	 * 这正是只加 `hideOtherPanelViews` 白名单无效的原因：那里只是“不再主动 unpin”，
+	 * 而容器早在注册阶段就被 unpin 了，白名单成了空操作。这里补一次 pin 才是关键。
+	 *
+	 * 注意：pin 只是让容器“有资格显示”，不等于强制显示。这些容器的 descriptor 带
+	 * `hideIfEmpty: true`（见 `viewsExtensionPoint.ts#registerCustomViewContainer`），
+	 * 所以 `paneCompositeBar.ts#showOrHideViewContainer` 仍会按
+	 * `isViewContainerActive()`（即 view 的 `when` 是否满足）决定 tab 显隐——
+	 * 按钮切换上下文键后 tab 才出现，正是插件要的动态效果。
+	 */
+	private pinAllowedPanelContainers(): void {
+		const containers = this.panelViewDescriptorService.getViewContainersByLocation(ViewContainerLocation.Panel);
+		for (const container of containers) {
+			if (!PanelPart.isAllowedPanelContainer(container.id, container.extensionId?.value)) {
+				continue;
+			}
+			console.log('[PanelPart.pinAllowedPanelContainers] pin container:', container.id);
+			this.leftPart?.pinPaneComposite(container.id);
 		}
 	}
 
@@ -1363,6 +1407,18 @@ export class PanelPart extends AbstractPaneCompositePart {
 		// 视图，只需在 `PINNED_PANEL_VIEWS` 数组中添加对应 id。
 		this.hideOtherPanelViews();
 
+		// 扩展可能在初始化之后才注册/把容器移入 Panel（例如插件延迟激活）。对这些“迟到”的
+		// 放行容器同样补一次 pin，避免其 tab 因“注册即 unpin”而永不出现。
+		this._register(this.panelViewDescriptorService.onDidChangeViewContainers(({ added }) => {
+			for (const { container, location } of added) {
+				if (location === ViewContainerLocation.Panel
+					&& PanelPart.isAllowedPanelContainer(container.id, container.extensionId?.value)) {
+					this.pinAllowedPanelContainers();
+					break;
+				}
+			}
+		}));
+
 		// Sanitize any stale `dualLayout` snapshot from a previous session/older
 		// build. A persisted `rightInSplit: true` with no meaningful right-side
 		// container (or where left and right point at the *same* container) would
@@ -1625,6 +1681,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 	private runInitialEnsureWorking(): void {
 		this.relayoutSides();
 		this.hideOtherPanelViews();
+		// 必须在扩展注册完成之后调用（此时插件容器才出现在
+		// `getViewContainersByLocation(Panel)` 里），把被“注册即 unpin”的放行容器补回 tab。
+		this.pinAllowedPanelContainers();
 		this.leftPart.ensureFirstViewWorking();
 		if (this.rightInSplit) {
 			this.rightPart.ensureFirstViewWorking();

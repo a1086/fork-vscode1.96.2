@@ -12,32 +12,67 @@
 
 **需求**：Panel 默认只显示 Terminal + Debug Console（`PINNED_PANEL_VIEWS` 写死），`hideOtherPanelViews()` 会把其余所有 Panel 容器（含自定义插件贡献的）`setVisible(false)` 并从左右两栏 `unpinPaneComposite`，导致插件按钮动态切换的视图“能注册但显示不正常”。现需放行特定插件 `AccoTEST.ate-tool-ext` 的 Panel 容器：不被隐藏、tab 不被取消，由插件 `when` 上下文键（`layout` + `ate:panel:xxxShow`）按按钮动态控制显隐。Terminal / Debug Console 维持常驻。
 
-### 60.1 核心改动文件
+### 60.1 真正的根因：容器在“注册时”就被 unpin
+
+第一版只在 `hideOtherPanelViews()` 加白名单，**实测无效**。排查后定位到真正的根因在别处：
+
+- `src/vs/workbench/browser/parts/panel/panelSidePart.ts`（`getCompositeBarOptions`）
+  设了 `pinNewCompositesOnRegister: false`（第 1070 行）。原因是双栏布局两侧共用
+  `ViewContainerLocation.Panel`，避免一个容器被自动 pin 到另一侧。
+- `src/vs/workbench/browser/parts/paneCompositeBar.ts`（`onDidRegisterViewContainers`，第 475-479 行）
+  据此在**注册时**就对每个新容器执行 `compositeBar.unpin(id)`。
+- 结果：插件贡献的 Panel 容器注册成功，但 tab 立刻被取消固定 → 界面上永远只剩
+  Terminal / Debug Console（它俩是 `PanelPart.create()` 里显式 `pinPaneComposite` 的）。
+- 所以 `hideOtherPanelViews()` 白名单是**空操作**：那里只是“不再主动 unpin”，
+  而容器早在注册阶段就被 unpin 了，白名单拦不住。
+
+另有一个坑：扩展在 `viewsContainers` 里声明的容器 id（如 `panel-view-container`）会被
+`viewsExtensionPoint.ts#registerCustomViewContainers` 拼成真实容器 id
+`workbench.view.extension.<descriptor.id>`。所以按 id 匹配的前缀必须带
+`workbench.view.extension.` 这一段，第一版写的 `'panel-'` 永远匹配不上。
+
+### 60.2 核心改动文件
 
 `src/vs/workbench/browser/parts/panel/panelPart.ts`
-- 新增白名单常量 `ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext']`。
-- 新增容器 id 前缀白名单 `ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['panel-']`，覆盖插件贡献的全部 Panel 容器（如 `panel-view-container`、`panel-error-map-container`、`panel-log-manager-container` 等）。
-- `hideOtherPanelViews()` 遍历 Panel 容器时新增判定：
-  - 取 `container.extensionId?.value`，命中 extensionId 白名单（忽略大小写）则跳过；
-  - 取 `container.id`，命中容器 id 前缀白名单也跳过；
-  - 命中的容器既不对其视图执行 `setVisible(id, false)`，也不调用两侧 `unpinPaneComposite(container.id)`。
-- 增加 `console.log` 调试输出，确认每个 Panel 容器是否命中放行及匹配来源；稳定后可删除。
+- 新增常量：
+  - `ALLOWED_PANEL_EXTENSION_IDS: readonly string[] = ['AccoTEST.ate-tool-ext']`
+  - `ALLOWED_PANEL_CONTAINER_ID_PREFIXES: readonly string[] = ['workbench.view.extension.panel-']`
+- 新增静态判定 `isAllowedPanelContainer(containerId, extensionIdValue?)`：命中
+  extensionId 白名单（忽略大小写）**或**容器 id 前缀白名单即放行，供多处复用。
+- `hideOtherPanelViews()`：放行容器跳过（不 `setVisible(false)`、不 `unpin`）。
+- **新增 `pinAllowedPanelContainers()`**（本次真正生效的修复）：遍历 Panel 容器，对
+  放行容器调用 `leftPart.pinPaneComposite(container.id)`，把被“注册即 unpin”的
+  tab 补回来。
+  - 在 `runInitialEnsureWorking()` 中、`hideOtherPanelViews()` 之后调用
+    （此处扩展已注册完毕，插件容器才出现在 `getViewContainersByLocation(Panel)` 里）；
+  - 另在 `create()` 注册 `onDidChangeViewContainers` 监听，为延迟注册/移入的放行容器补 pin。
+- 保留 `console.log` 调试输出（`[PanelPart.hideOtherPanelViews]`、
+  `[PanelPart.pinAllowedPanelContainers]`）；稳定后可删除。
 
-### 60.2 行为变化
+### 60.3 行为变化
 
 | 对象 | 旧行为 | 新行为 |
 |------|--------|--------|
 | Terminal / Debug Console | 常驻 tab | 不变，仍常驻 |
-| `AccoTEST.ate-tool-ext` 贡献的 Panel 容器 | 被隐藏 + unpin，tab 不显示 | 放行，tab 显隐完全由插件 `when` 上下文键决定（按钮动态切换） |
+| `AccoTEST.ate-tool-ext` 贡献的 Panel 容器 | 注册即 unpin，tab 永不显示 | 补 pin，tab 显隐由插件 `when` 上下文键决定（按钮动态切换） |
 | 其他内置视图（OUTPUT / PROBLEMS / PORTS / TEST…） | 隐藏 | 不变，仍隐藏 |
 | 第三方插件的 Panel 容器 | 隐藏 | 不变，仍隐藏（非白名单） |
 
-### 60.3 注意点
+### 60.4 注意点
 
-- 本改动是“放行”而非“强制显示”：白名单插件容器仍依赖其 `package.json` 中 view 的 `when` 决定启动/切换时是否出现对应 tab；若 `when` 默认依赖 `ate:panel:xxxShow`（初始 false）或 `layout`（初始未设置），则启动不显示，点按钮后才出现。
-- `hideOtherPanelViews()` 仍在 `create()` 与 `runInitialEnsureWorking()`（扩展注册完成后）两处调用，放行逻辑对两次均生效。
-- 切换布局瞬间（插件用上下文键把某容器全部 view 置不可见）容器可能变空，可能触发 §59.2 的 3 秒 fallback 与 §20 空 Panel 自动隐藏；若实测出现 Panel 收起 / tab 闪没，需对扩展容器加判空豁免（待观察）。
-- 若后续发现 `panel-` 前缀误匹配其它扩展的容器，可把 `ALLOWED_PANEL_CONTAINER_ID_PREFIXES` 收窄为精确列表（如 `['panel-view-container', 'panel-error-map-container', ...]`）。
+- **pin 只是让容器“有资格显示”，不等于强制显示**。扩展自定义容器的 descriptor 带
+  `hideIfEmpty: true`（`viewsExtensionPoint.ts#registerCustomViewContainer`），
+  `paneCompositeBar.ts#showOrHideViewContainer` 仍按 `isViewContainerActive()`
+  （即 view 的 `when` 是否满足）决定 tab 显隐。按钮切换上下文键后 tab 才出现，
+  这正是插件要的动态效果。
+- 因此插件侧仍需保证 `when` 能被满足：`layout`、`ate:panel:xxxShow`、
+  `ate:enableProjectAction`、`view.sidebar.tree-data-provider-sidebar.visible` 等键。
+  若这些键为 false，源码再怎么放行也不会显示。
+- 切换布局瞬间（插件把某容器全部 view 置不可见）容器可能变空，可能触发 §59.2 的
+  3 秒 fallback 与 §20 空 Panel 自动隐藏；若实测出现 Panel 收起 / tab 闪没，
+  需对扩展容器加判空豁免（待观察）。
+- 若后续发现 `workbench.view.extension.panel-` 前缀误匹配其它扩展，可收窄为精确
+  容器 id 列表。
 
 ---
 
