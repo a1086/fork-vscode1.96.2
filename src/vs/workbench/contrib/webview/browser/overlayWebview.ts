@@ -206,12 +206,14 @@ export class OverlayWebview extends Disposable implements IOverlayWebview {
 
 		this._container.setTop(frameRect.top - containerRect.top - parentBorderTop);
 		this._container.setLeft(frameRect.left - containerRect.left - parentBorderLeft);
-		this._container.setWidth(dimension ? dimension.width : frameRect.width);
-		this._container.setHeight(dimension ? dimension.height : frameRect.height);
+		this._container.setWidth(frameRect.width || (dimension ? dimension.width : 0));
+		this._container.setHeight(frameRect.height || (dimension ? dimension.height : 0));
 
 		if (clippingContainer) {
 			const { top, left, right, bottom } = computeClippingRect(frameRect, clippingContainer);
 			this._container.domNode.style.clipPath = `polygon(${left}px ${top}px, ${right}px ${top}px, ${right}px ${bottom}px, ${left}px ${bottom}px)`;
+		} else {
+			this._container.domNode.style.clipPath = '';
 		}
 	}
 
