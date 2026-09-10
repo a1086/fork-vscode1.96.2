@@ -10,6 +10,7 @@ import { timeout } from '../../../../base/common/async.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
+import { IEditorGroupView } from '../../../browser/parts/editor/editor.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
@@ -195,6 +196,12 @@ export class ViewEditorPane extends EditorPane {
 			this.layoutPane(pane);
 			this.scheduleRelayout(pane);
 		}
+
+		// 辅助窗口中，EditorPart 的首次布局先于编辑器异步打开完成，之后 group 不会再
+		// 带权威 dimension 重新布局，pane 只能按容器临时测量值布局（窗口打开动画 /
+		// 样式加载期间测量值偏小），导致内容显示不全。这里在 setInput 完成后主动触发
+		// 一次 group 重布局，把权威尺寸传给 editorPane.layout()。
+		(this.group as IEditorGroupView)?.relayout();
 	}
 
 	private async waitForContainerSize(): Promise<void> {
@@ -341,16 +348,25 @@ export class ViewEditorPane extends EditorPane {
 		}
 
 		const delays = [0, 50, 200, 500, 1000, 2000];
+		let lastWidth = -1;
+		let lastHeight = -1;
 		const run = (index: number) => {
 			this._relayoutTimer = undefined;
 			if (this._editorView !== pane) {
 				return;
 			}
 			this.layoutPane(pane);
-			console.log('rl', index, this.container.clientWidth, this.container.clientHeight);
-			if (this.container.clientWidth > 0 && this.container.clientHeight > 0) {
+			const width = this.container.clientWidth;
+			const height = this.container.clientHeight;
+			console.log('rl', index, width, height);
+			// 容器尺寸非零且连续两轮一致（窗口打开动画 / 样式稳定）才停止重试；
+			// 仅"非零"不够：辅助窗口打开过程中容器尺寸会持续增长，过早停止会
+			// 把 pane 布局在过期尺寸上（内容显示不全）。
+			if (width > 0 && height > 0 && width === lastWidth && height === lastHeight) {
 				return;
 			}
+			lastWidth = width;
+			lastHeight = height;
 			if (index + 1 < delays.length) {
 				this._relayoutTimer = setTimeout(() => run(index + 1), delays[index + 1]);
 			}
