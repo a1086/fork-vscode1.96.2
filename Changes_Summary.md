@@ -1954,3 +1954,43 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - 类型检查 `tsc -p src/tsconfig.json --noEmit` 通过。
 - 注：本提交仅隐藏菜单按钮，`命令面板` 的 Toggle Maximized Panel 仍可执行；如需一并禁用可把 `precondition` 套上同一 `when`（插件侧无需改动）。
 - 注：已清理清理方法内的调试 `console.log('pc')`，本提交不保留额外调试日志。
+
+## 68. 调试启动将 DEBUG 面板移到右侧并新增布局菜单预设（2026-09-10）
+
+**需求**：调试会话启动时，把「运行和调试」面板（`DEBUG_PANEL_ID`）移动到双栏 Panel 的右侧并强制打开调试控制台（REPL）；同时在标题栏 View 菜单新增设备布局预设入口（Device Setup / Device Debug / Data Analysis / Reset Layout），与插件 `layout` 上下文键联动。
+
+### 68.1 核心改动文件
+
+`src/vs/workbench/services/panecomposite/browser/panecomposite.ts`（+2）
+- `IPaneCompositePartService` 新增 `movePaneCompositeToSide(id: string, side: 'left' | 'right'): Promise<IPaneComposite | undefined>`，用于把指定面板视图移动到双栏布局的某一侧。
+
+`src/vs/workbench/browser/parts/paneCompositePartService.ts`（+5）
+- `PaneCompositePartService` 实现 `movePaneCompositeToSide`，转发到 `PanelPart.movePaneCompositeToSide`。
+
+`src/vs/workbench/browser/parts/panel/panelPart.ts`（+12）
+- 双栏拖拽 `onSplitDragEnter` / `onSplitDragOver` 由 `EventHelper.stop(e, true)` 改为 `e.preventDefault()`：保留 drop 触发所需的默认行为，不再阻断事件冒泡（源码内暂留 `console.log('p1')` / `console.log('p2')` 调试输出）。
+- `onSplitDrop` 在跨侧移动时仍保留 `EventHelper.stop(e, true)`（源码内暂留 `console.log('p3')`）。
+- `onDragEnd`（拖拽结束清理）新增移除 left / right 两侧 `sideElement` 上的 `panel-side-drop-preview` 预览样式，避免拖拽结束后预览残留。
+
+`src/vs/workbench/contrib/debug/browser/debugService.ts`（+8 / -3）
+- 移除原基于 `internalConsoleOptions` 打开 REPL 的逻辑；改为：当 `configuration.resolved.noDebug` 为假时，调用 `paneCompositeService.movePaneCompositeToSide(DEBUG_PANEL_ID, 'right')` 把调试面板移到右侧，并 `viewsService.openView(REPL_VIEW_ID, true)` 强制打开调试控制台。
+
+`src/vs/workbench/browser/parts/titlebar/menubarControl.ts`（+42）
+- 新增 `IViewLayoutItem` 与 `viewLayoutItems` 列表（Device Setup Layout / Device Debug Layout / Data Analysis Layout / Reset Layout）。
+- 通过 `MenuRegistry.appendMenuItem(MenuId.MenubarViewMenu, { group: '3_layout', ... })` 在 View 菜单注册上述四项，并以 `registerAction2` 注册对应 Action。
+- Reset Layout 的 `targetCommandId` 指向 `workbench.action.resetViewLocations`，运行时执行该命令；其余三项暂无 `targetCommandId`，当前为空操作占位（待插件下发的布局命令接入）。
+
+`src/vs/workbench/browser/parts/paneCompositePart.ts`（+11）
+- 拖拽处理入口暂留 `console.log('p5')` 调试输出，用于双栏拖拽/落点时机排查。
+
+`src/vs/workbench/test/browser/workbenchTestServices.ts`（+4）
+- `TestPaneCompositeService` 补 `movePaneCompositeToSide` 桩实现（返回 `undefined`）。
+
+### 68.2 验证要点
+
+- 启动一次调试会话（非 noDebug）→ 「运行和调试」面板自动移到双栏 Panel 右侧，调试控制台（REPL）强制展开。
+- `noDebug` 为真的启动（如仅运行不调试）不触发面板移动，保持原逻辑。
+- 双栏拖拽结束 → 左右两侧的 `panel-side-drop-preview` 预览样式被清除，无残留高亮。
+- 打开 View 菜单 → 出现 Device Setup Layout / Device Debug Layout / Data Analysis Layout / Reset Layout 四项；点击 Reset Layout 触发 `workbench.action.resetViewLocations` 复位视图位置。
+- 类型检查 `tsc -p src/tsconfig.json --noEmit` 通过（接口与测试桩已同步）。
+- 注：本提交在 `panelPart.ts`（`p1` / `p2` / `p3`）与 `paneCompositePart.ts`（`p5`）保留了调试 `console.log`，用于双栏拖拽/落点时机排查，待稳定后再清理。

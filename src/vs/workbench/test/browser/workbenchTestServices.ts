@@ -738,6 +738,10 @@ export class TestPaneCompositeService extends Disposable implements IPaneComposi
 		return this.getPartByLocation(viewContainerLocation).getLastActivePaneCompositeId();
 	}
 
+	async movePaneCompositeToSide(_id: string, _side: 'left' | 'right'): Promise<undefined> {
+		return undefined;
+	}
+
 	shouldAutoHidePanelWhenEmpty(): boolean {
 		const panelPart = this.getPartByLocation(ViewContainerLocation.Panel) as IPaneCompositePart & { shouldAutoHidePanelWhenEmpty?: () => boolean };
 		return panelPart?.shouldAutoHidePanelWhenEmpty?.() ?? true;

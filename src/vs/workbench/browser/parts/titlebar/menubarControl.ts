@@ -211,6 +211,48 @@ register8600Submenu(MenuId.Menubar8600AnalysisToolsMenu, 'Analysis Tools', 5, [
 	{ commandId: '8600.analysis.testTime', title: 'Test Time' }
 ]);
 
+interface IViewLayoutItem {
+	commandId: string;
+	title: string;
+	targetCommandId?: string;
+}
+
+const viewLayoutItems: IViewLayoutItem[] = [
+	{ commandId: '8600.layout.deviceSetup', title: 'Device Setup Layout' },
+	{ commandId: '8600.layout.deviceDebug', title: 'Device Debug Layout' },
+	{ commandId: '8600.layout.dataAnalysis', title: 'Data Analysis Layout' },
+	{ commandId: '8600.layout.reset', title: 'Reset Layout', targetCommandId: 'workbench.action.resetViewLocations' }
+];
+
+viewLayoutItems.forEach((item, index) => {
+	MenuRegistry.appendMenuItem(MenuId.MenubarViewMenu, {
+		group: '3_layout',
+		command: {
+			id: item.commandId,
+			title: { value: item.title, original: item.title }
+		},
+		order: index + 1
+	});
+
+	registerAction2(class extends Action2 {
+		constructor() {
+			super({
+				id: item.commandId,
+				title: { value: item.title, original: item.title }
+			});
+		}
+
+		async run(accessor: ServicesAccessor): Promise<void> {
+			if (!item.targetCommandId) {
+				return;
+			}
+
+			const commandService = accessor.get(ICommandService);
+			await commandService.executeCommand(item.targetCommandId);
+		}
+	});
+});
+
 export abstract class MenubarControl extends Disposable {
 
 	protected keys = [

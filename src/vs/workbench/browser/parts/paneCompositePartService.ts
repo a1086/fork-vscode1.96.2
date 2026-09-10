@@ -143,6 +143,11 @@ export class PaneCompositePartService extends Disposable implements IPaneComposi
 		return this.getPartByLocation(viewContainerLocation)?.getLastActivePaneCompositeId() ?? '';
 	}
 
+	async movePaneCompositeToSide(id: string, side: 'left' | 'right'): Promise<IPaneComposite | undefined> {
+		const panelPart = this.paneCompositeParts.get(ViewContainerLocation.Panel) as PanelPart | undefined;
+		return panelPart?.movePaneCompositeToSide(id, side) ?? undefined;
+	}
+
 	/**
 	 * Returns the part backing the given location, or `undefined` when the
 	 * location has no part (e.g. `ViewContainerLocation.Editor`, which is hosted

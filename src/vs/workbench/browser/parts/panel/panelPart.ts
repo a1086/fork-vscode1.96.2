@@ -3651,7 +3651,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (side === undefined) {
 			return;
 		}
-		EventHelper.stop(e, true);
+		console.log('p1');
+		e.preventDefault();
 		// Only (re-)activate the preview when the targeted side actually
 		// CHANGES. Comparing against the resolved `side` (instead of merely
 		// `undefined`) is what stops the flicker: while the pointer hovers the
@@ -3688,10 +3689,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// cleanly.
 			return;
 		}
-		// Stop propagation so the side's own empty-pane handler (which would
-		// otherwise move the view into the single Panel) does not also run.
-		// `preventDefault` is required for the drop to fire.
-		EventHelper.stop(e, true);
+		console.log('p2');
+		e.preventDefault();
 		// Same stability guard as `onSplitDragEnter`.
 		if (this.splitPreviewSide !== side) {
 			this.setSplitPreviewSide(side);
@@ -3742,6 +3741,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const sourceSide = this.dragSourceSide;
 		const dropSide = this.resolveSideByPosition(e);
 		if (sourceSide && dropSide && sourceSide !== dropSide) {
+			console.log('p3');
 			EventHelper.stop(e, true);
 			const targetPart = this.getSidePart(dropSide);
 			targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
@@ -3883,6 +3883,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.isDragInProgress = false;
 		this.splitPreviewSide = undefined;
 		this.splitContainer.classList.remove('panel-split-preview');
+		this.leftPart?.sideElement.classList.remove('panel-side-drop-preview');
+		this.rightPart?.sideElement.classList.remove('panel-side-drop-preview');
 		this.dragEndFallbackScheduler.cancel();
 		this.dragOverWatchdog.cancel();
 		this.clearStaleDropOverlays();

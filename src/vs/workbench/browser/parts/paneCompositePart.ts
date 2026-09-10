@@ -428,11 +428,12 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 					toggleDropEffect(e.eventData.dataTransfer, 'move', validDropTarget);
 				}
 			},
-			onDragEnter: (e) => {
-				if (this.getActiveComposite()) {
-					return;
-				}
-				EventHelper.stop(e.eventData, true);
+		onDragEnter: (e) => {
+			if (this.getActiveComposite()) {
+				return;
+			}
+			console.log('p5');
+			EventHelper.stop(e.eventData, true);
 				if (this.paneCompositeBar.value) {
 					const validDropTarget = this.paneCompositeBar.value.dndHandler.onDragEnter(e.dragAndDropData, undefined, e.eventData);
 					this.emptyPaneMessageElement!.style.backgroundColor = validDropTarget ? this.theme.getColor(EDITOR_DRAG_AND_DROP_BACKGROUND)?.toString() || '' : '';
