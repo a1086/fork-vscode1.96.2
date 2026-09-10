@@ -6,7 +6,7 @@
 import { DisposableStore } from '../../base/common/lifecycle.js';
 import { URI } from '../../base/common/uri.js';
 import { localize } from '../../nls.js';
-import { IContextKeyService, IContextKey, RawContextKey } from '../../platform/contextkey/common/contextkey.js';
+import { IContextKeyService, IContextKey, RawContextKey, ContextKeyExpr, ContextKeyExpression } from '../../platform/contextkey/common/contextkey.js';
 import { basename, dirname, extname, isEqual } from '../../base/common/resources.js';
 import { ILanguageService } from '../../editor/common/languages/language.js';
 import { IFileService } from '../../platform/files/common/files.js';
@@ -163,6 +163,10 @@ export const PanelVisibleContext = new RawContextKey<boolean>('panelVisible', fa
 export const PanelMaximizedContext = new RawContextKey<boolean>('panelMaximized', false, localize('panelMaximized', "Whether the panel is maximized"));
 export const PanelLeftMaximizedContext = new RawContextKey<boolean>('panelLeftMaximized', false, localize('panelLeftMaximized', "Whether the left panel side is maximized"));
 export const PanelRightMaximizedContext = new RawContextKey<boolean>('panelRightMaximized', false, localize('panelRightMaximized', "Whether the right panel side is maximized"));
+
+export const ExtensionLayoutContextKey = 'layout';
+export const PanelMaximizeHiddenLayoutKeys: readonly string[] = ['Setup', 'Debug'];
+export const PanelMaximizeVisibleContext: ContextKeyExpression = ContextKeyExpr.and(...PanelMaximizeHiddenLayoutKeys.map(key => ContextKeyExpr.notEquals(ExtensionLayoutContextKey, key))) ?? ContextKeyExpr.true();
 
 //#endregion
 

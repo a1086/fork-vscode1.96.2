@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/panelpart.css';
-import { ActivePanelContext, PanelFocusContext, PanelLeftFocusContext, PanelLeftMaximizedContext, PanelRightFocusContext, PanelRightMaximizedContext } from '../../../common/contextkeys.js';
+import { ActivePanelContext, PanelFocusContext, PanelLeftFocusContext, PanelLeftMaximizedContext, PanelRightFocusContext, PanelRightMaximizedContext, ExtensionLayoutContextKey, PanelMaximizeHiddenLayoutKeys } from '../../../common/contextkeys.js';
 import { IWorkbenchLayoutService, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -594,6 +594,26 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.panelViewDescriptorService = viewDescriptorService;
 		this.panelLeftMaximizedContext = PanelLeftMaximizedContext.bindTo(contextKeyService);
 		this.panelRightMaximizedContext = PanelRightMaximizedContext.bindTo(contextKeyService);
+		this.registerLayoutMaximizeRestore(contextKeyService);
+	}
+
+	private registerLayoutMaximizeRestore(contextKeyService: IContextKeyService): void {
+		const watchedKeys = new Set([ExtensionLayoutContextKey]);
+		this._register(contextKeyService.onDidChangeContext(e => {
+			if (!e.affectsSome(watchedKeys)) {
+				return;
+			}
+			const layout = contextKeyService.getContextKeyValue<string>(ExtensionLayoutContextKey);
+			if (typeof layout !== 'string' || !PanelMaximizeHiddenLayoutKeys.includes(layout)) {
+				return;
+			}
+			for (const side of [...this.fullHeightSides]) {
+				this.exitSideFullHeight(side);
+			}
+			if (this.layoutService.isPanelMaximized()) {
+				this.layoutService.toggleMaximizedPanel();
+			}
+		}));
 	}
 
 	// ----- Dual-panel side creation & wiring ---------------------------------
