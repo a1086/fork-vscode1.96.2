@@ -1994,3 +1994,25 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - 打开 View 菜单 → 出现 Device Setup Layout / Device Debug Layout / Data Analysis Layout / Reset Layout 四项；点击 Reset Layout 触发 `workbench.action.resetViewLocations` 复位视图位置。
 - 类型检查 `tsc -p src/tsconfig.json --noEmit` 通过（接口与测试桩已同步）。
 - 注：本提交在 `panelPart.ts`（`p1` / `p2` / `p3`）与 `paneCompositePart.ts`（`p5`）保留了调试 `console.log`，用于双栏拖拽/落点时机排查，待稳定后再清理。
+
+## 69. 改动列表按模块归类重排（Changes_List.md）（2026-09-10）
+
+**需求**：将 `Changes_List.md` 从「新增功能 / 优化功能」两段式逐条清单，重构为「按模块归类」的汇总表格，便于按区域（Panel / 辅助栏 / 侧边栏 / 编辑器区 / 全局菜单）快速浏览累计改动数量。
+
+### 69.1 核心改动
+
+`Changes_List.md`（结构重构）
+- 移除原「一、新增功能」与「二、优化功能」两段以 § 序号逐条罗列的格式，以及顶部按日期（2026-07-16 ~ 2026-09-09）与剔除 bug 修复的说明。
+- 改为标题 `AccoTest 功能改动 - 按模块归类`，并以模块分组表格呈现：
+  - 1️⃣ Panel（底部面板）
+  - 2️⃣ 辅助栏（4 项）
+  - 3️⃣ 侧边栏（5 项）
+  - 4️⃣ 编辑器区（9 项）
+  - 5️⃣ 全局 / 品牌 / 菜单（3 项）
+  - **合计 30 项**
+- 各模块以「序号 | 功能说明」两列表格列出功能点，弱化逐条 § 编号与日期维度。
+
+### 69.2 验证要点
+
+- 打开 `Changes_List.md`，确认顶部为「按模块归类」标题，且含 Panel / 辅助栏 / 侧边栏 / 编辑器区 / 全局菜单 五个分组与合计 30 项。
+- 逐条明细仍见 `Changes_Summary.md`（按 § 编号的说明）。
