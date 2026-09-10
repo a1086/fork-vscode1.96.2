@@ -107,6 +107,8 @@ export interface IPaneCompositePartService {
 	 */
 	getLastActivePaneCompositeId(viewContainerLocation: ViewContainerLocation): string;
 
+	movePaneCompositeToSide(id: string, side: 'left' | 'right'): Promise<IPaneComposite | undefined>;
+
 	/**
 	 * Toggle maximization of a single side of the dual-panel layout. The given
 	 * side is expanded to fill the whole Panel by collapsing the other side;
