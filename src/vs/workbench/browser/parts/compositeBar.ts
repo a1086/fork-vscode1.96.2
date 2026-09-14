@@ -990,20 +990,6 @@ export class CompositeBar extends Widget implements ICompositeBar {
 			compositesToShow = compositesToShow.slice(0, maxVisible);
 		}
 
-		// We always try show the active composite, so re-add it if it was sliced out
-		if (this.model.activeItem && compositesToShow.every(compositeId => !!this.model.activeItem && compositeId !== this.model.activeItem.id)) {
-			size += this.compositeSizeInBar.get(this.model.activeItem.id)!;
-			compositesToShow.push(this.model.activeItem.id);
-		}
-
-		// The active composite might have pushed us over the limit
-		// Keep popping the composite before the active one until it fits
-		// If even the active one doesn't fit, we will resort to overflow
-		while (size > limit && compositesToShow.length) {
-			const removedComposite = compositesToShow.length > 1 ? compositesToShow.splice(compositesToShow.length - 2, 1)[0] : compositesToShow.pop();
-			size -= this.compositeSizeInBar.get(removedComposite!)!;
-		}
-
 		// We are overflowing, add the overflow size
 		if (totalComposites > compositesToShow.length) {
 			size += this.options.overflowActionSize;

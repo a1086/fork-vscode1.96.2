@@ -1025,6 +1025,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	}
 
 	protected getCompositeBarOptions(): IPaneCompositeBarOptions {
+		console.log('PS');
 		return {
 			partContainerClass: `panel-${this.side}`,
 			pinnedViewContainersKey: `workbench.panel.${this.side}.pinnedPanels`,
@@ -1048,7 +1049,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 			// The side's own close button closes the entire side (so the other
 			// side fills the Panel), not just the active view tab.
 			hideSide: () => this.panelPart.hideSide(this.side),
-			disableOverflow: true,
+			disableOverflow: false,
 			// View-level mutual exclusion: a composite tab is disabled on this
 			// side when it shares at least one view with the composite currently
 			// active on the OTHER side, so the same view can never be shown in

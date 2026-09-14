@@ -246,6 +246,11 @@
 	max-width: inherit;
 }
 
+.monaco-workbench .pane-composite-part > .title.has-composite-bar > .title-actions .monaco-action-bar .action-item.viewpane-filter-container {
+	max-width: 200px;
+	min-width: 150px;
+}
+
 .viewpane-filter-container {
 	cursor: default;
 	display: flex;
