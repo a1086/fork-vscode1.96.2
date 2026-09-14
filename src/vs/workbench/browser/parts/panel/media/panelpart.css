@@ -8,34 +8,6 @@
 	visibility: hidden !important;
 }
 
-/* No border on Panel: only the 4px margin gaps separate it from other parts. */
-.monaco-workbench .part.panel {
-	border: 0;
-}
-
-.monaco-workbench .part.panel.bottom .composite.title {
-	border-top: 0; /* no border on Panel: the 4px margin gap separates it from the editor */
-}
-
-/* Gap between the bottom Panel and the editor */
-.monaco-workbench .part.panel.bottom {
-	margin-top: var(--vscode-part-gap, 4px);
-}
-
-.monaco-workbench .part.panel.top {
-	border-bottom: 0;
-}
-
-.monaco-workbench .part.panel.right {
-	/* Gap between the Panel (right side) and the auxiliary bar */
-	margin-right: var(--vscode-part-panel-gap, 4px);
-}
-
-.monaco-workbench .part.panel.left {
-	/* Gap between the Panel (left side) and the sidebar (file explorer) */
-	margin-left: var(--vscode-part-panel-gap, 4px);
-}
-
 /* Same re-parenting note as for the close-button colors below: the bare
  * `.panel-side` selectors keep these rules working while a side is lifted
  * out into its full-height grid column (outside `.part.panel`). */

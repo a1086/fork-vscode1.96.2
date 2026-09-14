@@ -594,6 +594,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.panelViewDescriptorService = viewDescriptorService;
 		this.panelLeftMaximizedContext = PanelLeftMaximizedContext.bindTo(contextKeyService);
 		this.panelRightMaximizedContext = PanelRightMaximizedContext.bindTo(contextKeyService);
+		this.updateSideMaximizedContextKeys();
 		this.registerLayoutMaximizeRestore(contextKeyService);
 	}
 
@@ -613,6 +614,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 			if (this.layoutService.isPanelMaximized()) {
 				this.layoutService.toggleMaximizedPanel();
 			}
+			this.updateSideMaximizedContextKeys();
 		}));
 	}
 
@@ -1410,6 +1412,8 @@ export class PanelPart extends AbstractPaneCompositePart {
 				this.suppressLayoutSave = false;
 				this.updateSideMaximizedContextKeys();
 			}
+			console.log('VP');
+			this.updateSideMaximizedContextKeys();
 			panelWasVisible = isVisibleNow;
 		}));
 
@@ -3918,6 +3922,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		container.style.borderLeftColor = borderColor;
 		container.style.borderRightColor = borderColor;
 		container.style.borderBottomColor = borderColor;
+		container.style.borderTopColor = borderColor;
 	}
 
 	toJSON(): object {
