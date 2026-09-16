@@ -1,7 +1,9 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+// allow-any-unicode-comment-file
+
 
 import { localize } from '../../../../nls.js';
 import { IAction, Separator, SubmenuAction, toAction } from '../../../../base/common/actions.js';
@@ -739,7 +741,7 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	 * current container (which would wipe the current view's content), switch this
 	 * side's whole content to the dropped view's owning container.
 	 */
-	private activeViewPaneContainerSubscriptions = this._register(new DisposableStore());
+	private readonly activeViewPaneContainerSubscriptions = this._register(new DisposableStore());
 
 	private subscribeViewPaneContainer(): void {
 		this.activeViewPaneContainerSubscriptions.clear();
@@ -1025,7 +1027,6 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	}
 
 	protected getCompositeBarOptions(): IPaneCompositeBarOptions {
-		console.log('PS');
 		return {
 			partContainerClass: `panel-${this.side}`,
 			pinnedViewContainersKey: `workbench.panel.${this.side}.pinnedPanels`,
