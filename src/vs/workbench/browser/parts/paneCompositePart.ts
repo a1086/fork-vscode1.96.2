@@ -194,25 +194,25 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IMenuService protected readonly menuService: IMenuService,
 	) {
-	let location = ViewContainerLocation.Sidebar;
-	let registryId = Extensions.Viewlets;
-	let globalActionsMenuId = MenuId.SidebarTitle;
-	if (partId === Parts.PANEL_PART) {
-		location = ViewContainerLocation.Panel;
-		registryId = Extensions.Panels;
-		globalActionsMenuId = MenuId.PanelTitle;
-	} else if (typeof partId === 'string' && partId.startsWith('workbench.panel.')) {
-		// Dual-panel layout: each side (workbench.panel.left / .right) gets its
-		// own title-bar action menu so the per-side "Maximize Panel Size" button
-		// only controls its own side.
-		location = ViewContainerLocation.Panel;
-		registryId = Extensions.Panels;
-		globalActionsMenuId = partId.endsWith('.left') ? MenuId.PanelTitleLeft : MenuId.PanelTitleRight;
-	} else if (partId === Parts.AUXILIARYBAR_PART) {
-		location = ViewContainerLocation.AuxiliaryBar;
-		registryId = Extensions.Auxiliary;
-		globalActionsMenuId = MenuId.AuxiliaryBarTitle;
-	}
+		let location = ViewContainerLocation.Sidebar;
+		let registryId = Extensions.Viewlets;
+		let globalActionsMenuId = MenuId.SidebarTitle;
+		if (partId === Parts.PANEL_PART) {
+			location = ViewContainerLocation.Panel;
+			registryId = Extensions.Panels;
+			globalActionsMenuId = MenuId.PanelTitle;
+		} else if (typeof partId === 'string' && partId.startsWith('workbench.panel.')) {
+			// Dual-panel layout: each side (workbench.panel.left / .right) gets its
+			// own title-bar action menu so the per-side "Maximize Panel Size" button
+			// only controls its own side.
+			location = ViewContainerLocation.Panel;
+			registryId = Extensions.Panels;
+			globalActionsMenuId = partId.endsWith('.left') ? MenuId.PanelTitleLeft : MenuId.PanelTitleRight;
+		} else if (partId === Parts.AUXILIARYBAR_PART) {
+			location = ViewContainerLocation.AuxiliaryBar;
+			registryId = Extensions.Auxiliary;
+			globalActionsMenuId = MenuId.AuxiliaryBarTitle;
+		}
 		super(
 			notificationService,
 			storageService,
@@ -428,12 +428,12 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 					toggleDropEffect(e.eventData.dataTransfer, 'move', validDropTarget);
 				}
 			},
-		onDragEnter: (e) => {
-			if (this.getActiveComposite()) {
-				return;
-			}
-			console.log('p5');
-			EventHelper.stop(e.eventData, true);
+			onDragEnter: (e) => {
+				if (this.getActiveComposite()) {
+					return;
+				}
+				console.log('p5');
+				EventHelper.stop(e.eventData, true);
 				if (this.paneCompositeBar.value) {
 					const validDropTarget = this.paneCompositeBar.value.dndHandler.onDragEnter(e.dragAndDropData, undefined, e.eventData);
 					this.emptyPaneMessageElement!.style.backgroundColor = validDropTarget ? this.theme.getColor(EDITOR_DRAG_AND_DROP_BACKGROUND)?.toString() || '' : '';
@@ -470,14 +470,14 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 					else if (dragData.type === 'view') {
 						const viewToMove = this.viewDescriptorService.getViewDescriptorById(dragData.id)!;
-					if (viewToMove && viewToMove.canMoveView) {
-					this.viewDescriptorService.moveViewToLocation(viewToMove, this.location, 'dnd');
+						if (viewToMove && viewToMove.canMoveView) {
+							this.viewDescriptorService.moveViewToLocation(viewToMove, this.location, 'dnd');
 
-					const newContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id)!;
+							const newContainer = this.viewDescriptorService.getViewContainerByViewId(viewToMove.id)!;
 
-					this.openPaneComposite(newContainer.id, true).then(composite => {
-						composite?.openView(viewToMove.id, true);
-					});
+							this.openPaneComposite(newContainer.id, true).then(composite => {
+								composite?.openView(viewToMove.id, true);
+							});
 						}
 					}
 				}
@@ -719,12 +719,6 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 					this.blockOpening = false;
 				}
 			}
-		}
-
-		// Repair an abnormally small panel size when (re)opening a view, e.g.
-		// when the panel was already visible but persisted a too-small size.
-		if (this.location === ViewContainerLocation.Panel && this.layoutService.isVisible(this.getGridPartId())) {
-			this.layoutService.ensurePanelSize();
 		}
 
 		const composite = this.openComposite(id, focus) as unknown as IPaneComposite | undefined;

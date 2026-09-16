@@ -3,8 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IThemeService } from "../../../../platform/theme/common/themeService.js";
-import { Part } from "../../part.js";
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { Part } from '../../part.js';
 import {
 	Dimension,
 	$,
@@ -14,17 +14,17 @@ import {
 	isAncestorOfActiveElement,
 	getActiveElement,
 	isHTMLElement,
-} from "../../../../base/browser/dom.js";
+} from '../../../../base/browser/dom.js';
 import {
 	Event,
 	Emitter,
 	Relay,
 	PauseableEmitter,
-} from "../../../../base/common/event.js";
+} from '../../../../base/common/event.js';
 import {
 	contrastBorder,
 	editorBackground,
-} from "../../../../platform/theme/common/colorRegistry.js";
+} from '../../../../platform/theme/common/colorRegistry.js';
 import {
 	GroupDirection,
 	GroupsArrangement,
@@ -39,8 +39,8 @@ import {
 	IEditorSideGroup,
 	IEditorDropTargetDelegate,
 	IEditorPart,
-} from "../../../services/editor/common/editorGroupsService.js";
-import { IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
+} from '../../../services/editor/common/editorGroupsService.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import {
 	IView,
 	orthogonal,
@@ -57,19 +57,19 @@ import {
 	GridNode,
 	createSerializedGrid,
 	Grid,
-} from "../../../../base/browser/ui/grid/grid.js";
+} from '../../../../base/browser/ui/grid/grid.js';
 import {
 	GroupIdentifier,
 	EditorInputWithOptions,
 	IEditorPartOptions,
 	IEditorPartOptionsChangeEvent,
 	GroupModelChangeKind,
-} from "../../../common/editor.js";
+} from '../../../common/editor.js';
 import {
 	EDITOR_GROUP_BORDER,
 	EDITOR_PANE_BACKGROUND,
-} from "../../../common/theme.js";
-import { distinct, coalesce } from "../../../../base/common/arrays.js";
+} from '../../../common/theme.js';
+import { distinct, coalesce } from '../../../../base/common/arrays.js';
 import {
 	IEditorGroupView,
 	getEditorPartOptions,
@@ -78,71 +78,72 @@ import {
 	IEditorPartsView,
 	IEditorGroupsView,
 	IEditorGroupViewOptions,
-} from "./editor.js";
-import { EditorGroupView } from "./editorGroupView.js";
+} from './editor.js';
+import { EditorGroupView } from './editorGroupView.js';
 import {
 	IConfigurationService,
 	IConfigurationChangeEvent,
-} from "../../../../platform/configuration/common/configuration.js";
+} from '../../../../platform/configuration/common/configuration.js';
 import {
 	IDisposable,
 	dispose,
 	toDisposable,
 	DisposableStore,
-} from "../../../../base/common/lifecycle.js";
+} from '../../../../base/common/lifecycle.js';
 import {
 	IStorageService,
 	IStorageValueChangeEvent,
 	StorageScope,
 	StorageTarget,
-} from "../../../../platform/storage/common/storage.js";
+} from '../../../../platform/storage/common/storage.js';
 import {
 	ISerializedEditorGroupModel,
 	isSerializedEditorGroupModel,
-} from "../../../common/editor/editorGroupModel.js";
-import { EditorDropTarget } from "./editorDropTarget.js";
-import { Color } from "../../../../base/common/color.js";
-import { CenteredViewLayout } from "../../../../base/browser/ui/centered/centeredViewLayout.js";
-import { onUnexpectedError } from "../../../../base/common/errors.js";
+} from '../../../common/editor/editorGroupModel.js';
+import { EditorDropTarget } from './editorDropTarget.js';
+import { Color } from '../../../../base/common/color.js';
+import { CenteredViewLayout } from '../../../../base/browser/ui/centered/centeredViewLayout.js';
+import { onUnexpectedError } from '../../../../base/common/errors.js';
 import {
 	Parts,
 	IWorkbenchLayoutService,
 	Position,
-} from "../../../services/layout/browser/layoutService.js";
+} from '../../../services/layout/browser/layoutService.js';
 import {
 	DeepPartial,
 	assertIsDefined,
 	assertType,
-} from "../../../../base/common/types.js";
+} from '../../../../base/common/types.js';
 import {
 	CompositeDragAndDropObserver,
 	DraggedEditorIdentifier,
 	DraggedEditorGroupIdentifier,
-} from "../../dnd.js";
-import { LocalSelectionTransfer } from "../../../../platform/dnd/browser/dnd.js";
-import { DeferredPromise, Promises } from "../../../../base/common/async.js";
-import { findGroup } from "../../../services/editor/common/editorGroupFinder.js";
+} from '../../dnd.js';
+import { LocalSelectionTransfer } from '../../../../platform/dnd/browser/dnd.js';
+import { DeferredPromise, Promises } from '../../../../base/common/async.js';
+import { findGroup } from '../../../services/editor/common/editorGroupFinder.js';
 import {
 	SIDE_GROUP,
 	IEditorService,
-} from "../../../services/editor/common/editorService.js";
-import { ViewEditorInput } from "../../../contrib/viewInEditor/browser/viewEditorInput.js";
+} from '../../../services/editor/common/editorService.js';
+// eslint-disable-next-line local/code-import-patterns
+import { ViewEditorInput } from '../../../contrib/viewInEditor/browser/viewEditorInput.js';
 import {
 	IViewDescriptorService,
 	ViewContainerLocation,
 	ViewContainer,
-} from "../../../common/views.js";
-import { IViewsService } from "../../../services/views/common/viewsService.js";
-import { IBoundarySashes } from "../../../../base/browser/ui/sash/sash.js";
-import { IHostService } from "../../../services/host/browser/host.js";
-import { IContextKeyService } from "../../../../platform/contextkey/common/contextkey.js";
-import { ServiceCollection } from "../../../../platform/instantiation/common/serviceCollection.js";
+} from '../../../common/views.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { IBoundarySashes } from '../../../../base/browser/ui/sash/sash.js';
+import { IHostService } from '../../../services/host/browser/host.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import {
 	EditorPartMaximizedEditorGroupContext,
 	EditorPartMultipleEditorGroupsContext,
 	IsAuxiliaryEditorPartContext,
-} from "../../../common/contextkeys.js";
-import { mainWindow } from "../../../../base/browser/window.js";
+} from '../../../common/contextkeys.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 
 export interface IEditorPartUIState {
 	readonly serializedGrid: ISerializedGrid;
@@ -151,7 +152,7 @@ export interface IEditorPartUIState {
 }
 
 class GridWidgetView<T extends IView> implements IView {
-	readonly element: HTMLElement = $(".grid-view-container");
+	readonly element: HTMLElement = $('.grid-view-container');
 
 	get minimumWidth(): number {
 		return this.gridWidget ? this.gridWidget.minimumWidth : 0;
@@ -182,7 +183,7 @@ class GridWidgetView<T extends IView> implements IView {
 	}
 
 	set gridWidget(grid: Grid<T> | undefined) {
-		this.element.innerText = "";
+		this.element.innerText = '';
 
 		if (grid) {
 			this.element.appendChild(grid.element);
@@ -204,9 +205,9 @@ class GridWidgetView<T extends IView> implements IView {
 }
 
 export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
-	private static readonly EDITOR_PART_UI_STATE_STORAGE_KEY = "editorpart.state";
+	private static readonly EDITOR_PART_UI_STATE_STORAGE_KEY = 'editorpart.state';
 	private static readonly EDITOR_PART_CENTERED_VIEW_STORAGE_KEY =
-		"editorpart.centeredview";
+		'editorpart.centeredview';
 
 	//#region Events
 
@@ -516,16 +517,16 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		wrap?: boolean,
 	): IEditorGroupView | undefined {
 		// by direction
-		if (typeof scope.direction === "number") {
+		if (typeof scope.direction === 'number') {
 			return this.doFindGroupByDirection(scope.direction, source, wrap);
 		}
 
 		// by location
-		if (typeof scope.location === "number") {
+		if (typeof scope.location === 'number') {
 			return this.doFindGroupByLocation(scope.location, source, wrap);
 		}
 
-		throw new Error("invalid arguments");
+		throw new Error('invalid arguments');
 	}
 
 	private doFindGroupByDirection(
@@ -779,7 +780,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 	private serializedNodeToGroupLayoutArgument(
 		serializedNode: ISerializedNode,
 	): GroupLayoutArgument {
-		if (serializedNode.type === "branch") {
+		if (serializedNode.type === 'branch') {
 			return {
 				size: serializedNode.size,
 				groups: serializedNode.data.map((node) =>
@@ -877,9 +878,9 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 	private getSplitSizingStyle(): Sizing {
 		switch (this._partOptions.splitSizing) {
-			case "distribute":
+			case 'distribute':
 				return Sizing.Distribute;
-			case "split":
+			case 'split':
 				return Sizing.Split;
 			default:
 				return Sizing.Auto;
@@ -1055,7 +1056,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		orientation: GroupOrientation,
 		fallback: Orientation,
 	): Orientation {
-		if (typeof orientation === "number") {
+		if (typeof orientation === 'number') {
 			return orientation === GroupOrientation.HORIZONTAL
 				? Orientation.HORIZONTAL
 				: Orientation.VERTICAL;
@@ -1163,7 +1164,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		const targetView = this.assertGroupView(location);
 
 		if (sourceView.id === targetView.id) {
-			throw new Error("Cannot move group into its own");
+			throw new Error('Cannot move group into its own');
 		}
 
 		const restoreFocus = this.shouldRestoreFocus(sourceView.element);
@@ -1239,7 +1240,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		// Collect editors to move/copy
 		const editors: EditorInputWithOptions[] = [];
 		let index =
-			options && typeof options.index === "number"
+			options && typeof options.index === 'number'
 				? options.index
 				: targetView.count;
 		for (const editor of sourceView.editors) {
@@ -1300,14 +1301,14 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		group: IEditorGroupView | GroupIdentifier,
 	): IEditorGroupView {
 		let groupView: IEditorGroupView | undefined;
-		if (typeof group === "number") {
+		if (typeof group === 'number') {
 			groupView = this.editorPartsView.getGroup(group);
 		} else {
 			groupView = group;
 		}
 
 		if (!groupView) {
-			throw new Error("Invalid editor group provided!");
+			throw new Error('Invalid editor group provided!');
 		}
 
 		return groupView;
@@ -1353,7 +1354,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 	}
 
 	get snap(): boolean {
-		return this.layoutService.getPanelAlignment() === "center";
+		return this.layoutService.getPanelAlignment() === 'center';
 	}
 
 	override get onDidChange(): Event<IViewSize | undefined> {
@@ -1374,7 +1375,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 	override updateStyles(): void {
 		const container = assertIsDefined(this.container);
-		container.style.backgroundColor = this.getColor(editorBackground) || "";
+		container.style.backgroundColor = this.getColor(editorBackground) || '';
 
 		const separatorBorderStyle = {
 			separatorBorder: this.gridSeparatorBorder,
@@ -1391,10 +1392,10 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 	): HTMLElement {
 		// Container
 		this.element = parent;
-		this.container = document.createElement("div");
-		this.container.classList.add("content");
+		this.container = document.createElement('div');
+		this.container.classList.add('content');
 		if (this.windowId !== mainWindow.vscodeWindowId) {
-			this.container.classList.add("auxiliary");
+			this.container.classList.add('auxiliary');
 		}
 		parent.appendChild(this.container);
 
@@ -1491,21 +1492,21 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		this._register(this.createEditorDropTarget(container, Object.create(null)));
 
 		// No drop in the editor
-		const overlay = document.createElement("div");
-		overlay.classList.add("drop-block-overlay");
+		const overlay = document.createElement('div');
+		overlay.classList.add('drop-block-overlay');
 		parent.appendChild(overlay);
 
 		// Hide the block if a mouse down event occurs #99065
 		this._register(
 			addDisposableGenericMouseDownListener(overlay, () =>
-				overlay.classList.remove("visible"),
+				overlay.classList.remove('visible'),
 			),
 		);
 
 		this._register(
 			CompositeDragAndDropObserver.INSTANCE.registerTarget(this.element, {
-				onDragStart: (e) => overlay.classList.add("visible"),
-				onDragEnd: (e) => overlay.classList.remove("visible"),
+				onDragStart: (e) => overlay.classList.add('visible'),
+				onDragEnd: (e) => overlay.classList.remove('visible'),
 			}),
 		);
 
@@ -1554,7 +1555,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 					const dragData = e.dragAndDropData?.getData();
 					const isViewDrag =
 						!!dragData &&
-						(dragData.type === "view" || dragData.type === "composite");
+						(dragData.type === 'view' || dragData.type === 'composite');
 					const guardHit =
 						isViewDrag &&
 						(this.editorTransfer.hasData(DraggedEditorIdentifier.prototype) ||
@@ -1636,10 +1637,10 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 						e.eventData.dataTransfer.dropEffect =
 							openHorizontalPosition !== undefined ||
 								openVerticalPosition !== undefined
-								? "none"
+								? 'none'
 								: isViewDrag
-									? "move"
-									: "none";
+									? 'move'
+									: 'none';
 					}
 				},
 				onDragLeave: () => clearAllTimeouts(),
@@ -1651,7 +1652,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 					const dragData = e.dragAndDropData?.getData();
 					if (
 						dragData &&
-						(dragData.type === "view" || dragData.type === "composite")
+						(dragData.type === 'view' || dragData.type === 'composite')
 					) {
 						// Same guard as in `onDragOver`: an editor-internal drag (tab/group
 						// reorder or split) also carries a `view` payload, so let the editor's
@@ -1675,20 +1676,20 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 							// single 'view' this is just that view; for a 'composite' (view
 							// container) we take every view currently hosted by that container
 							// so the source panel/container ends up empty.
-						let viewIds: string[];
-						let container: ViewContainer | null = null;
-						if (dragData.type === "view") {
-							viewIds = [dragData.id];
-						} else {
-							container = viewDescriptorService.getViewContainerById(
-								dragData.id,
-							);
-							viewIds = container
-								? viewDescriptorService
-									.getViewContainerModel(container)
-									.allViewDescriptors.map((v) => v.id)
-								: [];
-						}
+							let viewIds: string[];
+							let container: ViewContainer | null = null;
+							if (dragData.type === 'view') {
+								viewIds = [dragData.id];
+							} else {
+								container = viewDescriptorService.getViewContainerById(
+									dragData.id,
+								);
+								viewIds = container
+									? viewDescriptorService
+										.getViewContainerModel(container)
+										.allViewDescriptors.map((v) => v.id)
+									: [];
+							}
 
 							// Run the move inside `withViewMoving` so that ViewsService does
 							// not auto-hide the Panel while the descriptor model is in a
@@ -1710,17 +1711,17 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 										viewDescriptorService.moveViewToLocation(
 											viewDescriptor,
 											ViewContainerLocation.Editor,
-											"dnd",
+											'dnd',
 										);
 									}
 									editorService.openEditor(
-									this.instantiationService.createInstance(
-										ViewEditorInput,
-										viewId,
-										originalLocation,
-										originalContainerId,
-										originalIndex,
-									),
+										this.instantiationService.createInstance(
+											ViewEditorInput,
+											viewId,
+											originalLocation,
+											originalContainerId,
+											originalIndex,
+										),
 									);
 								}
 							});
@@ -1885,7 +1886,7 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 
 	private updateContainer(): void {
 		const container = assertIsDefined(this.container);
-		container.classList.toggle("empty", this.isEmpty);
+		container.classList.toggle('empty', this.isEmpty);
 	}
 
 	private notifyGroupIndexChange(): void {
@@ -1915,7 +1916,6 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 		top: number,
 		left: number,
 	): void {
-		console.log('ep', this.windowId, width, height, top, left);
 		this.top = top;
 		this.left = left;
 
@@ -1987,10 +1987,10 @@ export class EditorPart extends Part implements IEditorPart, IEditorGroupsView {
 	}
 
 	applyState(
-		state: IEditorPartUIState | "empty",
+		state: IEditorPartUIState | 'empty',
 		options?: IEditorGroupViewOptions,
 	): Promise<void> {
-		if (state === "empty") {
+		if (state === 'empty') {
 			return this.doApplyEmptyState();
 		} else {
 			return this.doApplyState(state, options);
@@ -2159,7 +2159,7 @@ export class MainEditorPart extends EditorPart {
 		super(
 			editorPartsView,
 			Parts.EDITOR_PART,
-			"",
+			'',
 			mainWindow.vscodeWindowId,
 			instantiationService,
 			themeService,

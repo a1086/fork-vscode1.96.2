@@ -1,4 +1,4 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -1990,44 +1990,44 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			// *both* sides itself from the persisted snapshot in its
 			// `onDidChangePartVisibility` show branch. Opening the (single) Panel
 			// location here as well would fire an async `leftPart.openPaneComposite`
-			// that races with that restore and — through the mutual-exclusion
-			// safety net — can `clearAndUnpinSide('right')` and drop the right
+			// that races with that restore and - through the mutual-exclusion
+			// safety net - can `clearAndUnpinSide('right')` and drop the right
 			// panel on every Toggle Panel. So defer entirely to `PanelPart` when a
 			// faithful snapshot exists.
-		const panelPart = this.panelPartView as PanelPart;
-		const hasSnapshot = panelPart?.hasDualPanelSnapshot?.() ?? false;
-		if (hasSnapshot) {
-			// No-op: the split restore is handled by PanelPart below.
-		} else {
-			// The Panel was empty (both sides had no view) the last time it was
-			// hidden, so the user expects an *empty* Panel showing the
-			// "Drag a view to display here" drop target on re-show — NOT a
-			// random view pulled from `getLastActivePaneCompositeId` /
-			// `getViewContainersByLocation`. `consumeEmptyAutoHide()` returns
-			// true exactly once, on the show that follows an empty-auto-hide.
-			const isEmptyPanel = panelPart?.isShowingEmptyPanel?.() ?? false;
-			if (isEmptyPanel) {
-				// No-op: leave the Panel empty so the drop target placeholder
-				// is shown. PanelPart's own `onDidChangePartVisibility` show
-				// handler keeps both sides collapsed-but-visible.
+			const panelPart = this.panelPartView as PanelPart;
+			const hasSnapshot = panelPart?.hasDualPanelSnapshot?.() ?? false;
+			if (hasSnapshot) {
+				// No-op: the split restore is handled by PanelPart below.
 			} else {
-				let panelToOpen: string | undefined = this.paneCompositeService.getLastActivePaneCompositeId(ViewContainerLocation.Panel);
-
-				// verify that the panel we try to open has views before we default to it
-				// otherwise fall back to any view that has views still refs #111463
-				if (!panelToOpen || !this.hasViews(panelToOpen)) {
-					panelToOpen = this.viewDescriptorService
-						.getViewContainersByLocation(ViewContainerLocation.Panel)
-						.find(viewContainer => this.hasViews(viewContainer.id))?.id;
-				}
-
-				if (panelToOpen) {
-					const focus = !skipLayout;
-					this.paneCompositeService.openPaneComposite(panelToOpen, ViewContainerLocation.Panel, focus);
+				// The Panel was empty (both sides had no view) the last time it was
+				// hidden, so the user expects an *empty* Panel showing the
+				// "Drag a view to display here" drop target on re-show - NOT a
+				// random view pulled from `getLastActivePaneCompositeId` /
+				// `getViewContainersByLocation`. `consumeEmptyAutoHide()` returns
+				// true exactly once, on the show that follows an empty-auto-hide.
+				const isEmptyPanel = panelPart?.isShowingEmptyPanel?.() ?? false;
+				if (isEmptyPanel) {
+					// No-op: leave the Panel empty so the drop target placeholder
+					// is shown. PanelPart's own `onDidChangePartVisibility` show
+					// handler keeps both sides collapsed-but-visible.
 				} else {
+					let panelToOpen: string | undefined = this.paneCompositeService.getLastActivePaneCompositeId(ViewContainerLocation.Panel);
+
+					// verify that the panel we try to open has views before we default to it
+					// otherwise fall back to any view that has views still refs #111463
+					if (!panelToOpen || !this.hasViews(panelToOpen)) {
+						panelToOpen = this.viewDescriptorService
+							.getViewContainersByLocation(ViewContainerLocation.Panel)
+							.find(viewContainer => this.hasViews(viewContainer.id))?.id;
+					}
+
+					if (panelToOpen) {
+						const focus = !skipLayout;
+						this.paneCompositeService.openPaneComposite(panelToOpen, ViewContainerLocation.Panel, focus);
+					} else {
+					}
 				}
 			}
-		}
 		}
 
 		// If maximized and in process of hiding, unmaximize before hiding to allow caching of non-maximized size
@@ -2295,12 +2295,11 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		const panel = this.panelPartView as PanelPart;
 		const previousMinimumHeight = panel.minimumHeight;
 		try {
-		panel.minimumHeight = preferredSize;
-		console.log('ep');
-		this.workbenchGrid.resizeView(this.panelPartView, {
-			width: isPanelHorizontal ? currentSize.width : preferredSize,
-			height: isPanelHorizontal ? preferredSize : currentSize.height
-		});
+			panel.minimumHeight = preferredSize;
+			this.workbenchGrid.resizeView(this.panelPartView, {
+				width: isPanelHorizontal ? currentSize.width : preferredSize,
+				height: isPanelHorizontal ? preferredSize : currentSize.height
+			});
 		} finally {
 			panel.minimumHeight = previousMinimumHeight;
 		}
