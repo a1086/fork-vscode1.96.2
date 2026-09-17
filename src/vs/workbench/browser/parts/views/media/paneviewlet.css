@@ -90,7 +90,7 @@
 /* --- Remove twisty arrow and add close button in view headers --- */
 
 /* Twisty arrows are no longer created by ViewPane; keep this as a guard for any
-   other pane headers that still contain a twisty. */
+ * other pane headers that still contain a twisty. */
 .monaco-pane-view .pane > .pane-header > .twisty-container {
 	display: none !important;
 }
@@ -106,7 +106,7 @@
 }
 
 /* Close button that exposes the existing "Hide view" functionality in the header.
-   Hidden by default, shown on hover or keyboard focus (matching the actions toolbar). */
+ * Hidden by default, shown on hover or keyboard focus (matching the actions toolbar). */
 .monaco-pane-view .pane > .pane-header > .pane-close-action {
 	display: none;
 	align-items: center;

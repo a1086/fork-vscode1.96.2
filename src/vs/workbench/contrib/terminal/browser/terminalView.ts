@@ -124,7 +124,7 @@ export class TerminalViewPane extends ViewPane {
 					// on width/height <= 0), leaving a blank pane until the user clicks it.
 					// Defer one frame so the DOM has its real dimensions, then re-layout.
 					const container = this._parentDomElement;
-					requestAnimationFrame(() => {
+					dom.getWindow(container).requestAnimationFrame(() => {
 						if (container.offsetWidth > 0 && container.offsetHeight > 0) {
 							this.layoutBody(container.offsetHeight, container.offsetWidth);
 						}
@@ -283,13 +283,13 @@ export class TerminalViewPane extends ViewPane {
 	}
 
 	/**
-	 * 强制把 live xterm canvas 归位到本 pane 当前所在的 container。
-	 * 场景：Terminal 从浮动窗口被复用回主窗口 editor 区时，`terminalTabbedView`
-	 * 的 container 节点虽随 `pane.element` 一起移到了活 DOM 树，但
-	 * `TerminalGroupService` 的 primary 仍是浮动窗口时期注册的引用（或根本未
-	 * 重新认领这个活节点），导致 canvas 仍挂在已失效的节点上而白屏。这里先
-	 * `setContainer`（把活节点重新注册进 group service）再 `setPrimaryContainer`
-	 * （把唯一真实的 `_groupElement` canvas 搬到活节点），确保终端真正显示。
+	 * Force the live xterm canvas back to the container where this pane currently lives.
+	 * Scenario: When a Terminal is reused from a floating window back into the main window's
+	 * editor area, the `terminalTabbedView` container node moves into the live DOM tree along
+	 * with `pane.element`, but the `TerminalGroupService` primary is still the reference that
+	 * was registered during the floating-window period (or this live node was never reclaimed),
+	 * so the canvas stays attached to a stale node and shows a blank screen. Here we call
+	 * `setContainer` first (re-register the live node into the group service) and then `setPrimaryContainer` (move the single real `_groupElement` canvas onto the live node), so the terminal truly renders.
 	 */
 	forceRelocateTerminalContainer(): void {
 		if (!this._terminalTabbedView) {

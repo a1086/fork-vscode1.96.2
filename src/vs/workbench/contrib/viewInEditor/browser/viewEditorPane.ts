@@ -1,4 +1,4 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -75,7 +75,7 @@ export class ViewEditorPane extends EditorPane {
 			this._parking.style.height = '100%';
 			this._parking.style.overflow = 'hidden';
 			this._parking.style.pointerEvents = 'none';
-			document.body.appendChild(this._parking);
+			getWindow(this._parking).document.body.appendChild(this._parking);
 		}
 		return this._parking;
 	}
@@ -197,10 +197,10 @@ export class ViewEditorPane extends EditorPane {
 			this.scheduleRelayout(pane);
 		}
 
-		// 辅助窗口中，EditorPart 的首次布局先于编辑器异步打开完成，之后 group 不会再
-		// 带权威 dimension 重新布局，pane 只能按容器临时测量值布局（窗口打开动画 /
-		// 样式加载期间测量值偏小），导致内容显示不全。这里在 setInput 完成后主动触发
-		// 一次 group 重布局，把权威尺寸传给 editorPane.layout()。
+		// In an auxiliary window, EditorPart's initial layout runs before the editor finishes opening
+		// asynchronously; afterwards the group is never laid out again with authoritative dimensions,
+		// so the pane can only lay out using the container's temporary measured size (too small during
+		// the open animation / style loading), which clips the content. Here, after setInput completes, we actively trigger one more group re-layout to pass the authoritative size to editorPane.layout().
 		(this.group as IEditorGroupView)?.relayout();
 	}
 
@@ -359,9 +359,9 @@ export class ViewEditorPane extends EditorPane {
 			const width = this.container.clientWidth;
 			const height = this.container.clientHeight;
 			console.log('rl', index, width, height);
-			// 容器尺寸非零且连续两轮一致（窗口打开动画 / 样式稳定）才停止重试；
-			// 仅"非零"不够：辅助窗口打开过程中容器尺寸会持续增长，过早停止会
-			// 把 pane 布局在过期尺寸上（内容显示不全）。
+			// Stop retrying only once the container size is non-zero and identical across two consecutive
+			// rounds (i.e. after the open animation / styles have settled). "Non-zero" alone is not enough:
+			// while an auxiliary window is opening the container size keeps growing, and stopping too early would lay out the pane at a stale size (clipping the content).
 			if (width > 0 && height > 0 && width === lastWidth && height === lastHeight) {
 				return;
 			}
