@@ -621,23 +621,23 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 			},
 			onDragStart: e => {
 				const dragged = e.dragAndDropData.getData();
-			const draggedItem = this.getDraggedItem();
-			if (dragged.id !== draggedItem.id) {
+				const draggedItem = this.getDraggedItem();
+				if (dragged.id !== draggedItem.id) {
 					return;
 				}
 
 				if (e.eventData.dataTransfer) {
 					e.eventData.dataTransfer.effectAllowed = 'move';
-					// Phase 4 去重：同一次拖拽（无论 Panel / Aux Bar / 原生 editor tabs
-					// 各实例的 onDragEnd）共享一个 sessionId。sessionId 现在保存在
-					// 模块级变量里（见 viewDragSession.ts），`onDragEnd` 直接读取，
-					// 不再经受 protected 模式限制的 `dataTransfer`。这里仍写入
-					// dataTransfer 仅作兼容（无副作用），但去重不再依赖它。
+					// Phase 4 deduplication: a single drag shares one sessionId (regardless of the onDragEnd of
+					// the Panel / Aux Bar / native editor tabs instances). The sessionId is now kept in a
+					// module-level variable (see viewDragSession.ts), and `onDragEnd` reads it directly instead of
+					// going through the protected-mode-limited `dataTransfer`. We still write it into dataTransfer
+					// only for compatibility (no side effects), and deduplication no longer relies on it.
 					try {
 						const sessionId = nextViewDragSession();
-					e.eventData.dataTransfer.setData('application/vnd.code.viewDragSession', String(sessionId));
-				} catch {
-						// dragstart 写入 dataTransfer 失败不应阻断拖拽
+						e.eventData.dataTransfer.setData('application/vnd.code.viewDragSession', String(sessionId));
+					} catch {
+						// failing to write dataTransfer on dragstart must not block the drag
 					}
 				}
 

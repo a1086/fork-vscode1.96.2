@@ -248,7 +248,7 @@ export class WebviewViewPane extends ViewPane {
 		this.layoutWebview(new Dimension(width, height));
 	}
 
-		private updateTreeVisibility() {
+	private updateTreeVisibility() {
 		if (this.isBodyVisible()) {
 			this.activate();
 			this._webview.value?.claim(this, getWindow(this.element), undefined);
@@ -310,15 +310,15 @@ export class WebviewViewPane extends ViewPane {
 			if (this._webview.value !== webview) {
 				return;
 			}
-		if (this._container && this.element?.isConnected) {
-			webview.claim(this, getWindow(this.element), undefined);
+			if (this._container && this.element?.isConnected) {
+				webview.claim(this, getWindow(this.element), undefined);
 				this.layoutWebview();
 				return;
 			}
 			if (attempts++ < 40) {
 				setTimeout(tryClaim, 25);
-		} else {
-		}
+			} else {
+			}
 		};
 
 		tryClaim();

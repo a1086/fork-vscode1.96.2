@@ -179,7 +179,7 @@ class ViewPaneDropOverlay extends Themable {
 		// plain "drop here to switch the whole view" highlight. If we let the
 		// MOUSE_OVER safety net schedule a 300ms dispose, the overlay is destroyed
 		// while the pointer is still over the pane; the resulting `dragenter` then
-		// recreates it, which re-fires MOUSE_OVER, which schedules another dispose —
+		// recreates it, which re-fires MOUSE_OVER, which schedules another dispose -
 		// an endless create/destroy loop that makes the drop highlight (and the
 		// content it covers) flicker until the drop ends. Single-view overlays are
 		// already cleaned up by dragleave/drop/dragend, so skip the safety net here.
@@ -365,18 +365,18 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	readonly onDidBlurView = this._onDidBlurView.event;
 
 	/**
-	 * 单视图模式（Panel 分区）下，把一个 view 拖入本容器时触发：请求外层把
-	 * 该 view 所属的 container 作为当前分区的显示视图（而非塞进当前 container）。
-	 * 参数即为目标 container 的 id。
+	 * In single-view mode (Panel part), fired when a view is dragged into this container: request that the outer layer
+	 * make the container the dragged view belongs to the currently displayed view of this part (instead of stuffing it into the current container).
+	 * The parameter is the target container's id.
 	 */
 	private readonly _onRequestOpenCompositeForView = this._register(new Emitter<string>());
 	readonly onRequestOpenCompositeForView = this._onRequestOpenCompositeForView.event;
 
 	/**
-	 * 单视图模式（Panel 分区）下，分区内部不接受 "把视图混入当前容器" 的 drop
-	 * 热区。拖入一个 view/composite 时只应整体切换为单视图，因此拖拽进入时不创建
-	 * 误导性的 drop overlay；这里记录最近一次 "可整体切换" 的拖入数据，供 onDrop
-	 * 直接触发切换（无需依赖 overlay 标记）。
+	 * In single-view mode (Panel part), the part internally does not accept the drop hot zone that "mixes a view into the current container".
+	 * Dragging in a view/composite should only switch the whole part to a single view, so on drag-enter we do not create a
+	 * misleading drop overlay; instead we record the most recent "switch-whole-part" drag data here, so onDrop can
+	 * trigger the switch directly (without relying on an overlay marker).
 	 */
 	private pendingSinglePaneDrop?: { type: 'view' | 'composite'; id: string };
 
@@ -478,11 +478,11 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					overlay = undefined;
 				}
 
-			if (this.isSinglePaneContainer) {
-				// 单视图模式（仅 Panel 分区）：分区内恒定只显示一个视图，
-				// 拖入一个可移动的 view / composite 时只应整体切换为单视图（而非混入
-				// 当前容器）。这里在整块内容区显示一个无方向提示的 drop 热区，让拖拽
-				// 有可见反馈；真正的切换在 onDrop 里基于 pendingSinglePaneDrop 触发。
+				if (this.isSinglePaneContainer) {
+					// Single-view mode (Panel part only): the part always displays exactly one view,
+					// so dragging in a movable view / composite should only switch the whole part to a single view (rather than mixing it into
+					// the current container). Here we show a direction-less drop hot zone over the whole content area to give visible drag
+					// feedback; the actual switch is triggered in onDrop based on pendingSinglePaneDrop.
 					const dropData = e.dragAndDropData.getData();
 					let pending: { type: 'view' | 'composite'; id: string } | undefined;
 					if (dropData.type === 'view') {
@@ -536,8 +536,8 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			},
 			onDragOver: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式（仅 Panel）：整块内容区即热区，允许 drop 发生（onDrop 基于
-					// pendingSinglePaneDrop 触发整体切换）。保持 overlay 存活。
+					// Single-view mode (Panel only): the whole content area is the hot zone, and a drop is allowed to happen (onDrop triggers the whole-part switch
+					// based on pendingSinglePaneDrop). Keep the overlay alive.
 					if (overlay && overlay.disposed) {
 						overlay = undefined;
 					}
@@ -570,14 +570,14 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			},
 			onDrop: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式：基于拖入时记录的 pendingSinglePaneDrop 触发整体切换，
-					// 分区内恒定只显示一个视图。整块内容区即热区（overlay 仅作视觉提示）。
+					// Single-view mode: trigger the whole-part switch based on the pendingSinglePaneDrop recorded on drag-enter,
+					// so the part always displays exactly one view. The whole content area is the hot zone (the overlay is only a visual hint).
 					const pending = this.pendingSinglePaneDrop;
 					this.pendingSinglePaneDrop = undefined;
 					overlay?.dispose();
 					overlay = undefined;
 					if (pending) {
-					if (pending.type === 'composite') {
+						if (pending.type === 'composite') {
 							const container = this.viewDescriptorService.getViewContainerById(pending.id)!;
 							const sameLocation = this.viewDescriptorService.getViewContainerLocation(container) === this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
 							if (!sameLocation) {
@@ -592,8 +592,8 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 								if (!sameLocation) {
 									this.viewDescriptorService.moveViewToLocation(viewDescriptor, this.viewDescriptorService.getViewContainerLocation(this.viewContainer)!, 'dnd');
 								}
-								// 跨 location 移动后，该 view 已不在 oldViewContainer 中，
-								// 必须重新查询其所在的（目标）容器 id 才能正确打开它。
+								// After a cross-location move, the view is no longer in oldViewContainer, so we must
+								// re-query the (target) container id it now lives in to open it correctly.
 								const targetContainer = !sameLocation
 									? this.viewDescriptorService.getViewContainerByViewId(pending.id)
 									: oldViewContainer;
@@ -610,22 +610,22 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 					const dropData = e.dragAndDropData.getData();
 					const viewsToMove: IViewDescriptor[] = [];
 
-				if (dropData.type === 'composite' && dropData.id !== this.viewContainer.id) {
-					const container = this.viewDescriptorService.getViewContainerById(dropData.id)!;
-					const allViews = this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors;
-				if (!allViews.some(v => !v.canMoveView)) {
-					viewsToMove.push(...allViews);
-				}
-			} else if (dropData.type === 'view') {
-				const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
-				const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
-				const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
-				if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
-					if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
-						viewsToMove.push(viewDescriptor);
+					if (dropData.type === 'composite' && dropData.id !== this.viewContainer.id) {
+						const container = this.viewDescriptorService.getViewContainerById(dropData.id)!;
+						const allViews = this.viewDescriptorService.getViewContainerModel(container).allViewDescriptors;
+						if (!allViews.some(v => !v.canMoveView)) {
+							viewsToMove.push(...allViews);
+						}
+					} else if (dropData.type === 'view') {
+						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
+						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
+						const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
+						if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
+							if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
+								viewsToMove.push(viewDescriptor);
+							}
+						}
 					}
-				}
-			}
 
 					const paneCount = this.panes.length;
 
@@ -761,19 +761,19 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 	}
 
 	/**
-	 * 单视图模式：容器内部恒定只显示一个 ViewPane，拖入视图时整体切换到该视图所属的
-	 * 容器（而非混入当前容器），热区覆盖整块内容区。
+	 * Single-view mode: the container internally always displays exactly one ViewPane, and dragging in a view switches the whole part to
+	 * the container that view belongs to (rather than mixing it into the current container), with the hot zone covering the whole content area.
 	 *
-	 * 位于 Panel 位置的子分区（双分区 Panel 的左/右）以及 AuxiliaryBar 都属于单视图模式：
-	 * 它们都要接收"从 Editor 拖入一个视图"并整体切换内容。把 AuxiliaryBar 从单视图模式
-	 * 移出会导致其丢失整块热区与整体切换能力——从 Editor 拖入时既无可见热区、drop 也只
-	 * 会把视图混入现有容器而非整体切换，参见 regression：视图拖入 Aux Bar 不再触发热区。
+	 * Sub-parts located at the Panel position (the left/right of a two-part Panel) and the AuxiliaryBar are all in single-view mode:
+	 * they must all accept "drag a view in from the Editor" and switch the whole content. Moving the AuxiliaryBar out of single-view mode
+	 * would make it lose the whole-area hot zone and the whole-part switch ability -- dragging in from the Editor would show no visible hot zone and the drop would only
+	 * mix the view into an existing container instead of switching the whole part; see the regression: dragging a view into the Aux Bar no longer triggers the hot zone.
 	 */
 	/**
-	 * 单视图模式：仅 Panel 分区（panelSidePart）使用。
-	 * AuxiliaryBar 不再是单视图模式 —— 它支持把拖入的视图以"堆叠"方式合并进当前
-	 * 激活容器（见非 single-pane 的 onDrop 分支），并且拖拽时按每个视图小模块
-	 * 显示 drop 热区（而非整块内容区热区）。
+	 * Single-view mode: used only by the Panel part (panelSidePart).
+	 * The AuxiliaryBar is no longer in single-view mode -- it supports merging a dragged-in view into the current
+	 * active container in a "stacked" way (see the non single-pane onDrop branch), and during a drag it shows a drop hot zone per
+	 * individual view module (rather than a single whole-content-area hot zone).
 	 */
 	protected get isSinglePaneContainer(): boolean {
 		const location = this.viewDescriptorService.getViewContainerLocation(this.viewContainer);
@@ -1046,9 +1046,9 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 		store.add(CompositeDragAndDropObserver.INSTANCE.registerTarget(pane.dropTargetElement, {
 			onDragEnter: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式（Panel / AuxiliaryBar 分区）：拖拽整体由外层 parent 级
-					// target 处理（显示整块内容区热区并触发整体切换），pane 级不再重复处理，
-					// 避免重复创建 overlay / 重复 fire onRequestOpenCompositeForView。
+					// Single-view mode (Panel / AuxiliaryBar part): the whole drag is handled by the outer parent-level
+					// target (showing the whole-content-area hot zone and triggering the whole-part switch), so the pane level no longer handles it again,
+					// avoiding duplicate overlay creation / duplicate firing of onRequestOpenCompositeForView.
 					return;
 				}
 
@@ -1078,7 +1078,7 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			},
 			onDragOver: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式：热区与整体切换由 parent 级 target 处理，这里直接放行。
+					// Single-view mode: the hot zone and whole-part switch are handled by the parent-level target, so pass through here.
 					return;
 				}
 				toggleDropEffect(e.eventData.dataTransfer, 'move', overlay !== undefined);
@@ -1092,7 +1092,7 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 			},
 			onDrop: (e) => {
 				if (this.isSinglePaneContainer) {
-					// 单视图模式：整体切换交由 parent 级 target 处理，避免重复 fire。
+					// Single-view mode: the whole-part switch is handled by the parent-level target, avoiding duplicate firing.
 					return;
 				}
 
@@ -1109,21 +1109,21 @@ export class ViewPaneContainer extends Component implements IViewPaneContainer {
 							viewsToMove.push(...allViews);
 							anchorView = allViews[0];
 						}
-				} else if (dropData.type === 'view') {
-					const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
-					const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
-					const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
+					} else if (dropData.type === 'view') {
+						const oldViewContainer = this.viewDescriptorService.getViewContainerByViewId(dropData.id);
+						const viewDescriptor = this.viewDescriptorService.getViewDescriptorById(dropData.id);
+						const oldLocation = oldViewContainer ? this.viewDescriptorService.getViewContainerLocation(oldViewContainer) : null;
 
-					if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
-						if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
-							viewsToMove.push(viewDescriptor);
+						if (viewDescriptor && !this.viewContainer.rejectAddedViews) {
+							if (oldLocation === ViewContainerLocation.Editor || (oldViewContainer !== this.viewContainer && viewDescriptor.canMoveView)) {
+								viewsToMove.push(viewDescriptor);
+							}
+						}
+
+						if (viewDescriptor) {
+							anchorView = viewDescriptor;
 						}
 					}
-
-					if (viewDescriptor) {
-						anchorView = viewDescriptor;
-					}
-				}
 
 					if (viewsToMove.length > 0) {
 						this.viewDescriptorService.moveViewsToContainer(viewsToMove, this.viewContainer, undefined, 'dnd');

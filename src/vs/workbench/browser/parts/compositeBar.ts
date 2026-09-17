@@ -1,4 +1,4 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -220,18 +220,18 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 	private insertDropBefore: Before2D | undefined = undefined;
 
 	/**
-	 * 防止同一拖拽事件触发多次开窗：
-	 * - `registerTarget(parent, ...)` 给整个 bar 容器注册了一次 dnd 回调；
-	 * - 每个 `CompositeActionViewItem` 自身的 `pane.draggableElement` 也注册了 `registerDraggable`，
-	 *   它的 `onDragEnd` 在 `dnd.ts:577` 内部也会 `_onDragEnd.fire(...)`；
-	 * - Panel 与 Aux Bar 各有独立 `CompositeBar`/`CompositeBarDndCallbacks` 实例，
-	 *   它们的 `onDragEnd` 都会触发；
-	 * - 把视图 `moveViewToLocation(Editor)` 后，原生 `editorTabsControl` 的拖出链路
-	 *   还会再开一个窗口。
-	 * 单靠实例级布尔无法跨多个实例去重，因此改为：在 dragstart 写入全局 sessionId
-	 * 到 dataTransfer，onDragEnd 用 `tryClaimViewDragSession` 整进程级去重（见下方
-	 * 模块级守卫 `nextViewDragSession` / `tryClaimViewDragSession`），并把 `move`
-	 * 延迟到本次 dragend 事件循环结束之后，彻底切断原生链路的二次开窗。
+	 * Prevent a single drag from opening a window multiple times:
+	 * - `registerTarget(parent, ...)` registers one dnd callback for the whole bar container;
+	 * - each `CompositeActionViewItem`'s own `pane.draggableElement` also registers `registerDraggable`,
+	 *   and its `onDragEnd` internally fires `_onDragEnd.fire(...)` as well (at `dnd.ts:577`);
+	 * - Panel and Aux Bar each have their own `CompositeBar`/`CompositeBarDndCallbacks` instance,
+	 *   and their `onDragEnd` all fire;
+	 * - after moving a view with `moveViewToLocation(Editor)`, the native `editorTabsControl` drag-out path
+	 *   opens yet another window.
+	 * An instance-level boolean alone cannot de-duplicate across instances, so instead: write a global sessionId at dragstart
+	 * into dataTransfer, use `tryClaimViewDragSession` in onDragEnd for process-wide de-duplication (see the
+	 * module-level guards `nextViewDragSession` / `tryClaimViewDragSession` below), and delay the `move`
+	 * until after the current dragend event loop ends, fully cutting off the second window from the native path.
 	 */
 
 	constructor(
@@ -267,47 +267,47 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 	}
 
 	onDragStart(e: IDraggedCompositeData) {
-		// 每次拖拽开始时递增 sessionId，确保 onDragEnd 的 claim 去重能正确区分
-		// 不同轮次的拖拽。如果不调用 nextViewDragSession()，sessionId 永远是 -1，
-		// 导致第一次拖拽后 __lastViewDragSessionHandled 被置为 true，后续所有拖拽
-		// 的 tryClaimViewDragSession 都返回 false → "再拖其他视图就拖不出来"。
+		// Increment sessionId at the start of every drag so the claim de-duplication in onDragEnd can correctly distinguish
+		// different drag rounds. If nextViewDragSession() is not called, sessionId stays -1 and
+		// after the first drag __lastViewDragSessionHandled becomes true, so every later drag's
+		// tryClaimViewDragSession returns false -> "dragging another view then cannot drag any out".
 		nextViewDragSession();
 	}
 
 	async onDragEnd(e: IDraggedCompositeData) {
 		this.insertDropBefore = this.updateFromDragging(this.compositeBarContainer, false, false, false);
 
-		// Phase 3: 拖出窗口（方案 A）
-		// 判定：受 `workbench.editor.dragToOpenWindow` 控制，Alt 键反转。
-		// 注意：不依赖 `isWindowDraggedOver()` 来否决开窗——该 tracker 依赖窗口内
-		// DRAG_OVER 事件把 draggedOver 置 true，但把 tab 拖出窗口边界释放时原窗口
-		// 收不到可靠的 DRAG_LEAVE，导致 draggedOver 一直为 true，从而把"拖出窗口"
-		// 误判为"仍在窗口内"而拒绝开窗（这正是 Panel / Aux Bar 拖不出来的根因）。
-		// "是否拖出窗口"改由 `openInAuxiliaryWindow` 内部用光标几何判定（与
-		// editorTabsControl#maybeCreateAuxiliaryEditorPartAt 一致）。
+		// Phase 3: drag out of the window (option A)
+		// Decision: controlled by `workbench.editor.dragToOpenWindow`, inverted by Alt.
+		// Note: do not rely on `isWindowDraggedOver()` to veto opening a window -- that tracker relies on
+		// DRAG_OVER events to set draggedOver to true, but when a tab is dragged past the window boundary and
+		// released, the original window receives no reliable DRAG_LEAVE, so draggedOver stays true and "drag out of window" is
+		// misjudged as "still inside the window", rejecting the open (this is the root cause of Panel / Aux Bar failing to drag out).
+		// "Whether it was dragged out of the window" is instead decided inside `openInAuxiliaryWindow` using the cursor geometry (consistent with
+		// editorTabsControl#maybeCreateAuxiliaryEditorPartAt).
 		const isNewWindowOperation = this.editorGroupsService.partOptions.dragToOpenWindow ? !e.eventData.altKey : e.eventData.altKey;
 		if (isNewWindowOperation) {
-			// 全局去重：基于 viewId 的"进行中集合"守卫（见 viewDragSession.ts）。
-			// 同一拖拽的多个 onDragEnd 回调（bar 容器 registerTarget、
-			// tab registerDraggable、原生 editor tabs 拖出链路）会传入相同的 viewId，
-			// 只有首个处理者 claim 成功，其余直接跳过。
-			// 不同 viewId（如先拖 Watch 再拖 Call Stack）互不影响，可分别拖出
-			// 各自独立的窗口。
+			// Global de-duplication: a viewId-based "in-progress set" guard (see viewDragSession.ts).
+			// Multiple onDragEnd callbacks for the same drag (bar container registerTarget,
+			// tab registerDraggable, native editor tabs drag-out path) all pass the same viewId,
+			// and only the first handler claims it successfully while the rest skip.
+			// Different viewIds (e.g. dragging Watch then Call Stack) do not affect each other and can each be dragged out
+			// into their own separate window.
 			//
-			// 关键修复（v5 — 消除竞态条件）：
-			// tryClaimViewDragSession 是**同步**调用，必须在任何 await 之前执行。
-			// v4 版本虽然也用了 Set 去重，但在 claim 之后、实际开窗之前有
-			// `await getCursorScreenPoint()` 等异步操作。当 await 让出执行权后，
-			// 另一个 CompositeBarDndCallbacks 实例（如 Aux Bar 的 onDragEnd）
-			// 可以在同一事件循环微任务中执行到 tryClaimViewDragSession，
-			// 此时 __pendingViews 尚未被第一个回调 add（因为第一个回调还停在 await 上），
-			// 导致两个回调都通过 has() 检查 → 都返回 true → 各自打开一个独立窗口。
-			// 这就是"拖出一个 Watch 视图却出现两个独立 Watch 窗口"的根因。
+			// Key fix (v5 - eliminating the race condition):
+			// tryClaimViewDragSession is a **synchronous** call and must run before any await.
+			// The v4 version also used a Set for de-duplication, but between claim and the actual window opening
+			// there were async operations such as `await getCursorScreenPoint()`. Once the await yields execution,
+			// another CompositeBarDndCallbacks instance (e.g. the Aux Bar's onDragEnd) can
+			// reach tryClaimViewDragSession in the same event-loop microtask,
+			// at which point __pendingViews has not yet been added by the first callback (because the first callback is still parked on the await),
+			// so both callbacks pass the has() check -> both return true -> each opens a separate window.
+			// This is the root cause of "dragging out one Watch view produces two separate Watch windows".
 			//
-			// 修复：claim 在此同步段立即执行，Set.add() 在返回前已完成。
-			// 后续所有 await 都在 claim 之后，其他回调看到的已是已被占有的状态。
+			// Fix: the claim runs immediately in this synchronous section, and Set.add() completes before it returns.
+			// All later awaits happen after the claim, so other callbacks already see the owned state.
 			const { type: dragType, id: dragId } = e.dragAndDropData.getData();
-			const claimViewId = `${dragType}:${dragId}`; // 用 type:id 组合作为唯一键
+			const claimViewId = `${dragType}:${dragId}`; // use the type:id combination as the unique key
 			const claimResult = tryClaimViewDragSession(claimViewId);
 			if (!claimResult) {
 				return;
@@ -315,16 +315,16 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 			try {
 				await this.openInAuxiliaryWindow(e);
 			} finally {
-				// 关键修复（拖一个视图却开出多个窗口）：
-				// 不能在本回合开窗一结束就立即释放 claim。因为 openInAuxiliaryWindow
-				// 内部最后用 `setTimeout(moveViewToLocation, 0)` 把视图 move 到
-				// Editor 区，原生 editorTabsControl 的拖出链路（或其它同源的
-				// onDragEnd 回调）可能在 move 之后、本次拖拽真正收尾之前再触发一次
-				// 开窗（这就是"拖出一个，却冒出 3 个独立窗口"的来源）。
-				// 因此把 claim 的释放延迟到本回合所有异步收尾（含上面的 setTimeout
-				// move 及其后续）完成之后，确保那些二次开窗请求在锁释放前被挡掉。
-				// 延迟时长需大于 openInAuxiliaryWindow 内部的 setTimeout(0) 及原生
-				// 链路的可能异步耗时，这里取 300ms。
+				// Key fix (dragging one view opens multiple windows):
+				// we must not release the claim immediately when this round's window opening finishes, because openInAuxiliaryWindow
+				// internally uses `setTimeout(moveViewToLocation, 0)` at the end to move the view to the
+				// Editor area, and the native editorTabsControl drag-out path (or another same-origin
+				// onDragEnd callback) may trigger another window opening after the move but before this drag truly
+				// finishes (this is the source of "dragging one out but 3 separate windows pop up").
+				// So we delay releasing the claim until all async cleanup of this round (including the setTimeout
+				// move above and its follow-ups) has completed, ensuring those second window requests are blocked before the lock is released.
+				// The delay must be longer than the internal setTimeout(0) of openInAuxiliaryWindow and the possible
+				// async duration of the native path; we use 300ms here.
 				setTimeout(() => releaseViewDragSession(claimViewId), 300);
 			}
 		}
@@ -334,17 +334,17 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 		try {
 			const { type, id } = e.dragAndDropData.getData();
 
-			// 解析出要承载的视图 id：
-			// - 拖 'view' 类型：id 直接就是 view id，`getViewDescriptorById` 能解析。
-			// - 拖 'composite' 类型：id 是 container id（如 Aux Bar 的 `workbench.view.debug`、
-			//   Panel 的 `workbench.panel.terminal`）。`getViewDescriptorById(containerId)`
-			//   必然返回 undefined，因此必须先用 `getViewContainerById` 取出容器，再取它的
-			//   第一个（也是唯一可承载拖出窗口的）视图描述符。
-			// 旧实现对 composite 类型只做了 `getViewDescriptorById(id) ?? id`，等于拿
-			// container id 当 view id 去查，结果永远 undefined → 直接 return 不开窗。
-			// 这正是"从 Aux Bar 拖不出视图"的根因：Aux Bar 上的面板几乎都是多视图容器，
-			// 拖出来的类型一律是 'composite'，于是永远解析失败。Panel 上能拖出来是因为
-			// Problems/Output 等是单视图容器，走了 `type: 'view'` 分支。
+			// Resolve the view id to host:
+			// - dragging a 'view' type: the id is the view id directly, so `getViewDescriptorById` can resolve it.
+			// - dragging a 'composite' type: the id is a container id (e.g. the Aux Bar's `workbench.view.debug`,
+			//   or the Panel's `workbench.panel.terminal`). `getViewDescriptorById(containerId)`
+			//   always returns undefined, so we must first fetch the container with `getViewContainerById` and then take its
+			//   first (and only draggable-to-window) view descriptor.
+			// The old implementation did only `getViewDescriptorById(id) ?? id` for the composite type, i.e. it looked up the
+			// container id as if it were a view id, so the result was always undefined -> an early return and no window.
+			// This is the root cause of "cannot drag a view out of the Aux Bar": almost all folders on the Aux Bar are multi-view containers,
+			// so a dragged-out item is always of type 'composite' and resolution always fails. Items on the Panel could be dragged out because
+			// Problems/Output etc. are single-view containers and went through the `type: 'view'` branch.
 			let descriptor: IViewDescriptor | undefined;
 			if (type === 'view') {
 				descriptor = this.viewDescriptorService.getViewDescriptorById(id) ?? undefined;
@@ -360,43 +360,43 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				return;
 			}
 
-			// 取当前光标屏幕坐标作为新窗口 bounds（参照 editorTabsControl#maybeCreateAuxiliaryEditorPartAt）。
+			// Use the current cursor screen position as the new window bounds (cf. editorTabsControl#maybeCreateAuxiliaryEditorPartAt).
 			const screenPoint = await this.hostService.getCursorScreenPoint();
 
 			const targetWindow = getWindow(this.compositeBarContainer);
 
-			// 几何否决判定（"鼠标仍在本窗口内 → 不开窗"）。
-			// 注意（Aux Bar 拖不出来的根因之一）：
-			// Chromium 在 `dragend` 事件里 `event.screenX/screenY` **不反映释放时的
-			// 光标位置**（多数平台回退到拖拽开始时的坐标，甚至 0）。Aux Bar 标签本来就
-			// 贴着窗口边缘，拖拽开始的 screenX/Y 一定落在窗口矩形内；一旦
-			// `getCursorScreenPoint()` 在该环境下拿不到值而用 `screenX/Y` 兜底，就会
-			// 把"已拖出窗口"误判为"仍在窗口内"而直接 return，表现为 Aux Bar 永远拖不出。
-			// 因此：只有当 `getCursorScreenPoint()` 真的返回了坐标时才用该坐标做精确几何否决。
+			// Geometric veto ("mouse is still inside this window -> do not open a window").
+			// Note (one of the root causes of the Aux Bar failing to drag out):
+			// in the `dragend` event, Chromium's `event.screenX/screenY` does **not reflect the cursor
+			// position on release** (on most platforms it falls back to the coordinates at drag start, or even 0). An Aux Bar tab is
+			// flush with the window edge, so screenX/Y at drag start always lies inside the window rect; if
+			// `getCursorScreenPoint()` returns nothing in that environment and we fall back to `screenX/Y`, we
+			// misjudge "already dragged out of the window" as "still inside the window" and return, which looks like the Aux Bar can never be dragged out.
+			// Therefore: only use the coordinates for a precise geometric veto when `getCursorScreenPoint()` actually returns them.
 			//
-			// 关键修复（栏内跨侧拖拽产生重复视图）：
-			// 当 `getCursorScreenPoint()` 返回 undefined（Chromium dragend 常见）时，旧实现
-			// 直接跳过否决并无条件开窗，于是 Panel 栏内"从一侧拖到另一侧"这种纯栏内移动
-			// 也会被开出一个浮动窗口、并把视图 move 到 Editor 区，结果原视图在新窗口/Editor
-			// 区与新窗口里各出现一份 → 表现为"视图重复"（截图里的 WATCH/TERMINAL 多副本）。
-			// 对齐 editorTabsControl#maybeCreateAuxiliaryEditorPartAt 的做法：当拿不到真实
-			// 光标坐标、但源窗口仍可见且有焦点时（即释放点必然还在本窗口内，是一次栏内
-			// 移动或拖回窗口），直接拒绝开窗；只有当窗口已失去焦点（真正拖出窗口）才开窗。
+			// Key fix (duplicate views when dragging across sides within a bar):
+			// when `getCursorScreenPoint()` returns undefined (common for Chromium dragend), the old implementation
+			// skipped the veto and opened a window unconditionally, so a pure in-bar move like dragging from one side of the Panel bar to the other
+			// also opened a floating window and moved the view to the Editor area; as a result the original view appeared both in the Editor
+			// area and in the new window -> "duplicate views" (the multiple WATCH/TERMINAL copies in the screenshot).
+			// Aligned with editorTabsControl#maybeCreateAuxiliaryEditorPartAt: when the real
+			// cursor position is unavailable but the source window is still visible and focused (i.e. the release point must still be inside this window, an in-bar
+			// move or a drag back into the window), reject opening a window; only open a window when the window has lost focus (a real drag out).
 			const windowStillFocused = targetWindow.document.visibilityState === 'visible' && targetWindow.document.hasFocus();
 			if (screenPoint) {
 				const point = screenPoint.point;
 				if (point.x >= targetWindow.screenX && point.x <= targetWindow.screenX + targetWindow.outerWidth
 					&& point.y >= targetWindow.screenY && point.y <= targetWindow.screenY + targetWindow.outerHeight) {
-					return; // 鼠标仍在本窗口内，不开窗（视为栏内移动 / 拖回窗口）
+					return; // mouse still inside this window, do not open (treated as an in-bar move / drag back into the window)
 				}
 			} else if (windowStillFocused) {
-				return; // 拿不到光标坐标且源窗口仍聚焦 → 视为栏内移动，拒绝开窗（消除重复视图）
+				return; // cursor position unavailable and source window still focused -> treated as an in-bar move, reject opening (removes duplicate views)
 			}
 
 			let bounds: { x: number; y: number } | undefined;
 			if (screenPoint) {
 				bounds = { x: screenPoint.point.x, y: screenPoint.point.y };
-				// 跨多显示器保护：防止窗口溢出到屏幕/显示器左上与上方之外。
+				// Multi-monitor protection: prevent the window from overflowing past the top/left edge of the screen/display.
 				const display = screenPoint.display;
 				if (display) {
 					if (bounds.x < display.x) {
@@ -408,23 +408,23 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				}
 			}
 
-			// 关键修复：先开辅助窗口 + openEditor，最后才把视图 move 到 Editor 区。
-			// 旧实现先 move 再 create 会让视图短暂出现在主窗口 editor 区，
-			// 触发原生 `editorTabsControl` 的拖出链路（onDragEnd 二次回调），结果多开窗口。
-			// 新顺序：view 还在原栏 → 不会出现在主窗口 editor → 原生链路不会介入 → 干净单窗口。
+			// Key fix: open the auxiliary window + openEditor first, and only move the view into the Editor area last.
+			// The old implementation moved first and created after, which made the view briefly appear in the main window's editor area and
+			// triggered the native `editorTabsControl` drag-out path (a second onDragEnd callback), opening extra windows.
+			// New order: the view is still in its original bar -> never appears in the main window editor -> the native path never kicks in -> a clean single window.
 			const auxiliaryEditorPart = await this.editorGroupsService.createAuxiliaryEditorPart({ bounds });
 			const targetGroup = auxiliaryEditorPart.activeGroup;
 
-			// 对于 composite 类型（多视图容器如 Debug），将所有活跃视图都打开到
-			// 浮动窗口中。单一视图类型则只打开那一个。
-			// 这确保用户拖出 Debug 容器时能看到完整的调试面板（Breakpoints、
-			// Call Stack、Watch、Variables），而不是只有一个空的子视图。
+			// For the composite type (a multi-view container like Debug), open all active views into the
+			// floating window. For the single-view type, open only that one.
+			// This ensures that dragging out the Debug container shows the full debug panel (Breakpoints,
+			// Call Stack, Watch, Variables) rather than just one empty child view.
 			//
-			// 重要：viewsToOpen 决定了哪些视图会被 moveViewToLocation(Editor)。
-			// 如果把容器中所有视图都 move 走，后续再拖该容器的其他子视图时，
-			// getViewLocationById 会返回 Editor → 被 location check 拦截 → 无法再次开窗。
-			// 因此只有 type === 'composite'（拖的是容器 tab 本身）时才全量 move；
-			// type === 'view'（拖的是具体子视图）时只 move 那一个。
+			// Important: viewsToOpen decides which views get moveViewToLocation(Editor).
+			// If we move away all views in a container, then later dragging another child view of that container makes
+			// getViewLocationById return Editor -> blocked by the location check -> no window can be opened again.
+			// So move all views only when type === 'composite' (dragging the container tab itself);
+			// when type === 'view' (dragging a specific child view) move only that one.
 			const viewsToOpen = type === 'composite'
 				? (() => {
 					const container = this.viewDescriptorService.getViewContainerById(id);
@@ -440,8 +440,8 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 				const vOriginalLocation = this.viewDescriptorService.getViewLocationById(v.id) ?? undefined;
 				const vOriginalContainer = this.viewDescriptorService.getViewContainerByViewId(v.id);
 				const vOriginalContainerId = vOriginalContainer?.id ?? undefined;
-				// 记录该视图在原容器内的顺序位置，关闭浮动窗口归位时用来还原排序，
-				// 否则 WATCH 等中间位置的子视图会跑到 Debug 容器顶部。
+				// Record the view's ordinal position within its original container, used to restore ordering when a floating window closes,
+				// otherwise a child view in a middle position such as WATCH jumps to the top of the Debug container.
 				const vOriginalIndex = vOriginalContainer
 					? this.viewDescriptorService.getViewContainerModel(vOriginalContainer).allViewDescriptors.findIndex(d => d.id === v.id)
 					: -1;
@@ -454,46 +454,46 @@ class CompositeBarDndCallbacks implements ICompositeDragAndDropObserverCallbacks
 					vOriginalContainerId,
 					vOriginalIndex >= 0 ? vOriginalIndex : undefined
 				);
-				// 记录"拖出来源"为原栏（Panel/Aux），使关闭独立窗口时归位回原栏
-				// （而非被后面 moveViewToLocation(E			);
-			await targetGroup.openEditor(input, { pinned: true });
+				// Record the "drag-out origin" as the original bar (Panel/Aux), so that closing the standalone window restores it to the original bar
+				// (rather than being moved into the Editor area by the later moveViewToLocation).
+				await targetGroup.openEditor(input, { pinned: true });
 			}
 			targetGroup.focus();
 
-			// 此时再把视图从原栏移除（视图已经承载在新窗口的 ViewEditorPane 里，
-			// 原栏不再需要它）。这一步会让原 composite bar 隐藏对应 tab，
-			// 但因为 ViewEditorInput 是 Singleton，原窗口不会再现。
+			// Now remove the view from its original bar (it is already hosted by the new window's ViewEditorPane,
+			// so the original bar no longer needs it). This step hides the corresponding tab on the original composite bar,
+			// but because ViewEditorInput is a Singleton, the original window never reappears.
 			//
-			// 关键：延迟到当前 dragend 事件循环完全结束之后再 move。
-			// 若立即 move，ViewEditorPane 的 tab 会立刻出现在本窗口 editor 区，
-			// 而此时原生 `editorTabsControl.onDragEnd` 拖出链路仍在运行、会捕获到该 tab
-			// 并再开一个浮动窗口（这就是"拖出三个窗口"的第三个来源）。
-			// 用一个 microtask/timeout 让原生链路先跑完（此时视图尚未进入 editor 区、
-			// 拿不到该 tab），再执行 move，即不会再触发二次开窗。
+			// Key: delay the move until the current dragend event loop has fully finished.
+			// If we moved immediately, the ViewEditorPane tab would appear in this window's editor area right away,
+			// while the native `editorTabsControl.onDragEnd` drag-out path is still running, would capture that tab
+			// and open yet another floating window (this is the third source of "three windows dragged out").
+			// Using a microtask/timeout lets the native path run first (at which point the view is not yet in the editor area and
+			// the tab cannot be found), then we move, so no second window is triggered.
 			//
-			// 重要：只 move viewsToOpen 中的视图。对于 type === 'view'（拖的是子视图），
-			// viewsToOpen 只包含那一个视图，不会影响同容器的其他子视图。
-			// 这样用户可以逐个把 Debug 容器的 Watch、Call Stack 等分别拖到独立窗口。
+			// Important: only move the views in viewsToOpen. For type === 'view' (dragging a child view),
+			// viewsToOpen contains only that one view and does not affect other child views of the same container.
+			// This lets users drag each of the Debug container's Watch, Call Stack, etc. into separate windows one by one.
 			const viewDescriptorService = this.viewDescriptorService;
 			setTimeout(() => {
-				// 拖出窗口期间抑制 Panel 区域重新渲染闪烁（见 viewDragSession.ts 的
-				// `isSuppressPanelRelayoutOnDragOut` 说明）：置位开关，move 把视图从
-				// 原 Panel 容器移走时，Panel 侧不会把最小高度从 77 抬到 350 触发整区
-				// 重布局、也不会 fallback 重开其它容器，避免"拖出时 Panel 闪一下"。
-			setSuppressPanelRelayoutOnDragOut(true);
-			for (const v of viewsToOpen) {
-				viewDescriptorService.moveViewToLocation(v, ViewContainerLocation.Editor, 'dnd-composite-to-window');
-			}
-			// 必须在 Panel 的收尾判定（close→emptyPanelCheckScheduler→autoHide/
-			// autoCollapse，均依赖 suppress 为 true 来跳过）全部 fire 之后再清除开关。
-			// 上面 move 触发的 close 事件会把 `emptyPanelCheckScheduler` 排到下一帧
-			// (RunOnceScheduler(0))，而这里若只用 setTimeout(0) 与它在同一零延时队列里
-			// 竞态、可能先于它清除，导致 autoHide 在 suppress=false 时误判 Panel 为空、
-			// 把仍含其它视图（如 Problems）的 Panel 直接隐藏。改为 300ms（与拖出 claim
-			// 释放同生命周期），确保整个收尾窗口内 suppress 始终为 true，Panel 不被误隐藏。
-			setTimeout(() => {
-				setSuppressPanelRelayoutOnDragOut(false);
-			}, 300);
+				// Suppress the Panel area re-render flicker while a window is being dragged out (see `isSuppressPanelRelayoutOnDragOut`
+				// in viewDragSession.ts): set the flag so that when move removes the view from
+				// the original Panel container, the Panel side neither raises the minimum height from 77 to 350 to trigger a full-area
+				// re-layout nor falls back to re-opening other containers, avoiding "the Panel flashes when dragging out".
+				setSuppressPanelRelayoutOnDragOut(true);
+				for (const v of viewsToOpen) {
+					viewDescriptorService.moveViewToLocation(v, ViewContainerLocation.Editor, 'dnd-composite-to-window');
+				}
+				// The flag must be cleared only after all of the Panel's finalization decisions (close->emptyPanelCheckScheduler->autoHide/
+				// autoCollapse, which all rely on suppress being true to skip) have fired.
+				// The close event triggered by the move above schedules `emptyPanelCheckScheduler` for the next frame
+				// (RunOnceScheduler(0)); if we used only setTimeout(0) here it would race with that in the same zero-delay queue and
+				// might clear first, causing autoHide to misjudge the Panel as empty when suppress=false and
+				// hide a Panel that still contains other views (such as Problems). Changed to 300ms (same lifecycle as the drag-out claim
+				// release) to ensure suppress stays true throughout the finalization window and the Panel is not wrongly hidden.
+				setTimeout(() => {
+					setSuppressPanelRelayoutOnDragOut(false);
+				}, 300);
 			}, 0);
 		} catch (error) {
 			// swallow: opening an auxiliary window for a view is best-effort
@@ -906,7 +906,7 @@ export class CompositeBar extends Widget implements ICompositeBar {
 		if (!this.dimension) {
 			// The bar has no dimension yet (it may still be hidden or mid-relayout,
 			// e.g. while a view is being dragged out to its own window and the owning
-			// part's relayout is suppressed). Do not drop the request — remember it
+			// part's relayout is suppressed). Do not drop the request -- remember it
 			// so the next `layout()` with a real dimension replays the refresh and
 			// removes any stale (unpinned) tab instead of letting it linger.
 			this.compositeSwitcherBarNeedsUpdate = true;

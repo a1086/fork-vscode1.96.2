@@ -990,9 +990,10 @@ export default tseslint.config(
 						'vs/platform/*/~',
 						'vs/editor/~',
 						'vs/editor/contrib/*/~',
-						'vs/workbench/~',
-						'vs/workbench/services/*/~',
-						'assert',
+					'vs/workbench/~',
+					'vs/workbench/services/*/~',
+					'vs/workbench/contrib/*/~',
+					'assert',
 						{
 							'when': 'test',
 							'pattern': 'vs/workbench/contrib/*/~'

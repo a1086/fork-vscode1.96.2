@@ -1265,10 +1265,10 @@ class TimelinePaneCommands extends Disposable {
 	) {
 		super();
 
-		// 全局命令/菜单/source-filter 动作只注册一次（首次创建 Timeline 实例时），
-		// 否则同一视图同时存在多个实例（侧栏 + 独立窗口/编辑器，或归位重建）时会
-		// 重复注册同一命令 id 而崩溃（"Cannot register two commands with the same
-		// id: timeline.refresh"）。run 通过 `activeTimelinePane` 作用到当前聚焦实例。
+		// Global command/menu/source-filter actions must be registered only once (when the first
+		// Timeline instance is created). Otherwise, when the same view exists as multiple instances
+		// at the same time (sidebar + standalone window/editor, or re-created while restoring),
+		// the same command id would be registered twice and crash ("Cannot register two commands with the same id: timeline.refresh"). run() targets the currently focused instance via `activeTimelinePane`.
 		ensureTimelineCommandsRegistered(this.timelineService, this.storageService);
 	}
 

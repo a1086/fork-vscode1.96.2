@@ -1,4 +1,4 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -6,8 +6,7 @@
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { EditorInputCapabilities, IUntypedEditorInput } from '../../../common/editor.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
-import { IViewDescriptor } from '../../../common/views.js';
+import { IViewDescriptor, IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 
 export const VIEW_EDITOR_INPUT_TYPE_ID = 'workbench.editors.viewEditorInput';
 
@@ -82,22 +81,22 @@ export class ViewEditorInput extends EditorInput {
 }
 
 /**
- * 把承载在 Editor 区的视图归位回其原始栏（Panel / Aux Bar），并在归位后
- * 关闭承载它的 editor tab。
+ * Restore a view hosted in the Editor area back to its original bar (Panel / Aux Bar), and after restoring
+ * close the editor tab that hosts it.
  *
- * 关键场景（关闭拖出的浮动窗口后"同时出现在 panel 和 editor"的根因）：
- * 关闭辅助窗口时，VS Code 原生 `AuxiliaryEditorPartImpl.close()` 会
- * `mergeGroupsToMainPart()`，把辅助窗口里的 `ViewEditorInput` 整体 move 到
- * 主窗口 editor 区，主窗口随后 `setInput` 重新承载该视图——于是 editor 区
- * 残留一份 Terminal。如果不先归位再关 tab，Panel 里（被本函数移回去的那份）
- * 和 editor 区（被 merge 过去的那份）就会同时存在。
+ * Key scenario (root cause of "appears in both panel and editor after closing a dragged-out floating window"):
+ * when an auxiliary window is closed, VS Code's native `AuxiliaryEditorPartImpl.close()` calls
+ * `mergeGroupsToMainPart()`, which moves the `ViewEditorInput`s in the auxiliary window as a whole to
+ * the main window's editor area, and the main window then re-hosts the view via `setInput` -- so a copy of the Terminal
+ * lingers in the editor area. If we do not restore first and then close the tab, the copy in the Panel (moved back by this function)
+ * and the copy in the editor area (merged over) would exist at the same time.
  *
- * 因此辅助窗口关闭流程必须在 `mergeGroupsToMainPart` 之前调用本函数：先把
- * 视图 move 回原栏，使其脱离 Editor 区，再关闭辅助窗口里的 editor tab，
- * 这样 merge 时无 editor 可搬，主窗口不会出现 Terminal 副本。
+ * So the auxiliary window close flow must call this function before `mergeGroupsToMainPart`: first move
+ * the view back to its original bar so it leaves the Editor area, then close the editor tab in the auxiliary window,
+ * so that during merge there is no editor to move and the main window shows no Terminal duplicate.
  *
- * `moveViewToLocation` 幂等：若视图已不在 Editor 区（例如被 reverse-drag
- * 提前归位）则不会错误地再移动一次。
+ * `moveViewToLocation` is idempotent: if the view is no longer in the Editor area (e.g. already restored early by
+ * a reverse-drag), it will not be moved again incorrectly.
  */
 export function restoreViewEditorInputToOriginalLocation(
 	input: ViewEditorInput,
@@ -110,28 +109,28 @@ export function restoreViewEditorInputToOriginalLocation(
 	}
 
 	const currentLocation = viewDescriptorService.getViewLocationById(input.viewId);
-	// 归位语义："从哪个区域拖出独立窗口，关闭窗口就回到哪个区域"。
+	// Restore semantics: "whichever area a view was dragged out of into a standalone window, closing the window returns it to that area".
 	//
-	// 区分两条拖出窗口路径：
-	// 1) 从 Panel/Aux 直接拖出窗口（compositeBar.ts）：input 保留
-	//    `originalContainerId` / `originalLocation`（指向原栏）。关窗时视图虽已被
-	//    move 进 Editor 区，但仍应归位回原栏 → 用 `originalLocation`。
-	// 2) 先拖入 Editor 区、再从 Editor 拖出窗口：辅助窗口关闭时 VS Code 会用一份
-	//    **重建**的 ViewEditorInput（`originalContainerId` 为 undefined，因为该字段
-	//    是运行时构造参数、不随序列化传递）。此时视图确实是从 Editor 拖出的，应
-	//    留在 Editor 区 → 归位目标取 `currentLocation`。
+	// Distinguish the two drag-out paths:
+	// 1) Dragged directly out of Panel/Aux into a window (compositeBar.ts): input keeps
+	//    `originalContainerId` / `originalLocation` (pointing at the original bar). On close, even though the view has been
+	//    moved into the Editor area, it should still be restored to the original bar -> use `originalLocation`.
+	// 2) Dragged into the Editor area first, then out of the Editor into a window: when the auxiliary window closes, VS Code uses a
+	//    **rebuilt** ViewEditorInput (`originalContainerId` is undefined, because that field
+	//    is a runtime constructor argument and is not carried across serialization). The view was indeed dragged out of the Editor, so it should
+	//    stay in the Editor area -> the restore target is `currentLocation`.
 	//
-	// 判定：当 input 没有有效的 originalContainerId（即属于路径 2 的重建实例）
-	// 时，归位目标回退到 currentLocation（留在当前所在的 Editor 区）；否则用
-	// originalLocation（回原栏）。
+	// Decision: when input has no valid originalContainerId (i.e. it is a path-2 rebuilt instance)
+	// the restore target falls back to currentLocation (stay in the current Editor area); otherwise use
+	// originalLocation (back to the original bar).
 	const hasOriginalContainer = !!input.originalContainerId;
 	const targetLocation = hasOriginalContainer
 		? (input.originalLocation ?? ViewContainerLocation.Panel)
 		: (currentLocation ?? input.originalLocation ?? ViewContainerLocation.Panel);
 	let movedOutOfEditor = false;
 	if (currentLocation === null || currentLocation !== targetLocation) {
-		// 优先把视图移回它原本所属的容器（保持原栏、原容器分组），
-		// 而不是用 moveViewToLocation（会生成一个新容器并放到最顶部）。
+		// Prefer moving the view back to the container it originally belonged to (preserving the original bar and container grouping),
+		// rather than using moveViewToLocation (which would create a new container and place it at the very top).
 		const originalContainer = input.originalContainerId
 			? viewDescriptorService.getViewContainerById(input.originalContainerId)
 			: null;
@@ -143,32 +142,32 @@ export function restoreViewEditorInputToOriginalLocation(
 		movedOutOfEditor = true;
 	}
 
-	// 恢复容器内的原始顺序位置。moveViewsToContainer 默认把视图 Append 到
-	// 容器末尾，所以拖出的是 Debug 容器里中间位置的 WATCH/Call Stack 等子视图时，
-	// 关闭窗口归位后会跑到容器顶部。这里用 originalIndex 把视图插回原位。
+	// Restore the view's original ordinal position within the container. moveViewsToContainer appends the view to
+	// the end of the container by default, so when the dragged-out view is a child such as WATCH/Call Stack in the middle of the Debug container,
+	// after closing the window and restoring it jumps to the top of the container. Here we use originalIndex to insert the view back into place.
 	restoreViewIndex(input, viewDescriptorService);
 
-	// 仅当视图确实被移出了 Editor 区（回到原栏）时才关闭承载它的 editor tab，
-	// 避免主窗口 editor 区残留副本。
-	// 若视图本就留在 Editor 区（例如"先从 Editor 拖出窗口、关窗应回 Editor"的
-	// 路径：targetLocation === currentLocation === Editor，未触发上面的 move），
-	// 则**不能**关闭 editor tab——否则没有 editor 承载该视图，它会直接"消失"。
-	// 此时由辅助窗口关闭时的 mergeGroupsToMainPart 把 editor 搬回主窗口继续承载。
+	// Close the editor tab hosting the view only when the view was actually moved out of the Editor area (back to the original bar),
+	// to avoid a lingering copy in the main window's editor area.
+	// If the view just stays in the Editor area (e.g. the "dragged out of Editor into a window, so on close it should return to Editor"
+	// path: targetLocation === currentLocation === Editor, which did not trigger the move above),
+	// then we must **not** close the editor tab -- otherwise no editor hosts the view and it would simply "disappear".
+	// In that case, mergeGroupsToMainPart on auxiliary window close moves the editor back to the main window to keep hosting it.
 	if (movedOutOfEditor) {
 		closeEditor?.();
 	}
 }
 
 /**
- * 把已归位到原容器的视图插回到它原本在容器内的顺序位置。
+ * Insert a view that has been restored to its original container back into its original ordinal position within the container.
  *
- * 根因：关闭浮动窗口归位时 `moveViewsToContainer` 会把视图 append 到容器末尾，
- * 于是 Debug 容器里中间位置的 WATCH / Call Stack 等子视图会被放到顶部，
- * 表现为"关闭后视图没回到原来的位置"。
+ * Root cause: `moveViewsToContainer` appends the view to the end of the container when restoring on floating-window close,
+ * so child views in the middle of the Debug container such as WATCH / Call Stack get placed at the top,
+ * showing up as "the view did not return to its original position after closing".
  *
- * 修复：用 `originalIndex` 计算目标位置——取原容器中 `originalIndex` 处的相邻
- * 视图作为锚点，调用 `viewContainerModel.move` 把当前视图插到锚点之前/之后，
- * 从而精确还原拖出前的排序。`move` 内部会更新 `state.order` 并广播变更。
+ * Fix: compute the target position with `originalIndex` -- take the neighboring view at `originalIndex` in the original container
+ * as an anchor, and call `viewContainerModel.move` to insert the current view before/after the anchor,
+ * precisely restoring the ordering from before the drag-out. `move` internally updates `state.order` and broadcasts the change.
  */
 export function restoreViewIndex(
 	input: ViewEditorInput,
@@ -191,20 +190,20 @@ export function restoreViewIndex(
 		return;
 	}
 
-	// 当前视图在容器内的实际 index（归位后应在其中）。
+	// The current view's actual index within the container (it should be among them after restoring).
 	const currentIndex = model.allViewDescriptors.findIndex(v => v.id === input.viewId);
 	if (currentIndex === -1) {
 		return;
 	}
 
-	// 已经在目标位置，无需移动。
+	// Already at the target position, no move needed.
 	if (currentIndex === originalIndex) {
 		return;
 	}
 
-	// 取目标位置相邻的视图 id 作为锚点：
-	// - 若 originalIndex 落在容器长度范围内，以该位置现有的视图为锚点，move 到它之前。
-	// - 若 originalIndex 超出范围（理论上不会），回退到插到末尾（最后一个视图之后）。
+	// Take the view id adjacent to the target position as the anchor:
+	// - If originalIndex falls within the container length, use the view currently at that position as the anchor and move before it.
+	// - If originalIndex is out of range (should not happen in theory), fall back to inserting at the end (after the last view).
 	const all = model.allViewDescriptors;
 	const anchorIndex = Math.min(originalIndex, all.length - 1);
 	const anchor = all[anchorIndex];
@@ -212,8 +211,8 @@ export function restoreViewIndex(
 		return;
 	}
 
-	// move(from, to)：把视图从 currentIndex 移到 anchorIndex。
-	// 当 currentIndex < anchorIndex 时，move 到 anchor 之前正好落回 originalIndex；
-	// 当 currentIndex > anchorIndex 时，move 到 anchor 之前也恰好落到 originalIndex。
+	// move(from, to): move the view from currentIndex to anchorIndex.
+	// When currentIndex < anchorIndex, moving before the anchor lands exactly back at originalIndex;
+	// when currentIndex > anchorIndex, moving before the anchor also lands exactly at originalIndex.
 	model.move(input.viewId, anchor.id);
 }

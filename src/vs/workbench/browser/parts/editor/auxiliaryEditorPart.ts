@@ -1,4 +1,4 @@
-﻿/*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -278,7 +278,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 		// Close aux window when last group removed
 		if (this.count <= 1) {
 			this.doRemoveLastGroup(preserveFocus);
-			return; // 不进入父类 removeGroup，避免 doRemoveEmptyGroup → gridWidget.removeView 抛出 "Can't remove last view"
+			return; // do not enter the parent removeGroup, avoiding doRemoveEmptyGroup -> gridWidget.removeView throwing "Can't remove last view"
 		}
 
 		// Otherwise delegate to parent implementation
@@ -320,9 +320,9 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 			result = await this.mergeGroupsToMainPart();
 		}
 
-		// 必须在归位完成后再触发 onWillClose —— onWillClose 会真正关闭
-		// 浮动窗口。若不等归位就触发，窗口会在 ViewEditorInput 还没从本
-		// 窗口 group 移除时被销毁，导致 merge 仍把视图搬到主窗口 editor 区。
+		// onWillClose must be fired only after the restore has completed -- onWillClose actually closes
+		// the floating window. If fired before the restore completes, the window would be destroyed while the
+		// ViewEditorInput has not yet been removed from this window's group, so merge would still move the view to the main window's editor area.
 		this._onWillClose.fire();
 
 		return result;
@@ -333,16 +333,16 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 			return true; // skip if we have no editors opened
 		}
 
-		// 修复"关闭拖出的浮动窗口后视图同时出现在 panel 和 editor"：
-		// 关闭辅助窗口时，原生的 merge 会把本窗口里的 editor（包括
-		// ViewEditorInput 承载的视图）整体 move 到主窗口 editor 区，主窗口
-		// 随后 setInput 重新承载，于是 editor 区残留一份视图。
-		// 在 merge 之前先把所有 ViewEditorInput 归位回其原栏（Panel / Aux Bar）
-		// 并关闭本窗口的 editor tab，使接下来 merge 时无 editor 可搬，
-		// 主窗口便不会再出现视图副本。归位语义保持"从哪拖出，关窗回哪"。
-		// 先收集再关闭，避免在遍历 group.editors 时修改集合引发的迭代问题。
-		// 注意：group.closeEditor 是异步的，必须 await 全部完成后才能
-		// mergeAllGroups，否则 editor 还在 group 里，会被再次搬到主窗口。
+		// Fix "after closing a dragged-out floating window the view appears in both panel and editor":
+		// when the auxiliary window is closed, the native merge moves the editors in this window (including the view
+		// hosted by ViewEditorInput) as a whole to the main window's editor area, and the main window
+		// then re-hosts them via setInput, so a copy of the view lingers in the editor area.
+		// Before merge, restore all ViewEditorInputs back to their original bar (Panel / Aux Bar)
+		// and close this window's editor tabs so that the following merge has no editor to move,
+		// and the main window no longer shows view duplicates. Restore semantics keep "close back to where it was dragged out from".
+		// Collect first then close, avoiding iteration issues from modifying the collection while iterating group.editors.
+		// Note: group.closeEditor is async, so we must await all of them before mergeAllGroups,
+		// otherwise the editor is still in the group and gets moved to the main window again.
 		const viewEditorInputs: { group: IEditorGroupView; editor: ViewEditorInput }[] = [];
 		for (const group of this.groups) {
 			for (const editor of group.editors) {
@@ -351,25 +351,25 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 				}
 			}
 		}
-		// 收集"留在 Editor"路径的视图（从 Editor 拖出窗口、关窗应回 Editor）。
-		// 这些视图不能走归位+closeEditor，也不能单纯依赖下面的 mergeAllGroups
-		// （terminal 等 Singleton 在 merge 时可能被主窗口去重丢弃而"消失"）。
-		// 改为关闭辅助窗口前，主动把它们重新 open 到主窗口的 editor group。
+		// Collect views on the "stay in Editor" path (dragged out of the Editor into a window, so closing the window should return them to the Editor).
+		// These views must not go through restore+closeEditor, nor rely solely on the mergeAllGroups
+		// below (a Singleton such as terminal may be deduplicated and dropped by the main window during merge and thus "disappear").
+		// Instead, before closing the auxiliary window, actively re-open them into the main window's editor group.
 		const stayInEditorEditors: ViewEditorInput[] = [];
 		await Promise.all(viewEditorInputs.map(async ({ group, editor }) => {
-			// 视图"从哪个区域拖出独立窗口，关闭窗口就回到哪个区域"。
-			// - originalContainerId 有值（从 Panel/Aux 直接拖出窗口）：归位回原栏
-			//   并关闭本窗口 editor tab，使后续 merge 无 editor 可搬。
-			// - originalContainerId 为 undefined（先拖入 Editor 再从 Editor 拖出
-			//   窗口，关窗时此实例是被重建的、丢失了原栏信息）：视图本就该留在
-			//   Editor 区，收集起来稍后 open 到主窗口。
+			// A view "returns to the area it was dragged out of into a standalone window when the window is closed".
+			// - originalContainerId has a value (dragged directly out of Panel/Aux into a window): restore to the original bar
+			//   and close this window's editor tab so the following merge has no editor to move.
+			// - originalContainerId is undefined (dragged into the Editor first then out of the Editor into
+			//   a window; on close this instance is rebuilt and loses its original bar info): the view should stay in
+			//   the Editor area, so collect it and open it into the main window later.
 			if (editor.originalContainerId === undefined) {
 				stayInEditorEditors.push(editor);
 				return;
 			}
-			// 先把视图 move 回原栏（Panel / Aux Bar），再 await closeEditor
-			// 把 editor 从本窗口 group 真正移除。两步都必须完成，否则其后的
-			// mergeAllGroups 仍会把 editor 搬到主窗口 editor 区，造成残留。
+			// First move the view back to its original bar (Panel / Aux Bar), then await closeEditor
+			// to actually remove the editor from this window's group. Both steps must complete, otherwise the subsequent
+			// mergeAllGroups still moves the editor to the main window's editor area, leaving a duplicate.
 			restoreViewEditorInputToOriginalLocation(
 				editor,
 				this.viewDescriptorService,
@@ -378,13 +378,13 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 			await group.closeEditor(editor);
 		}));
 
-		// 把"留在 Editor"的视图重新打开到主窗口 editor 区，确保关窗后不消失。
-		// 必须在 merge 之前、窗口销毁之前完成，使主窗口持有一个可见的 editor tab。
+		// Re-open the "stay in Editor" views into the main window's editor area, ensuring they do not disappear after the window closes.
+		// This must complete before merge and before the window is destroyed, so the main window holds a visible editor tab.
 		if (stayInEditorEditors.length > 0) {
 			const mainPart = this.editorPartsView.mainPart;
 			const target = mainPart.activeGroup ?? mainPart.getGroups(GroupsOrder.MOST_RECENTLY_ACTIVE)[0];
 			for (const editor of stayInEditorEditors) {
-				// 先从辅助窗口 group 移除（避免 merge 时重复/丢弃），再 open 到主窗口。
+				// First remove it from the auxiliary window's group (avoiding duplication/dropping during merge), then open it into the main window.
 				for (const group of this.groups) {
 					if (group.contains(editor)) {
 						await group.closeEditor(editor);
@@ -396,10 +396,10 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
 			}
 		}
 
-		// 若本窗口里的 ViewEditorInput 已在本步全部归位关闭，剩下的（若有）
-		// 非视图 editor 继续走原生 merge 流程。
+		// If all ViewEditorInputs in this window have been restored and closed in this step, the remaining (if any)
+		// non-view editors continue through the native merge flow.
 		if (!this.groups.some(group => group.count > 0)) {
-			return true; // 所有 editor 都是 ViewEditorInput，归位后已无残留
+			return true; // all editors are ViewEditorInput and after restore there is nothing left
 		}
 
 		// Find the most recent group that is not locked
