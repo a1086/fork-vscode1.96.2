@@ -1204,6 +1204,15 @@ export class PanelSidePart extends AbstractPaneCompositePart {
 	 * moved onto this side), `false` otherwise.
 	 */
 	handleEmptyAreaDrop(e: DragEvent, dragAndDropData: CompositeDragAndDropData): boolean {
+		// `PanelPart.onSplitDrop` intercepts the drop in the CAPTURE phase and
+		// stops propagation, so this side's own bubble-phase drop target (see
+		// `AbstractPaneCompositePart.createEmptyPaneMessage`) never runs and never
+		// clears the drag-enter highlight it painted on the title bar. Clear it
+		// here - a drop (accepted or rejected) definitively ends the hover
+		// feedback, otherwise `EDITOR_DRAG_AND_DROP_BACKGROUND` stays stuck on
+		// the title after a view has been dragged into this side.
+		this.setDropBackgroundFeedback(false);
+
 		const dragData = dragAndDropData.getData();
 
 		if (this.paneCompositeBar.value && dragData.id) {

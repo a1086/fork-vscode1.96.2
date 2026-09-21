@@ -404,19 +404,7 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 		this.emptyPaneMessageElement.appendChild(messageElement);
 		parent.appendChild(this.emptyPaneMessageElement);
 
-		const setDropBackgroundFeedback = (visible: boolean) => {
-			const updateActivityBarBackground = !this.getActiveComposite() || !visible;
-			const backgroundColor = visible ? this.theme.getColor(EDITOR_DRAG_AND_DROP_BACKGROUND)?.toString() || '' : '';
-
-			if (this.titleContainer && updateActivityBarBackground) {
-				this.titleContainer.style.backgroundColor = backgroundColor;
-			}
-			if (this.headerFooterCompositeBarContainer && updateActivityBarBackground) {
-				this.headerFooterCompositeBarContainer.style.backgroundColor = backgroundColor;
-			}
-
-			this.emptyPaneMessageElement!.style.backgroundColor = backgroundColor;
-		};
+		const setDropBackgroundFeedback = (visible: boolean) => this.setDropBackgroundFeedback(visible);
 
 		this._register(CompositeDragAndDropObserver.INSTANCE.registerTarget(this.element, {
 			onDragOver: (e) => {
@@ -489,6 +477,34 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 				}
 			},
 		}));
+	}
+
+	/**
+	 * Show/hide the drag-over highlight (`EDITOR_DRAG_AND_DROP_BACKGROUND`) on
+	 * this part's title bar, header/footer composite bar and empty-pane message.
+	 *
+	 * Extracted from the closure inside `createEmptyPaneMessage` (which still
+	 * delegates here) so the parent `PanelPart` can force-clear the feedback:
+	 * its capture-phase split listener (`PanelPart.onSplitDrop`) stops
+	 * propagation before the drop ever reaches this part's own
+	 * `CompositeDragAndDropObserver` target, so without an explicit clear the
+	 * inline background painted on drag-enter stays stuck on the title bar
+	 * after the view has been dropped in.
+	 */
+	setDropBackgroundFeedback(visible: boolean): void {
+		const updateActivityBarBackground = !this.getActiveComposite() || !visible;
+		const backgroundColor = visible ? this.theme.getColor(EDITOR_DRAG_AND_DROP_BACKGROUND)?.toString() || '' : '';
+
+		if (this.titleContainer && updateActivityBarBackground) {
+			this.titleContainer.style.backgroundColor = backgroundColor;
+		}
+		if (this.headerFooterCompositeBarContainer && updateActivityBarBackground) {
+			this.headerFooterCompositeBarContainer.style.backgroundColor = backgroundColor;
+		}
+
+		if (this.emptyPaneMessageElement) {
+			this.emptyPaneMessageElement.style.backgroundColor = backgroundColor;
+		}
 	}
 
 	protected override createTitleArea(parent: HTMLElement): HTMLElement {
@@ -886,7 +902,7 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 	}
 
 
-	private layoutEmptyMessage(): void {
+	protected layoutEmptyMessage(): void {
 		const visible = !this.getActiveComposite();
 		this.element.classList.toggle('empty', visible);
 		if (visible) {

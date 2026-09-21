@@ -2043,3 +2043,63 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - `src/vs/workbench/browser/parts/editor/editorPart.ts`（~188）
 - `src/vs/workbench/browser/parts/paneCompositePart.ts`（~68）
 - `src/vs/workbench/browser/parts/panel/panelSidePart.ts`（~7）
+
+---
+
+## 58. TypeScript 类型兼容性修复、拖拽高亮残留清理与视图命令重构（2026-09-21）
+
+**改动**：适配新版 TypeScript / lib.dom 类型定义（泛型 `Uint8Array<TArrayBuffer>`、stream 回调 `err` 类型加宽、Web Crypto `ArrayBuffer` 等）；修复 Panel 双栏拖拽落点后高亮残留问题；重构视图打开命令并清理若干无用代码。
+
+### 58.1 类型兼容性修复（适配新版 TS / DOM lib）
+
+- `src/bootstrap-fork.ts` / `src/vs/workbench/api/node/extHostConsoleForwarder.ts`：stream `write` getter 回调的 `err` 参数类型由 `Error` 加宽为 `Error | null | undefined`。
+- `src/vs/base/browser/dom.ts`、`src/vs/platform/files/browser/htmlFileSystemProvider.ts`、`src/vs/workbench/contrib/chat/browser/chatAttachmentWidgets.ts`、`src/vs/workbench/contrib/chat/browser/chatContentParts/chatAttachmentsContentPart.ts`、`src/vs/workbench/contrib/chat/browser/imageUtils.ts`、`src/vs/workbench/contrib/files/browser/fileImportExport.ts`、`extensions/notebook-renderers/src/index.ts`：对 `Blob` / `FileSystemWritableFileStream.write` 的 `Uint8Array` 入参做 `Uint8Array<ArrayBuffer>` 类型转换（或 `new Uint8Array(...)` 包一层），适配泛型 `Uint8Array<TArrayBuffer>`。
+- `src/vs/code/browser/workbench/workbench.ts`、`src/vs/workbench/contrib/mcp/common/mcpRegistryInputStorage.ts`：Web Crypto `decrypt` 的 `iv.buffer` / `cipherText.buffer` / `encrypted.buffer` 显式转为 `ArrayBuffer`（`as unknown as ArrayBuffer`）。
+- `src/vs/editor/browser/gpu/gpuDisposable.ts`、`rectangleRenderer.ts`、`renderStrategy/fullFileRenderStrategy.ts`、`renderStrategy/viewportRenderStrategy.ts`：`GPUQueue.writeBuffer` 的 `Float32Array` 入参加 `Float32Array<ArrayBuffer>` 断言。
+- `src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts`：终端选项对象加 `as ITerminalOptions` 断言。
+- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`：`pane.draggableElement` 加 `as HTMLElement` 断言。
+
+### 58.2 拖拽落点高亮残留清理（Panel 双栏拖拽）
+
+- `src/vs/base/browser/dnd.ts`：新增 `applyDragImage(event, label, clazz, backgroundColor?, foregroundColor?)` 工具函数，使用 `getWindow(event)` 取归属 document，支持多窗口拖拽影像设置与操作后自动清理。
+- `src/vs/workbench/browser/parts/paneCompositePart.ts`：将内联的拖拽高亮闭包抽为可复用方法 `setDropBackgroundFeedback(visible)`；在 `onDragEnd` / watchdog 触发时强制清理左、右两侧及自身残留的 `EDITOR_DRAG_AND_DROP_BACKGROUND` 高亮（捕获阶段 split 监听吞掉事件，使 sides 自身 handler 无法清理）。
+- `src/vs/workbench/browser/parts/panel/panelSidePart.ts`：`handleEmptyAreaDrop` 入口处清理拖拽高亮。
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`：拖拽结束（`clearStaleDropOverlays`）时强制清理两侧 + 自身拖拽高亮；移除排查期间遗留的 `console.log('p1'/'p2'/'p3')` 调试日志；`hide` 在 `isRestoringFromEditor` 时跳过。
+
+### 58.3 视图打开命令重构与其它清理
+
+- `src/vs/workbench/services/views/browser/viewsService.ts`：将 `run` 方法调整至 `metadata` 之后（修复结构错位），并修正 `MenubarViewMenu` 注册的 command `id`（`commandId` → `openCommandActionDescriptor.id`）。
+- `src/vs/workbench/browser/layout.ts`：布局状态键新增 `GRID_SIZE`（`{ height, width }`，`StorageScope.WORKSPACE` / `MACHINE`）。
+- `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarActions.ts`：移除 `workbench.action.closeAuxiliaryBar`（Hide Secondary Side Bar）动作。
+- `src/vs/workbench/browser/parts/panel/panelActions.ts`：移除 `workbench.action.closePanel`（Hide Panel）动作。
+- `src/vs/workbench/browser/parts/editor/editorCommands.ts` / `singleEditorTabsControl.ts`：移除未使用的 import（`MultipleEditorGroupsContext`、`IVisibleEditorPane`、`CLOSE_EDITOR_COMMAND_ID`）。
+- `.gitignore`：忽略手工放入的预构建扩展 `/extensions/ms-vscode.js-debug/`。
+- `package-lock.json`：依赖锁随依赖更新重新生成（约 1.3 万行差异）。
+- `webviewPreloads.ts`：仅有 CRLF/LF 行尾差异，无实质代码改动。
+
+### 58.4 改动文件清单
+
+- `.gitignore`（+3）
+- `package-lock.json`（重新生成）
+- `src/bootstrap-fork.ts`（~1）
+- `src/vs/base/browser/dnd.ts`（+23）
+- `src/vs/base/browser/dom.ts`（~1）
+- `src/vs/code/browser/workbench/workbench.ts`（~4）
+- `src/vs/editor/browser/gpu/*`（4 文件，类型断言）
+- `src/vs/platform/files/browser/htmlFileSystemProvider.ts`（~1）
+- `src/vs/workbench/api/node/extHostConsoleForwarder.ts`（~1）
+- `src/vs/workbench/browser/layout.ts`（+3）
+- `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarActions.ts`（-15）
+- `src/vs/workbench/browser/parts/editor/editorCommands.ts`（~4）
+- `src/vs/workbench/browser/parts/editor/singleEditorTabsControl.ts`（~2）
+- `src/vs/workbench/browser/parts/paneCompositePart.ts`（~44）
+- `src/vs/workbench/browser/parts/panel/panelActions.ts`（-15）
+- `src/vs/workbench/browser/parts/panel/panelPart.ts`（~37）
+- `src/vs/workbench/browser/parts/panel/panelSidePart.ts`（+15）
+- `src/vs/workbench/contrib/chat/browser/chatAttachmentWidgets.ts` / `chatAttachmentsContentPart.ts` / `imageUtils.ts`（各 ~1）
+- `src/vs/workbench/contrib/files/browser/fileImportExport.ts`（~4）
+- `src/vs/workbench/contrib/mcp/common/mcpRegistryInputStorage.ts`（~10）
+- `src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts`（~1）
+- `src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts`（~1）
+- `src/vs/workbench/services/views/browser/viewsService.ts`（~82）
+- `extensions/notebook-renderers/src/index.ts`（~1）

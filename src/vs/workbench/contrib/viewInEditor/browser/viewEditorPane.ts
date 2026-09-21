@@ -256,7 +256,7 @@ export class ViewEditorPane extends EditorPane {
 			this.restore(input);
 			this.group?.closeEditor(input);
 		};
-		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement, draggableProvider, { onDragEnd }));
+		this._register(CompositeDragAndDropObserver.INSTANCE.registerDraggable(pane.draggableElement as HTMLElement, draggableProvider, { onDragEnd }));
 	}
 
 	protected override setEditorVisible(visible: boolean): void {

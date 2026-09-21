@@ -22,6 +22,9 @@ product.overrides.json
 *.snap.actual
 .vscode-test
 
+# Prebuilt built-in extension dropped in manually (not source, ignore to avoid polluting repo)
+/extensions/ms-vscode.js-debug/
+
 # Build / temp artifacts and diff backups (not for commit)
 tsc-out.log
 tsc_check.err

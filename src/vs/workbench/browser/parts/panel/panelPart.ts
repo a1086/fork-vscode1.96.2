@@ -1032,8 +1032,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 				continue;
 			}
 			if (PanelPart.isAllowedPanelContainer(container.id, container.extensionId?.value)) {
-				// Debug log: confirm the allow rule hit; can be removed once stable.
-				console.log('[PanelPart.hideOtherPanelViews] skip allowed container:', container.id, 'extensionId=', container.extensionId?.value);
 				continue;
 			}
 			const model = this.panelViewDescriptorService.getViewContainerModel(container);
@@ -1073,7 +1071,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 			if (!PanelPart.isAllowedPanelContainer(container.id, container.extensionId?.value)) {
 				continue;
 			}
-			console.log('[PanelPart.pinAllowedPanelContainers] pin container:', container.id);
 			this.leftPart?.pinPaneComposite(container.id);
 		}
 	}
@@ -1412,7 +1409,6 @@ export class PanelPart extends AbstractPaneCompositePart {
 				this.suppressLayoutSave = false;
 				this.updateSideMaximizedContextKeys();
 			}
-			console.log('VP');
 			this.updateSideMaximizedContextKeys();
 			panelWasVisible = isVisibleNow;
 		}));
@@ -1587,7 +1583,10 @@ export class PanelPart extends AbstractPaneCompositePart {
 
 					// If the target side was previously closed or removed from the split (e.g. the user clicked right-side close after dragging out),
 					// first add it back to the split, otherwise open would happen in an invisible side bar.
-
+					this.ensureSideInSplit(targetSide);
+					if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
+						this.layoutService.setPartHidden(false, Parts.PANEL_PART);
+					}
 
 					// First pin to ensure the tab appears on the composite bar, then open to activate the container.
 					// On restore we still go through the mutual-exclusion gate: if a view the container holds is already shown on the other side, we must first
@@ -2766,6 +2765,16 @@ export class PanelPart extends AbstractPaneCompositePart {
 		return this.leftPart.openPaneComposite(id, focus);
 	}
 
+	override layoutEmptyMessage(): void {
+		// The outer PanelPart never hosts a composite directly - it always
+		// delegates opens to leftPart/rightPart - so its `getActiveComposite()`
+		// is permanently undefined. The base would therefore pin `.empty` on it
+		// forever, painting a spurious "Drag a view here to display" overlay
+		// across the whole panel. Each side manages its own empty state, so the
+		// outer must never show one.
+		this.element.classList.remove('empty');
+	}
+
 	override getActivePaneComposite() {
 		// In the dual-panel layout two sides can each host an active view
 		// container simultaneously, but the rest of the workbench resolves
@@ -3202,6 +3211,9 @@ export class PanelPart extends AbstractPaneCompositePart {
 			return;
 		}
 		if (this.isDragInProgress) {
+			return;
+		}
+		if (this.isRestoringFromEditor) {
 			return;
 		}
 
@@ -3655,7 +3667,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		if (side === undefined) {
 			return;
 		}
-		console.log('p1');
+
 		e.preventDefault();
 		// Only (re-)activate the preview when the targeted side actually
 		// CHANGES. Comparing against the resolved `side` (instead of merely
@@ -3693,7 +3705,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 			// cleanly.
 			return;
 		}
-		console.log('p2');
+
 		e.preventDefault();
 		// Same stability guard as `onSplitDragEnter`.
 		if (this.splitPreviewSide !== side) {
@@ -3745,7 +3757,7 @@ export class PanelPart extends AbstractPaneCompositePart {
 		const sourceSide = this.dragSourceSide;
 		const dropSide = this.resolveSideByPosition(e);
 		if (sourceSide && dropSide && sourceSide !== dropSide) {
-			console.log('p3');
+
 			EventHelper.stop(e, true);
 			const targetPart = this.getSidePart(dropSide);
 			targetPart.handleEmptyAreaDrop(e, this.buildSplitDragData(e));
@@ -3889,6 +3901,15 @@ export class PanelPart extends AbstractPaneCompositePart {
 		this.splitContainer.classList.remove('panel-split-preview');
 		this.leftPart?.sideElement.classList.remove('panel-side-drop-preview');
 		this.rightPart?.sideElement.classList.remove('panel-side-drop-preview');
+		// The capture-phase split listeners swallow dragenter/drop before the side
+		// parts' own `CompositeDragAndDropObserver` targets can react, so the
+		// drag-enter highlight they paint (inline background on the title bar /
+		// empty-pane message) is never cleared by the sides' own drop/dragend
+		// handlers. Force-clear it on both sides - and on this part, which
+		// registers the same empty-pane drop target - whenever the drag ends.
+		this.leftPart?.setDropBackgroundFeedback(false);
+		this.rightPart?.setDropBackgroundFeedback(false);
+		this.setDropBackgroundFeedback(false);
 		this.dragEndFallbackScheduler.cancel();
 		this.dragOverWatchdog.cancel();
 		this.clearStaleDropOverlays();

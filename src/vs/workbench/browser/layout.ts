@@ -2852,6 +2852,9 @@ const LayoutStateKeys = {
 	// Editor
 	MAIN_EDITOR_CENTERED: new RuntimeStateKey<boolean>('editor.centered', StorageScope.WORKSPACE, StorageTarget.MACHINE, false),
 
+	// Grid
+	GRID_SIZE: new RuntimeStateKey<{ height: number; width: number }>('grid.size', StorageScope.WORKSPACE, StorageTarget.MACHINE, { height: 0, width: 0 }),
+
 	// Zen Mode
 	ZEN_MODE_ACTIVE: new RuntimeStateKey<boolean>('zenMode.active', StorageScope.WORKSPACE, StorageTarget.MACHINE, false),
 	ZEN_MODE_EXIT_INFO: new RuntimeStateKey('zenMode.exitInfo', StorageScope.WORKSPACE, StorageTarget.MACHINE, {
