@@ -735,6 +735,12 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		if (this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE)) {
 			this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, true);
 			this.storageService.remove(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE);
+		} else if (this.storageService.getBoolean('panel.lastHidden', StorageScope.WORKSPACE) === false) {
+			this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, false);
+			const viewContainerToRestore = this.storageService.get(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE, this.viewDescriptorService.getDefaultViewContainer(ViewContainerLocation.Panel)?.id);
+			if (viewContainerToRestore) {
+				this.state.initialization.views.containerToRestore.panel = viewContainerToRestore;
+			}
 		} else if (this.isVisible(Parts.PANEL_PART)) {
 			const viewContainerToRestore = this.storageService.get(PanelPart.activePanelSettingsKey, StorageScope.WORKSPACE, this.viewDescriptorService.getDefaultViewContainer(ViewContainerLocation.Panel)?.id);
 
@@ -1647,7 +1653,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		// (less than a quarter of the preferred size). This repairs a persisted
 		// too-small size on startup while still preserving a user-defined size.
 		if (currentPanelSize < preferredSize * 0.25) {
-			console.log('ip');
 			this.workbenchGrid.resizeView(this.panelPartView, {
 				width: isPanelHorizontal ? currentSize.width : preferredSize,
 				height: isPanelHorizontal ? preferredSize : currentSize.height
@@ -1954,7 +1959,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, hidden);
 
 		this.storageService.store('panel.lastHidden', hidden, StorageScope.WORKSPACE, StorageTarget.MACHINE);
-
 
 		const isPanelMaximized = this.isPanelMaximized();
 
