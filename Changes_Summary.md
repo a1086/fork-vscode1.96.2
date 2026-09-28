@@ -2043,3 +2043,15 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 - `src/vs/workbench/browser/parts/editor/editorPart.ts`（~188）
 - `src/vs/workbench/browser/parts/paneCompositePart.ts`（~68）
 - `src/vs/workbench/browser/parts/panel/panelSidePart.ts`（~7）
+
+---
+
+## 58. 面板上次可见时启动恢复活动视图容器 + 移除调试日志（2026-09-28，commit 624b1e59497）
+
+**改动**：在启动恢复面板视图容器逻辑中，新增对 `panel.lastHidden` 显式为 `false`（即上次关闭时面板处于可见状态）的处理分支；同时清理遗留调试输出。
+
+### 58.1 改动文件
+- `src/vs/workbench/browser/layout.ts`（~735）
+  - 在原 `if (panel.lastHidden === true)` 与 `else if (isVisible(PANEL_PART))` 之间新增 `else if (panel.lastHidden === false)` 分支：将 `LayoutStateKeys.PANEL_HIDDEN` 运行时值置为 `false`，并从 `PanelPart.activePanelSettingsKey` 读取上次活动视图容器（缺省回落到默认面板容器）写入 `state.initialization.views.containerToRestore.panel`，确保面板上次可见时重启后正确恢复活动视图，而非丢失或被默认化。
+  - 移除面板尺寸修复逻辑中遗留的 `console.log('ip')` 调试输出（~1656）。
+  - 移除面板显隐切换逻辑中一处多余空行（~1963）。
