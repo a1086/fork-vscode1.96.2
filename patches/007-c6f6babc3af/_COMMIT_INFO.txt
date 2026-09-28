@@ -1,0 +1,13 @@
+Commit : c6f6babc3afd3a9e7e376e92cf33e9f0a88cd469
+Short  : c6f6babc3af
+Subject: feat: 视图拖入编辑器区交互与样式细化（panelPart/part.css），补充菜单参考/需求拆解/源码分析等文档
+Author : hhuan
+Date   : 2026-07-22
+
+Files (6 changed):
+  A	Menus_Reference.md
+  A	QA_Summary.md
+  M	src/vs/workbench/browser/media/part.css
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  A	改动总结.md
+  A	视图拖入编辑器区-需求拆解.md

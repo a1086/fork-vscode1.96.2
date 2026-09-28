@@ -1,0 +1,18 @@
+Commit : 5dcea7178337d0ab6b0c174d178dca0ec16b1716
+Short  : 5dcea717833
+Subject: feat: 实现双Panel的最大化/恢复的功能
+Author : hhuan
+Date   : 2026-09-01
+
+Files (11 changed):
+  M	Changes_Summary.md
+  M	src/vs/base/browser/ui/grid/grid.ts
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/panel/panelActions.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/panel/panelSidePart.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/services/layout/browser/layoutService.ts
+  M	src/vs/workbench/test/browser/workbenchTestServices.ts

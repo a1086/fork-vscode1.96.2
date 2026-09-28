@@ -1,0 +1,8 @@
+Commit : 4f5d862902720c1a9d86af55c10e3e62f2b79ce0
+Short  : 4f5d8629027
+Subject: docs: 追加第 59 节改动总结（重启后视图归位 + Panel 空侧回退）
+Author : hhuan
+Date   : 2026-09-04
+
+Files (1 changed):
+  M	Changes_Summary.md

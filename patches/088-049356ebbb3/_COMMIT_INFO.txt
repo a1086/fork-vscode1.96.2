@@ -1,0 +1,28 @@
+Commit : 049356ebbb3b5f328ed40e136b8f7786f0b6a4d6
+Short  : 049356ebbb3
+Subject: workbench: 提交面板/编辑器/视图拖拽改动，并修复 hygiene 使其通过
+Author : hhuan
+Date   : 2026-09-17
+
+Files (21 changed):
+  M	eslint.config.js
+  M	src/vs/base/browser/ui/splitview/splitview.ts
+  M	src/vs/workbench/browser/media/code-icon.svg
+  M	src/vs/workbench/browser/media/part.css
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+  M	src/vs/workbench/browser/parts/editor/editorParts.ts
+  M	src/vs/workbench/browser/parts/editor/editorTabsControl.ts
+  M	src/vs/workbench/browser/parts/editor/multiEditorTabsControl.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/viewDragSession.ts
+  M	src/vs/workbench/browser/parts/views/media/paneviewlet.css
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/browser/workbench.contribution.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/contrib/timeline/browser/timelinePane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts
+  M	src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts

@@ -1,0 +1,14 @@
+Commit : 2f6e07b9063e02731f8d7da96a0fb613dee56df0
+Short  : 2f6e07b9063
+Subject: fix: 视图编辑器承载视图在辅助窗口的布局收敛，并清理需求文档
+Author : hhuanzheng
+Date   : 2026-09-10
+
+Files (2 changed):
+  A	Changes_List.md
+  D	Panel_Side_Extension_API_Requirements.md
+  D	Panel_Three_Side_Requirements.md
+  D	View_Drag_Out_To_Window_Plan.md
+  D	View_Drag_To_Editor_Requirements.md
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  D	视图拖入编辑器区-需求拆解.md

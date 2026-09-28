@@ -1,0 +1,9 @@
+Commit : 2562484e03188cf878a2b5dd22a1720228a36cfb
+Short  : 2562484e031
+Subject: fix(view-drag): 关闭时清理拖入 Panel 的自定义视图位置（保留终端与 REPL）
+Author : hhuan
+Date   : 2026-09-09
+
+Files (2 changed):
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/services/views/browser/viewDescriptorService.ts

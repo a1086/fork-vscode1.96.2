@@ -1,0 +1,11 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Views dragged into the editor area are represented by an editor tab (icon + title),
+so the duplicated title text inside the pane header is redundant. Keep the header
+itself and its actions (e.g. the Terminal shell switcher) visible; only hide the title label. */
+.view-editor-pane .pane > .pane-header > h3.title {
+	display: none;
+}

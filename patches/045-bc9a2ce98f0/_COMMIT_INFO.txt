@@ -1,0 +1,19 @@
+Commit : bc9a2ce98f096170e8f125f0e8dab62f5e5a5caf
+Short  : bc9a2ce98f0
+Subject: fix: 修正视图拖出独立窗口后的归位与重启恢复逻辑区分视图从 Panel/Aux 直接拖出窗口与先从 Editor 拖出窗口两条路径， 关闭辅助窗口时分别归位回原栏或保留在 Editor 区，避免视图消失或残留副本，- 移除序列化反序列化时错误的 moveViewToLocation 调用，修复刷新编辑器后，抛出 No view container found for view id的问题，修正 Panel 空态（两侧均无视图时自动隐藏）再次展开时错误地拉起某个视图，改为展示空拖放占位区对齐 editorTabsControl 的开窗判定，消除栏内跨侧拖拽产生重复视图的问题， 修正 compositeBar 拖出窗口的复合视图（如 Debug）解析与开窗顺序
+Author : hhuan
+Date   : 2026-08-24
+
+Files (12 changed):
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+  M	src/vs/workbench/browser/parts/editor/editorTabsControl.ts
+  M	src/vs/workbench/browser/parts/editor/multiEditorTabsControl.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/panel/panelSidePart.ts
+  M	src/vs/workbench/browser/parts/viewDragSession.ts
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts

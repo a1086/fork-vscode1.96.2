@@ -1,0 +1,8 @@
+Commit : 0e10b56f645f8c8861c37c6b42ede2343005cc2e
+Short  : 0e10b56f645
+Subject: docs: 更新 Changes_Summary.md 本周提交总结（双Panel按侧最大化/终端拖窗/aux bar/视图缓存）
+Author : hhuan
+Date   : 2026-09-03
+
+Files (1 changed):
+  M	Changes_Summary.md

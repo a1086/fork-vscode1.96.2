@@ -1,0 +1,13 @@
+Commit : 57fb34d8a7bb4536314b30c2178bd8531a60638b
+Short  : 57fb34d8a7b
+Subject: fix: Panel 视图关闭按钮支持关闭 View 菜单打开的未 pinned 视图内容
+Author : hhuan
+Date   : 2026-08-07
+
+Files (6 changed):
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/media/paneCompositePart.css
+  M	src/vs/workbench/browser/parts/paneCompositeBar.ts
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts

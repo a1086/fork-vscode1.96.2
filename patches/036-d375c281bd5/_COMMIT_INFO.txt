@@ -1,0 +1,12 @@
+Commit : d375c281bd52cf8f3ab6ba7f543e90d66b1c62e7
+Short  : d375c281bd5
+Subject: fix: 修复编辑器多group布局恢复错乱并解耦拖拽只影响所在列
+Author : hhuan
+Date   : 2026-08-10
+
+Files (4 changed):
+  M	Changes_Summary.md
+  M	src/vs/base/browser/ui/grid/gridview.ts
+  M	src/vs/base/browser/ui/splitview/splitview.ts
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  D	改动总结.md
