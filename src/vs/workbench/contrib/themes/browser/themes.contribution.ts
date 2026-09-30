@@ -476,9 +476,9 @@ registerAction2(class extends Action2 {
 		const themes = await themeService.getColorThemes();
 		const currentTheme = themeService.getColorTheme();
 
-		const lightEntries = toEntries(themes.filter(t => t.type === ColorScheme.LIGHT), localize('themes.category.light', "light themes"));
-		const darkEntries = toEntries(themes.filter(t => t.type === ColorScheme.DARK), localize('themes.category.dark', "dark themes"));
-		const hcEntries = toEntries(themes.filter(t => isHighContrast(t.type)), localize('themes.category.hc', "high contrast themes"));
+		const lightEntries = toEntries(themes.filter(t => t.type === ColorScheme.LIGHT && !t.groupId), localize('themes.category.light', "light themes"));
+		const darkEntries = toEntries(themes.filter(t => t.type === ColorScheme.DARK && !t.groupId), localize('themes.category.dark', "dark themes"));
+		const hcEntries = toEntries(themes.filter(t => isHighContrast(t.type) && !t.groupId), localize('themes.category.hc', "high contrast themes"));
 
 		const groupIds: string[] = [];
 		for (const theme of themes) {
