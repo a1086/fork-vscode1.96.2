@@ -1,8 +1,6 @@
 Commit : bda428790a9bcde78e6d3d2235bf46b188e9a5be
 Short  : bda428790a9
 Subject: chore: add patch batch tooling and workflow docs
-Author : hhuan
-Date   : 2026-09-18
 
 Files (4 changed):
   A	PATCH_WORKFLOW.md

@@ -1,8 +1,6 @@
 Commit : c81330056ea7d5055bb323ba987a06fd88794ee4
 Short  : c81330056ea
 Subject: feat: Part 间距及 Panel 顶部分割线调整为 4px
-Author : hhuan
-Date   : 2026-08-04
 
 Files (2 changed):
   M	src/vs/workbench/browser/parts/panel/media/panelpart.css

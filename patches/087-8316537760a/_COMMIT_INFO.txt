@@ -1,8 +1,6 @@
 Commit : 8316537760ab865acdf4a14b507a67501a22ad5b
 Short  : 8316537760a
 Subject: workbench: remove debug logs and panel-size repair; make hygiene pass
-Author : hhuan
-Date   : 2026-09-16
 
 Files (4 changed):
   M	src/vs/workbench/browser/layout.ts

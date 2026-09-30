@@ -1,8 +1,6 @@
 Commit : ed6aee9881f9e5a044bc4276a7839c186ea99a25
 Short  : ed6aee9881f
 Subject: fix: 编辑器区承载视图改为缓存复用并保留 webview 上下文
-Author : hhuan
-Date   : 2026-09-03
 
 Files (3 changed):
   M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

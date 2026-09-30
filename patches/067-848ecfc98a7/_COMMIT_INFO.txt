@@ -1,8 +1,6 @@
 Commit : 848ecfc98a7948b0bf60dfff1f6880f5fa9cb602
 Short  : 848ecfc98a7
 Subject: fix: 修复 从panel中直接拖拽出来的时候，功能显示有问题
-Author : hhuanzheng
-Date   : 2026-09-04
 
 Files (1 changed):
   M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

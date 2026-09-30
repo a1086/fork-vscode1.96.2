@@ -1,8 +1,6 @@
 Commit : f80478d4f82c25cbb022509c158714b093a0b0fe
 Short  : f80478d4f82
 Subject: fix: 拖空 Panel 后自动隐藏面板（加固延迟双检查）+ Panel 默认高度调整为 1/2
-Author : hhuan
-Date   : 2026-08-06
 
 Files (2 changed):
   M	src/vs/workbench/browser/layout.ts

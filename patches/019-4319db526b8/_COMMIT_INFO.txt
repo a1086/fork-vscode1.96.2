@@ -1,8 +1,6 @@
 Commit : 4319db526b819d5690808011c218c5f2090d656b
 Short  : 4319db526b8
 Subject: fix: 编辑器分组拖拽只影响相邻组，禁用 Grid 比例布局
-Author : hhuan
-Date   : 2026-08-04
 
 Files (2 changed):
   M	Changes_Summary.md

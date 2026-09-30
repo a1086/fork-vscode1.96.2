@@ -1,8 +1,6 @@
 Commit : 5dcea7178337d0ab6b0c174d178dca0ec16b1716
 Short  : 5dcea717833
 Subject: feat: 实现双Panel的最大化/恢复的功能
-Author : hhuan
-Date   : 2026-09-01
 
 Files (11 changed):
   M	Changes_Summary.md

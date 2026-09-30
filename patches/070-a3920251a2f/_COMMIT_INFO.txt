@@ -1,8 +1,6 @@
 Commit : a3920251a2ffb28165cc8817fbd020b25e97f7e5
 Short  : a3920251a2f
 Subject: fix(view-drag): 视图拖拽不重载 webview 内容（handoff 复用）+ 减轻首次拖入编辑器闪烁 + 清理调试日志
-Author : hhuan
-Date   : 2026-09-08
 
 Files (10 changed):
   M	Changes_Summary.md

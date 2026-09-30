@@ -1,8 +1,6 @@
 Commit : dbfff790b83ab7e8d4a7fce1f98a8813f45ec696
 Short  : dbfff790b83
 Subject: chore: rebrand product to AccoTest
-Author : hhuan
-Date   : 2026-08-14
 
 Files (33 changed):
   M	.gitignore

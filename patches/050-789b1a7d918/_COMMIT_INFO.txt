@@ -1,8 +1,6 @@
 Commit : 789b1a7d918ce3b87a19978378b77f6bddfb0dfc
 Short  : 789b1a7d918
 Subject: doc: 更新总结文档
-Author : hhuan
-Date   : 2026-08-26
 
 Files (1 changed):
   M	Changes_Summary.md

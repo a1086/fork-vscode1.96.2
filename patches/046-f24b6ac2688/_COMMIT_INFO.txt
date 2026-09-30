@@ -1,8 +1,6 @@
 Commit : f24b6ac268838ae6225544dcaf0e616a3d7e5fe5
 Short  : f24b6ac2688
 Subject: style: 调整 视图在editor 和aux以及 left side bar中的样式，优化显示的位置以及选中的样式
-Author : hhuan
-Date   : 2026-08-25
 
 Files (4 changed):
   M	src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts

@@ -1,8 +1,6 @@
 Commit : 691b93a4b68139b0c7fbdeaacedbaff86f552cce
 Short  : 691b93a4b68
 Subject: fix(view-drag): 重启后编辑器承载视图归位 + Panel 空侧自动回退
-Author : hhuan
-Date   : 2026-09-04
 
 Files (4 changed):
   M	src/vs/workbench/browser/parts/panel/panelSidePart.ts

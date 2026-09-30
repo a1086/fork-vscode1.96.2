@@ -1,8 +1,6 @@
 Commit : a10fab8c226ef506e7ba8d2f618585f5a1fcd4f5
 Short  : a10fab8c226
 Subject: doc: 更新文档
-Author : hhuan
-Date   : 2026-09-09
 
 Files (1 changed):
   M	Changes_Summary.md

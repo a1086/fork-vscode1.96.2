@@ -1,8 +1,6 @@
 Commit : 173937a43483591657f5c2c78968e6157ad25880
 Short  : 173937a4348
 Subject: fix(view-drag): 启用 Panel 侧边溢出并修复编辑器承载终端样式与侧最大化上下文
-Author : hhuan
-Date   : 2026-09-14
 
 Files (7 changed):
   M	Changes_List.md

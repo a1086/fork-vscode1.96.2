@@ -1,8 +1,6 @@
 Commit : 5aee21180ec2f0debeacaf812f6e3398bc942918
 Short  : 5aee21180ec
 Subject: fix(view-drag): 修复视图拖出新窗口的布局时机（等待样式与窗口尺寸稳定后再布局）
-Author : hhuanzheng
-Date   : 2026-09-09
 
 Files (5 changed):
   M	src/vs/workbench/browser/parts/compositeBar.ts

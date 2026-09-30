@@ -1,8 +1,6 @@
 Commit : c2139706611982eca61b0f0ad83e2ab9c356f012
 Short  : c2139706611
 Subject: feat: add 6px visible divider between editor groups
-Author : hhuan
-Date   : 2026-08-03
 
 Files (1 changed):
   M	src/vs/workbench/browser/parts/editor/media/editorgroupview.css

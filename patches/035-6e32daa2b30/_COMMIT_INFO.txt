@@ -1,8 +1,6 @@
 Commit : 6e32daa2b3042a3d4126540db752ac1f3768658c
 Short  : 6e32daa2b30
 Subject: fix: add close button to Secondary Side Bar header and defer Output view load
-Author : hhuan
-Date   : 2026-08-07
 
 Files (4 changed):
   M	Changes_Summary.md

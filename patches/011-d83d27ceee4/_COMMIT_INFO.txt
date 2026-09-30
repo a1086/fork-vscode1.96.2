@@ -1,8 +1,6 @@
 Commit : d83d27ceee43731bb310655a3d8077e28131c5a6
 Short  : d83d27ceee4
 Subject: fix: 修复 从 aux bar/panel bar/activity bar 拖拽到edit 区域的view，切换view的时候，上一个view的DOM没有完全销毁掉，导致切换过的内容会同时出现在一个view里面
-Author : hhuan
-Date   : 2026-07-30
 
 Files (1 changed):
   M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

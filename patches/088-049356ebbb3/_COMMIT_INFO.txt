@@ -1,8 +1,6 @@
 Commit : 049356ebbb3b5f328ed40e136b8f7786f0b6a4d6
 Short  : 049356ebbb3
 Subject: workbench: 提交面板/编辑器/视图拖拽改动，并修复 hygiene 使其通过
-Author : hhuan
-Date   : 2026-09-17
 
 Files (21 changed):
   M	eslint.config.js

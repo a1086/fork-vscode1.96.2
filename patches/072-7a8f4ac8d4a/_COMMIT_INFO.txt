@@ -1,7 +1,5 @@
 Commit : 7a8f4ac8d4a9113cd96e9bf14c559d5c1ea3386d
 Short  : 7a8f4ac8d4a
 Subject: Merge branch 'bugfix/view-drag' of https://github.com/a1086/fork-vscode1.96.2 into bugfix/view-drag
-Author : hhuanzheng
-Date   : 2026-09-08
 
 Files (0 changed):

@@ -1,8 +1,6 @@
 Commit : fa4cdb42e5d76749c3b642261f9161fa8d961f5c
 Short  : fa4cdb42e5d
 Subject: chore: 扩展市场指向 Open VSX；.npmrc 增加注释镜像配置
-Author : hhuan
-Date   : 2026-07-22
 
 Files (2 changed):
   M	.npmrc

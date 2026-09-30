@@ -1,8 +1,6 @@
 Commit : 5a9c63e549041a3b2b9693d2b8ed7db387980449
 Short  : 5a9c63e5490
 Subject: fix: 8600子菜单通过commandService执行命令
-Author : hhuan
-Date   : 2026-08-26
 
 Files (1 changed):
   M	src/vs/workbench/browser/parts/titlebar/menubarControl.ts

@@ -1,8 +1,6 @@
 Commit : d2142a849eb76e8c59678a3955e83afda5ae6082
 Short  : d2142a849eb
 Subject: fix(view-drag): move debug panel to side on session start and add layout menu presets
-Author : hhuan
-Date   : 2026-09-10
 
 Files (8 changed):
   M	Changes_Summary.md

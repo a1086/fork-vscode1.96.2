@@ -1,8 +1,6 @@
 Commit : 06b3b02d4d113e00503a30f7326b461fc3e100b2
 Short  : 06b3b02d4d1
 Subject: fix: 修复编辑器区 X 按钮（Toggle Editor Area Visibility）在多 group 时误关所有 group
-Author : hhuan
-Date   : 2026-08-04
 
 Files (2 changed):
   M	src/vs/workbench/browser/actions/layoutActions.ts

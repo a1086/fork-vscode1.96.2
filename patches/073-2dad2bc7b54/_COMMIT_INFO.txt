@@ -1,8 +1,6 @@
 Commit : 2dad2bc7b54f11ee7c3c6e44e3dc53d3dfb980c5
 Short  : 2dad2bc7b54
 Subject: fix: 修复自定义插件Panel视图tab永不显示的根因（注册即unpin）
-Author : hhuanzheng
-Date   : 2026-09-09
 
 Files (2 changed):
   M	Changes_Summary.md

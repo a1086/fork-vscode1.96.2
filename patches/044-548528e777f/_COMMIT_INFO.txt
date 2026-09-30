@@ -1,8 +1,6 @@
 Commit : 548528e777f8b97f5a8b9ac94c905df26f49c142
 Short  : 548528e777f
 Subject: chore: 删除视图拖拽相关调试日志打印
-Author : hhuan
-Date   : 2026-08-21
 
 Files (7 changed):
   M	src/vs/workbench/browser/layout.ts

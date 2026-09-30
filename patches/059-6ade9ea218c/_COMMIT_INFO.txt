@@ -1,8 +1,6 @@
 Commit : 6ade9ea218c16b66eac84fab84b819e71dc8110b
 Short  : 6ade9ea218c
 Subject: fix: 修复terminal视图拖拽出来独立的窗口，关闭窗口之后，功能不可用状态
-Author : hhuanzheng
-Date   : 2026-09-01
 
 Files (8 changed):
   M	src/vs/workbench/browser/parts/panel/media/panelpart.css

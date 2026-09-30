@@ -1,8 +1,6 @@
 Commit : dc3784b26e4a43c6e9de78344b4912c6e80d91b4
 Short  : dc3784b26e4
 Subject: doc: 更新总结文档
-Author : hhuan
-Date   : 2026-08-26
 
 Files (1 changed):
   M	Changes_Summary.md

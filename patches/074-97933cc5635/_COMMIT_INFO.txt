@@ -1,8 +1,6 @@
 Commit : 97933cc5635cea6dbd57896d973541365ba4f50a
 Short  : 97933cc5635
 Subject: chore: 提交分支上遗留的未跟踪文件 viewPaneTransfer.ts
-Author : hhuanzheng
-Date   : 2026-09-09
 
 Files (1 changed):
   A	src/vs/workbench/browser/parts/views/viewPaneTransfer.ts

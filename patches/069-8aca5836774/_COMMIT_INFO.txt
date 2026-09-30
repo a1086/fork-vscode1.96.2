@@ -1,8 +1,6 @@
 Commit : 8aca58367744661496fd43464bc16e789c8e3a81
 Short  : 8aca5836774
 Subject: fix(view-drag): 修复编辑器承载视图的布局/渲染与生命周期并清理调试日志
-Author : hhuanzheng
-Date   : 2026-09-08
 
 Files (8 changed):
   M	Changes_Summary.md

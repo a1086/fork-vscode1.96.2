@@ -1,8 +1,6 @@
 Commit : 5d190a7fd87b4dc95c431c1ef4b1a8946995a92c
 Short  : 5d190a7fd87
 Subject: fix: 通过 View 菜单打开 Panel 时恢复合理高度(~40%) 且保持可拖拽收缩
-Author : hhuan
-Date   : 2026-08-07
 
 Files (2 changed):
   M	src/vs/workbench/browser/layout.ts

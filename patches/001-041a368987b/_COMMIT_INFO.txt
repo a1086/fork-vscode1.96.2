@@ -1,8 +1,6 @@
 Commit : 041a368987ba1c8ca57d6cca0f259efbc858e8ed
 Short  : 041a368987b
 Subject: feat: 活动栏常驻 Run and Debug 图标，Debug 视图默认移至 Auxiliary Bar，活动栏默认位置改 top
-Author : hhuan
-Date   : 2026-07-22
 
 Files (8 changed):
   M	src/vs/base/browser/ui/splitview/paneview.css

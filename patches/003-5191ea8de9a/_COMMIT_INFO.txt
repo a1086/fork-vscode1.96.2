@@ -1,8 +1,6 @@
 Commit : 5191ea8de9a3f3a61a047c61c5bc66582c0b504b
 Short  : 5191ea8de9a
 Subject: feat: 视图标题栏移除折叠箭头改悬停关闭；Explorer Folders / Problems 支持可隐藏开关
-Author : hhuan
-Date   : 2026-07-22
 
 Files (4 changed):
   M	src/vs/workbench/browser/parts/views/media/paneviewlet.css

@@ -1,8 +1,6 @@
 Commit : 4c29b02aaf486fc612a949e710247b87b995c83b
 Short  : 4c29b02aaf4
 Subject: fix: 放行指定自定义插件(AccoTEST.ate-tool-ext)的Panel视图容器
-Author : hhuanzheng
-Date   : 2026-09-07
 
 Files (2 changed):
   M	Changes_Summary.md

@@ -1,8 +1,6 @@
 Commit : 2d2aabdf40df2a72d08e9bd4bdf26b4b384fc9a8
 Short  : 2d2aabdf40d
 Subject: fix: 修正视图拖出窗口/拖拽归位与 Panel 空态的多处问题
-Author : hhuanzheng
-Date   : 2026-08-25
 
 Files (6 changed):
   M	src/vs/workbench/browser/parts/compositeBar.ts

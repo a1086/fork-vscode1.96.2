@@ -1,8 +1,6 @@
 Commit : 1be7212320504ef70a9d3d09c937f9fbf574bfae
 Short  : 1be72123205
 Subject: feat(workbench): support dual-side (split) panel layout
-Author : hhuan
-Date   : 2026-08-14
 
 Files (27 changed):
   A	Panel_Side_Extension_API_Requirements.md

@@ -1,8 +1,6 @@
 Commit : d8f4feebf18e70dbfa9cc8093813d7934d61ee8d
 Short  : d8f4feebf18
 Subject: fix: Toggle Panel 打开时恢复默认高度，不继承上次 maxSize
-Author : hhuan
-Date   : 2026-08-04
 
 Files (1 changed):
   M	src/vs/workbench/browser/layout.ts

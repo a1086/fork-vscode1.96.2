@@ -1,8 +1,6 @@
 Commit : 5f9016522469b1ab521d6c8f431ba3b3f91973e8
 Short  : 5f901652246
 Subject: fix(terminal): 修复终端视图拖入 Editor 区域后渲染/焦点异常
-Author : hhuan
-Date   : 2026-08-05
 
 Files (3 changed):
   M	src/vs/workbench/contrib/terminal/browser/terminalGroupService.ts

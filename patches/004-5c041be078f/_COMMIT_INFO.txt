@@ -1,8 +1,6 @@
 Commit : 5c041be078f7198c2edb647a0b18c10ed8531e0b
 Short  : 5c041be078f
 Subject: feat: 分组标题配色调整；主要 Part 间增加 6px 背景间隙
-Author : hhuan
-Date   : 2026-07-22
 
 Files (11 changed):
   M	.vscode/settings.json

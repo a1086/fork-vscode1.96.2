@@ -1,8 +1,6 @@
 Commit : 332e6f6e2fe0f9f72d399fdc7227c960a87b2b14
 Short  : 332e6f6e2fe
 Subject: fix: remember last Panel hidden/shown state across reload
-Author : hhuanzheng
-Date   : 2026-08-27
 
 Files (2 changed):
   M	src/vs/workbench/browser/layout.ts

@@ -1,8 +1,6 @@
 Commit : fac5fe8f18a7e76c96b6c869537443900eb8590a
 Short  : fac5fe8f18a
 Subject: feat: 编辑器区显隐切换与空组关闭优化，Ctrl+K W 关闭后隐藏编辑器区，去除 X 按钮背景
-Author : hhuan
-Date   : 2026-07-22
 
 Files (8 changed):
   M	src/vs/workbench/browser/actions/layoutActions.ts

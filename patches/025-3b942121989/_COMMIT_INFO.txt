@@ -1,8 +1,6 @@
 Commit : 3b94212198954a840c60179592414e975edde839
 Short  : 3b942121989
 Subject: fix: 拖空 Panel 后自动隐藏面板（补充同步隐藏路径 + 改动总结文档）
-Author : hhuan
-Date   : 2026-08-05
 
 Files (2 changed):
   M	Changes_Summary.md
