@@ -2,7 +2,7 @@
 
 本文档记录如何把当前 fork 分支（`vscode-fork-dev`）的本地提交，导出成可分发、可一键应用的 patch 包，并部署到云桌面。
 
-适用分支当前状态：基于上游 fork 基点 `fabdb6a30b4`，到 HEAD 共 **89 个自定义提交**。
+适用分支当前状态：基于上游 fork 基点 `fabdb6a30b4`，到 HEAD 共 **一批自定义提交**（具体数量以 `patches/INDEX.md` 为准，随分支增长）。
 
 ---
 
@@ -13,11 +13,11 @@
 | 文件 / 目录 | 作用 | 在哪运行 |
 | --- | --- | --- |
 | `make_patches.ps1` | **生成** patch：把本地提交导出到 `patches/` | 本机（需 git + 仓库） |
-| `patches/` | 导出的所有提交文件（89 个文件夹 + 元数据） | 随包分发 |
-| `apply_patches.ps1` | **应用** patch 的核心脚本（纯文件复制，不需要 git） | 云桌面 |
+| `patches/` | 导出的所有提交文件（每个 commit 一个文件夹 + 元数据），其中 `patches/_base/` 额外保存每个文件的"基线版本"（即该 commit 的父版本，用于三方合并的冲突检测） | 随包分发 |
+| `apply_patches.ps1` | **应用** patch 的核心脚本（依赖 `git merge-file` 做三方合并，云桌面需有 git） | 云桌面 |
 | `apply.bat` | `apply_patches.ps1` 的双击入口包装 | 云桌面 |
 
-> 注意：`patches/` 里已经是**真实的源码文件**（不是 git 补丁文本），所以云桌面应用补丁时**完全不依赖 git**，只做文件复制。
+> 注意：`patches/` 里已经是**真实的源码文件**（不是 git 补丁文本），所以云桌面**不需要仓库有改动历史**；但 `apply_patches.ps1` 做三方合并时依赖 `git merge-file`，因此云桌面需安装 git。
 
 ---
 
@@ -34,7 +34,7 @@ patches/
   _BASE.txt                 # fork 基点哈希（fabdb6a30b4），记住后用于增量
   _LAST.txt                 # 上次导出到的 HEAD 哈希，用于增量判定
   _DELETED.txt              # 分支中已被删除的文件清单（应用时要删掉）
-  INDEX.md                  # 89 个提交的总索引
+  INDEX.md                  # 提交的总索引
 ```
 
 ---
@@ -55,6 +55,7 @@ powershell -ExecutionPolicy Bypass -File make_patches.ps1 -Incremental
 
 - 增量模式靠 `patches/_LAST.txt` 记住上次导出的 HEAD；若发现历史被改写（上次导出点不再是祖先），会自动回退到全量重建。
 - 每个提交独立成文件夹，便于单独查看某个提交的改动。
+- 生成时还会把每个被改文件的"基线版本"（即该 commit 的父版本）导出到 `patches/_base/<NNN>/<path>`，供 `apply_patches.ps1` 的三方合并判断。
 
 ---
 
@@ -63,16 +64,27 @@ powershell -ExecutionPolicy Bypass -File make_patches.ps1 -Incremental
 把 `apply.bat` + `apply_patches.ps1` + `patches\` 三个一起拷到云桌面任意目录，然后：
 
 ```bat
-apply.bat                      :: 覆盖到默认目标仓库 D:\project\vscode
-apply.bat DRY                  :: 先预览将要复制/删除哪些文件，不改动（建议先跑一次确认）
-apply.bat "D:\别的路径\vscode"  :: 覆盖到指定仓库
-apply.bat DRY "D:\别的路径\vscode" :: 对指定仓库做预览
+apply.bat                                :: 默认目标仓库 D:\project\vscode-100.0，三方合并模式（适配高版本安全）
+apply.bat DRY                            :: 先预览将要合并/覆盖/删除哪些文件，不改动（强烈建议先跑一次确认）
+apply.bat "D:\别的路径\vscode"            :: 套到指定仓库（合并模式）
+apply.bat DRY "D:\别的路径\vscode"        :: 对指定仓库做预览
+apply.bat FORCE                          :: 强制全量覆盖：跳过合并，一律把 patch 文件盖到目标（只适合同版本重套用，会覆盖掉目标里已被上游改过的同名文件，慎用）
+apply.bat FORCE "D:\别的路径\vscode"      :: 指定仓库 + 强制覆盖
 ```
 
+> 脚本只认两个开关：`DRY`（预览）和 `FORCE`（强制覆盖）。**`FORCE` 不加就是默认的合并模式**，这也是适配高版本该用的模式。旧文档里的 `SAFE` 开关已废弃，不要再使用。
+
 行为说明：
-1. 按提交序号顺序，把 `patches/NNN-*/` 下所有文件（除 `_COMMIT_INFO.txt`）复制到目标仓库的对应相对路径，**后提交的覆盖先提交的**，最终状态等于本机分支 HEAD。
-2. 读取 `patches/_DELETED.txt`，删除目标仓库中那些分支已移除的文件（当前共 6 个，主要是中文命名的需求文档）。
-3. 纯文件复制，云桌面无需 git，速度快。
+1. 按提交序号顺序，把 `patches/NNN-*/` 下所有文件（除 `_COMMIT_INFO.txt` 与 `_base/` 元数据）以**三方合并**方式落到目标仓库对应相对路径。**后提交的覆盖先提交的**。
+2. 读取 `patches/_DELETED.txt`，删除目标仓库中那些分支已移除的文件。
+3. 云桌面需要 git（脚本用 `git merge-file` 做合并），但**不需要仓库本身有改动历史**——它只比对文件字节内容。
+4. **默认就是「适配高版本」的合并模式**（等价于旧文档的 `SAFE` / `-KeepOnConflict`，现在无需加任何开关），判定逻辑基于 `patches/_base` 里的基线版本（= 该 commit 的父版本）：
+   - 目标文件不存在 → 当作新文件，直接写入；
+   - 目标文件已与 patch 内容一致 → 视为已应用，跳过；
+   - 目标文件仍等于基线版本（干净、未被上游改过）→ 安全，直接套用 patch（覆盖）；
+   - 目标文件与基线、patch 都不一致（高版本已自行改动）→ 用 `git merge-file` 做三方合并：能自动合的自动合，合不来的在文件内写 `<<<<<<<` / `=======` / `>>>>>>>` 冲突标记，列入冲突清单，需在 VS Code 里搜 `<<<<<<<` 逐块修掉标记行；
+   - **硬性失败保护**：若 `git merge-file` 报错（如二进制/含 NUL 文件 "Cannot merge binary files"）或合并输出为空，脚本**绝不会清空目标文件**，而是跳过并列入失败清单。这修复了早期版本把目标文件直接覆盖成 0 字节的致命 bug。
+5. **`FORCE` 模式（`-Force`）**：跳过合并，一律把 patch 文件覆盖到目标。只适合同版本仓库的重新套用；套到高版本会覆盖掉上游已改过的同名文件，**非常危险，默认不要用**。
 
 ---
 
@@ -89,18 +101,18 @@ apply.bat DRY "D:\别的路径\vscode" :: 对指定仓库做预览
 
 ## 六、校验记录（本机已验证）
 
-- `patches/` 含当前分支全部 89 个提交，按提交顺序应用后的结果，与 `git show HEAD` **逐字节一致**（412 个文件复制 + 6 个文件删除）。
+- `patches/` 含当前分支全部提交（数量见 `patches/INDEX.md`），按提交顺序应用后的结果，与 `git show HEAD` 对应文件**逐字节一致**。
 - 工作区若有未提交改动，应用结果以"已提交状态"为准（这是预期行为）。
 
 ---
 
 ## 七、版本升级维护（例如 1.96.2 → 1.100.0）
 
-核心原则：89 个改动始终作为 **git 提交栈**维护在分支上；升级时把整个栈 **rebase 到新的上游 tag**，再重新导出 batch。batch 工具本身（`make_patches.ps1` / `apply.bat`）几乎不用改，只换"基点"。
+核心原则：这批改动始终作为 **git 提交栈**维护在分支上；升级时把整个栈 **rebase 到新的上游 tag**，再重新导出 batch。batch 工具本身（`make_patches.ps1` / `apply.bat`）几乎不用改，只换"基点"。
 
 ### 为什么不能直接复用旧 batch
 
-batch 是**按文件覆盖**，若把基于 1.96.2 的旧文件直接套到 1.100.0 上，会**覆盖掉上游在新版本里已经改过的同名文件**，造成回退/冲突。因此升级后必须**重新生成 batch，且生成源是 rebase 后的分支**（导出的文件已基于 1.100.0 代码）。
+batch 是基于**旧基点**的文件快照，若把基于 1.96.2 的旧 `patches/` 直接套到 1.100.0 上，会因基线错位而把旧内容错误合并/覆盖到上游已改过的同名文件。因此升级后必须**重新生成 batch，且生成源是 rebase 后的分支**（导出的文件已基于 1.100.0 代码，基线也自动变为各 commit 的父版本）。
 
 ### 最小步骤
 
@@ -109,7 +121,7 @@ batch 是**按文件覆盖**，若把基于 1.96.2 的旧文件直接套到 1.10
 git fetch upstream
 git tag 1.100.0 upstream/1.100.0        # 或直接使用对应 commit
 
-# 2) 把 89 个提交整体 rebase 到新基线（只在这一步解决冲突，其余自动）
+# 2) 把这批提交整体 rebase 到新基线（只在这一步解决冲突，其余自动）
 git checkout vscode-fork-dev
 git rebase 1.100.0
 #    - 无冲突的提交自动重放
@@ -122,7 +134,10 @@ powershell -ExecutionPolicy Bypass -File make_patches.ps1 -Base <1.100.0的commi
 #    方式 B：先更新 patches/_BASE.txt 为新基点，再 -Full（之后 -Incremental 也据此计算）
 #           （_BASE.txt 内容改为新 commit 哈希即可，脚本会优先读取它）
 
-# 4) 把新的 patches\ + apply.bat + apply_patches.ps1 拷到云桌面，apply.bat DRY 确认后应用
+# 4) 把新的 patches\ + apply.bat + apply_patches.ps1 拷到云桌面，
+#    apply.bat DRY "D:\目标仓库" 确认（冲突文件会列在下方，并在文件内写 <<<<<<< 标记）、
+#    apply.bat "D:\目标仓库" 应用（默认即为合并模式，高版本安全）；
+#    若想和同版本强一致覆盖，才用 apply.bat FORCE。
 ```
 
 ### 要点
@@ -152,7 +167,7 @@ git branch --show-current
 git fetch upstream --tags                # 无 upstream 远程时先：git remote add upstream https://github.com/microsoft/vscode.git
 git rev-parse 1.100.0                       # 应等于 19e0f9e681ecb8e5c09d8784acaa601316ca4571
 
-# 1) 把 89 个提交整体 rebase 到 1.100.0 基点（冲突处手动解决后 --continue）
+# 1) 把这批提交整体 rebase 到 1.100.0 基点（冲突处手动解决后 --continue）
 git rebase 19e0f9e681ecb8e5c09d8784acaa601316ca4571
 
 # 2) 用新基点重新导出 batch（-Full 清空旧 patches/ 重建，_BASE.txt 自动更新为新基点）
