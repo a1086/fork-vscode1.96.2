@@ -113,7 +113,7 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 		original: '8600',
 		mnemonicTitle: localize({ key: 'm8600', comment: ['&& denotes a mnemonic'] }, "&&8600")
 	},
-	order: 4.5
+	order: 2.5
 });
 
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
@@ -357,16 +357,16 @@ export abstract class MenubarControl extends Disposable {
 			}
 		}
 
-		const viewIndex = order.indexOf('View');
-		const existing8600 = order.indexOf('8600');
-		if (existing8600 !== -1) {
-			order.splice(existing8600, 1);
-		}
-		if (viewIndex !== -1) {
-			order.splice(viewIndex + 1, 0, '8600');
-		} else {
-			order.push('8600');
-		}
+	const editIndex = order.indexOf('Edit');
+	const existing8600 = order.indexOf('8600');
+	if (existing8600 !== -1) {
+		order.splice(existing8600, 1);
+	}
+	if (editIndex !== -1) {
+		order.splice(editIndex + 1, 0, '8600');
+	} else {
+		order.push('8600');
+	}
 
 		this.menus = collected;
 		this.topLevelTitles = titles;

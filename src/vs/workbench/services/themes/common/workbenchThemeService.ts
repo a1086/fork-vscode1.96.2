@@ -116,6 +116,7 @@ export interface IWorkbenchTheme {
 	readonly extensionData?: ExtensionData;
 	readonly description?: string;
 	readonly settingsId: string | null;
+	readonly groupId?: string;
 }
 
 export interface IWorkbenchColorTheme extends IWorkbenchTheme, IColorTheme {
@@ -280,6 +281,7 @@ export interface IThemeExtensionPoint {
 	id: string;
 	label?: string;
 	description?: string;
+	groupId?: string;
 	path: string;
 	uiTheme?: typeof VS_LIGHT_THEME | typeof VS_DARK_THEME | typeof VS_HC_THEME | typeof VS_HC_LIGHT_THEME;
 	_watch: boolean; // unsupported options to watch location

@@ -480,6 +480,14 @@ registerAction2(class extends Action2 {
 		const darkEntries = toEntries(themes.filter(t => t.type === ColorScheme.DARK), localize('themes.category.dark', "dark themes"));
 		const hcEntries = toEntries(themes.filter(t => isHighContrast(t.type)), localize('themes.category.hc', "high contrast themes"));
 
+		const groupIds: string[] = [];
+		for (const theme of themes) {
+			if (theme.groupId && !groupIds.includes(theme.groupId)) {
+				groupIds.push(theme.groupId);
+			}
+		}
+		const customGroups = groupIds.map(groupId => toEntries(themes.filter(t => t.groupId === groupId), groupId));
+
 		let picks;
 		switch (preferredColorScheme) {
 			case ColorScheme.DARK:
@@ -493,6 +501,9 @@ registerAction2(class extends Action2 {
 			default:
 				picks = [...lightEntries, ...darkEntries, ...hcEntries];
 				break;
+		}
+		for (const group of customGroups) {
+			picks = [...picks, ...group];
 		}
 		await picker.openQuickPick(picks, currentTheme);
 

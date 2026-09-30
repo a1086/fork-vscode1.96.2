@@ -60,6 +60,13 @@
         "label": "%lightHcColorThemeLabel%",
         "uiTheme": "hc-light",
         "path": "./themes/hc_light.json"
+      },
+      {
+        "id": "Accotest theme",
+        "label": "%accotestThemeLabel%",
+        "groupId": "accotest theme",
+        "uiTheme": "vs-dark",
+        "path": "./themes/accotest_theme.json"
       }
     ],
     "iconThemes": [

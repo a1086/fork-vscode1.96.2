@@ -11,7 +11,8 @@
 	padding-left: 7px;
 	border-radius: 4px;
 	left: 0;
-	top: 0;
+	top: 18px;
+	transform: translate(calc(-50% + var(--x-position, 0px)), calc(-50% + var(--y-position, 0px)));
 	-webkit-app-region: no-drag;
 }
 
@@ -26,19 +27,6 @@
 .monaco-workbench .debug-toolbar .monaco-action-bar .action-item.select-container .monaco-select-box,
 .monaco-workbench .start-debug-action-item .select-container .monaco-select-box {
 	padding: 0 22px 0 6px;
-}
-
-.monaco-workbench .debug-toolbar .drag-area {
-	cursor: grab;
-	width: 16px;
-	opacity: 0.5;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.monaco-workbench .debug-toolbar .drag-area.dragged {
-	cursor: grabbing;
 }
 
 .monaco-workbench  .debug-toolbar .monaco-action-bar .action-item .action-label {

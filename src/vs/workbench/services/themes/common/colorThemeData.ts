@@ -59,6 +59,7 @@ export class ColorThemeData implements IWorkbenchColorTheme {
 	label: string;
 	settingsId: string;
 	description?: string;
+	groupId?: string;
 	isLoaded: boolean;
 	location?: URI; // only set for extension from the registry, not for themes restored from the storage
 	watch?: boolean;
@@ -572,6 +573,7 @@ export class ColorThemeData implements IWorkbenchColorTheme {
 			id: this.id,
 			label: this.label,
 			settingsId: this.settingsId,
+			groupId: this.groupId,
 			themeTokenColors: this.themeTokenColors.map(tc => ({ settings: tc.settings, scope: tc.scope })), // don't persist names
 			semanticTokenRules: this.semanticTokenRules.map(SemanticTokenRule.toJSONObject),
 			extensionData: ExtensionData.toJSONObject(this.extensionData),
@@ -646,7 +648,7 @@ export class ColorThemeData implements IWorkbenchColorTheme {
 						break;
 					}
 					case 'themeTokenColors':
-					case 'id': case 'label': case 'settingsId': case 'watch': case 'themeSemanticHighlighting':
+					case 'id': case 'label': case 'settingsId': case 'groupId': case 'watch': case 'themeSemanticHighlighting':
 						(theme as any)[key] = data[key];
 						break;
 					case 'semanticTokenRules': {
@@ -686,6 +688,7 @@ export class ColorThemeData implements IWorkbenchColorTheme {
 		const settingsId = theme.id || label;
 		const themeData = new ColorThemeData(id, label, settingsId);
 		themeData.description = theme.description;
+		themeData.groupId = theme.groupId;
 		themeData.watch = theme._watch === true;
 		themeData.location = colorThemeLocation;
 		themeData.extensionData = extensionData;

@@ -37,6 +37,10 @@ export function registerColorThemeExtensionPoint() {
 						description: nls.localize('vscode.extension.contributes.themes.label', 'Label of the color theme as shown in the UI.'),
 						type: 'string'
 					},
+					groupId: {
+						description: nls.localize('vscode.extension.contributes.themes.groupId', 'Group of the color theme as shown in the UI.'),
+						type: 'string'
+					},
 					uiTheme: {
 						description: nls.localize('vscode.extension.contributes.themes.uiTheme', 'Base theme defining the colors around the editor: \'vs\' is the light color theme, \'vs-dark\' is the dark color theme. \'hc-black\' is the dark high contrast theme, \'hc-light\' is the light high contrast theme.'),
 						enum: [VS_LIGHT_THEME, VS_DARK_THEME, VS_HC_THEME, VS_HC_LIGHT_THEME]
