@@ -2055,3 +2055,31 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
   - 在原 `if (panel.lastHidden === true)` 与 `else if (isVisible(PANEL_PART))` 之间新增 `else if (panel.lastHidden === false)` 分支：将 `LayoutStateKeys.PANEL_HIDDEN` 运行时值置为 `false`，并从 `PanelPart.activePanelSettingsKey` 读取上次活动视图容器（缺省回落到默认面板容器）写入 `state.initialization.views.containerToRestore.panel`，确保面板上次可见时重启后正确恢复活动视图，而非丢失或被默认化。
   - 移除面板尺寸修复逻辑中遗留的 `console.log('ip')` 调试输出（~1656）。
   - 移除面板显隐切换逻辑中一处多余空行（~1963）。
+
+---
+
+## 59. 补丁工作流修复、模块编辑器与全量补丁重新导出（2026-09-30）
+
+**改动**：将当前工作区改动按功能拆分为 4 个提交，并补本文档。
+
+### 59.1 提交 1 — 补丁工作流脚本修复（workflow）
+- `apply_patches.ps1`：改用 .NET Process 直调 `git merge-file`，退出码按 0/1..127/其他分类，失败或空输出绝不写目标；行尾对齐避免 CRLF/LF 假冲突；正确处理 UTF-16 / 含 NUL 的二进制文件（修复此前 merge-file 退出码 255 将目标清空成空 blob 的致命 bug）。
+- `make_patches.ps1`：将 `_base` 改为存父提交版本（此前存 fork base，导致 merge base 不准）；`-Full` 可重建。
+- `apply.bat`：改用 `-File` + `cmd` 层重定向日志（旧写法 `Write-Host` 不进 `Tee-Object` 管道，导致 `apply.log` 仅一行）。
+- 更新 `PATCH_WORKFLOW.md`，新增 `diag.bat` 诊断脚本。
+
+### 59.2 提交 2 — 新增 ModulePart 并调整布局/主题/调试工具栏（feat）
+- 新增 `src/vs/workbench/browser/parts/module/ModulePart`（高度 35 的顶栏分区，`Parts.MODULE_PART`）及样式 `modulepart.css`。
+- `layout.ts` / `workbench.ts` / `layoutService.ts` 接入 `MODULE_PART` 布局分区。
+- 主题：新增 AccoTEST 主题定义 `extensions/theme-defaults/themes/accotest_theme.json`，并在 `theme-defaults` 的 `package.json` / `package.nls.json` 与主题服务 / 扩展点注册。
+- 调试工具栏 `debugToolBar.ts` / `debugToolBar.css` 精简清理；`menubarControl.ts` 调整菜单栏表现。
+
+### 59.3 提交 3 — 重新导出全量补丁快照（chore）
+- 新增 `patches/_base/`：001–093 的 merge base（父提交）源码快照。
+- 重新导出 `patches/001–091` 源码快照与 `_COMMIT_INFO.txt`（`_base` 改用父提交版本）。
+- 新增 `patches/092-0deeb08f7ae` 与 `patches/093-fb533f58e86` 提交导出。
+- 更新 `patches/INDEX.md`、`_DELETED.txt`、`_LAST.txt` 及对应 `Changes_Summary.md`。
+- 注：`patches/093-fb533f58e86/patches/` 为历史嵌套 bug，本次未纳入提交。
+
+### 59.4 提交 4 — 本文档更新（docs）
+- 于 `Changes_Summary.md` 追加本 §59，汇总上述 4 个提交。
