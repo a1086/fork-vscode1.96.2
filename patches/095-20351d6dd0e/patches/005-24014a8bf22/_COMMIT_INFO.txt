@@ -1,0 +1,10 @@
+Commit : 24014a8bf2279673134562e6a3244788cd37600f
+Short  : 24014a8bf22
+Subject: feat: 支持将视图（OUTLINE/PROBLEMS/PORTS）拖入编辑器区作为 editor tab（P0 原型）
+
+Files (5 changed):
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  A	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  A	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  A	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts
+  M	src/vs/workbench/workbench.common.main.ts

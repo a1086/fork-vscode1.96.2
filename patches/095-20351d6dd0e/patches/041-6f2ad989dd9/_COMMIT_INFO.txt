@@ -1,0 +1,8 @@
+Commit : 6f2ad989dd978067099a76450abd0bfbdc938b4d
+Short  : 6f2ad989dd9
+Subject: style: 调整 edit view 的间距，从border换成margin
+
+Files (3 changed):
+  M	package-lock.json
+  M	package.json
+  M	src/vs/workbench/browser/parts/editor/media/editorgroupview.css

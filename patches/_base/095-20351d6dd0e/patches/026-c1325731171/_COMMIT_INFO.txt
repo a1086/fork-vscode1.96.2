@@ -1,0 +1,10 @@
+Commit : c1325731171a3848d7b18205a62e76af54446a90
+Short  : c1325731171
+Subject: fix: 隐藏拖入编辑器区的视图 header 标题文字，保留操作按钮
+Author : hhuan
+Date   : 2026-08-06
+
+Files (3 changed):
+  A	src/vs/workbench/contrib/viewInEditor/browser/media/viewEditorPane.css
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	改动总结.md

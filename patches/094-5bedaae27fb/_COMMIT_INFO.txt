@@ -1,0 +1,20 @@
+Commit : 5bedaae27fbc6b104f1ffbb41a10ad5b1969fa16
+Short  : 5bedaae27fb
+Subject: feat(workbench): 新增 ModulePart 并调整布局/主题/调试工具栏
+
+Files (15 changed):
+  M	extensions/theme-defaults/package.json
+  M	extensions/theme-defaults/package.nls.json
+  A	extensions/theme-defaults/themes/accotest_theme.json
+  M	src/vs/workbench/browser/layout.ts
+  A	src/vs/workbench/browser/parts/module/media/modulepart.css
+  A	src/vs/workbench/browser/parts/module/modulePart.ts
+  M	src/vs/workbench/browser/parts/titlebar/menubarControl.ts
+  M	src/vs/workbench/browser/workbench.ts
+  M	src/vs/workbench/contrib/debug/browser/debugToolBar.ts
+  M	src/vs/workbench/contrib/debug/browser/media/debugToolBar.css
+  M	src/vs/workbench/contrib/themes/browser/themes.contribution.ts
+  M	src/vs/workbench/services/layout/browser/layoutService.ts
+  M	src/vs/workbench/services/themes/common/colorThemeData.ts
+  M	src/vs/workbench/services/themes/common/themeExtensionPoints.ts
+  M	src/vs/workbench/services/themes/common/workbenchThemeService.ts

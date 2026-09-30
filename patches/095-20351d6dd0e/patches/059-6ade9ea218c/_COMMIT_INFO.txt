@@ -1,0 +1,13 @@
+Commit : 6ade9ea218c16b66eac84fab84b819e71dc8110b
+Short  : 6ade9ea218c
+Subject: fix: 修复terminal视图拖拽出来独立的窗口，关闭窗口之后，功能不可用状态
+
+Files (8 changed):
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/contrib/terminal/browser/terminal.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroup.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroupService.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalInstance.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

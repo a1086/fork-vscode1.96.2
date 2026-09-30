@@ -1,0 +1,15 @@
+Commit : 4bcb19047560ecd262dfef8623107d853fc4f2bf
+Short  : 4bcb1904756
+Subject: fix: 视图拖拽到编辑器边缘时展开折叠的 Panel/辅助栏，并补充改动总结
+Author : hhuan
+Date   : 2026-08-04
+
+Files (8 changed):
+  M	src/vs/platform/dnd/browser/dnd.ts
+  M	src/vs/workbench/browser/dnd.ts
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  M	src/vs/workbench/browser/parts/editor/editorTabsControl.ts
+  M	src/vs/workbench/browser/parts/editor/multiEditorTabsControl.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	改动总结.md

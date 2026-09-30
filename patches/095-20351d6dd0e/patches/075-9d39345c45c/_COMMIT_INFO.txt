@@ -1,0 +1,10 @@
+Commit : 9d39345c45cf2984dcde931ac0c3456978c27d43
+Short  : 9d39345c45c
+Subject: fix: 视图拖拽健壮性修复 — 终端 resize 崩溃防护、webview 重定位布局、辅助栏默认显示
+
+Files (5 changed):
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalInstance.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/contrib/webview/browser/overlayWebview.ts
+  M	src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts

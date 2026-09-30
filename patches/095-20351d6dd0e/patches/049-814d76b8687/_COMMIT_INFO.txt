@@ -1,0 +1,8 @@
+Commit : 814d76b868756529d055a272faec3d7fd1b17d48
+Short  : 814d76b8687
+Subject: feat: 新增8600菜单，调整Panel左右分区的分割线包裹在了滚动条里面
+
+Files (3 changed):
+  M	src/vs/platform/actions/common/actions.ts
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/titlebar/menubarControl.ts

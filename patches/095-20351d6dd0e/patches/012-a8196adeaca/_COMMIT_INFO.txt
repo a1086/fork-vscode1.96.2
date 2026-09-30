@@ -1,0 +1,10 @@
+Commit : a8196adeacaef5a125a3cfc6c048a10d3dcb553a
+Short  : a8196adeaca
+Subject: fix: view-in-editor 拖入编辑器区显示 UNDEFINED 标题
+
+Files (5 changed):
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts
+  M	src/vs/workbench/services/views/browser/viewsService.ts
+  M	改动总结.md

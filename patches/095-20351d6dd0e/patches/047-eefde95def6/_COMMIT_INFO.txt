@@ -1,0 +1,7 @@
+Commit : eefde95def64fa4ce748eb9f7f855d83edaa4340
+Short  : eefde95def6
+Subject: fix: 修复paenl 视图为空的时候，应该隐藏的bug
+
+Files (2 changed):
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/panel/panelSidePart.ts

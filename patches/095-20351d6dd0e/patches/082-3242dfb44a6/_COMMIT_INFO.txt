@@ -1,0 +1,9 @@
+Commit : 3242dfb44a61b76326c8cf639fe5564a45b19326
+Short  : 3242dfb44a6
+Subject: feat: 插件布局键为 Setup/Debug 时隐藏 Panel 最大化/恢复按钮
+
+Files (4 changed):
+  M	Changes_Summary.md
+  M	src/vs/workbench/browser/parts/panel/panelActions.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/common/contextkeys.ts

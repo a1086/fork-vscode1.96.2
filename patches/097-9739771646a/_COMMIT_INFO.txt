@@ -1,0 +1,7 @@
+Commit : 9739771646a96b5e56663183db5297194ed68cf1
+Short  : 9739771646a
+Subject: feat(theme): Accotest theme 归入独立分组并设为默认深色主题
+
+Files (2 changed):
+  M	src/vs/workbench/contrib/themes/browser/themes.contribution.ts
+  M	src/vs/workbench/services/themes/common/workbenchThemeService.ts

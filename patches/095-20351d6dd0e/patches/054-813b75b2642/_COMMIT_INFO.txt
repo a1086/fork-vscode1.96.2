@@ -1,0 +1,6 @@
+Commit : 813b75b2642401f178ead48ba40dd47b0688e788
+Short  : 813b75b2642
+Subject: fix: 空编辑器组水印在隐藏 Panel/SideBar 时垂直水平居中
+
+Files (1 changed):
+  M	src/vs/workbench/browser/parts/editor/media/editorgroupview.css

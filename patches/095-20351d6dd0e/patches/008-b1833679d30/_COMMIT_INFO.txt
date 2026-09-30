@@ -1,0 +1,7 @@
+Commit : b1833679d3064324f8aa4a9f98a6a7386e2cc22a
+Short  : b1833679d30
+Subject: feat: 视图拖入编辑器区交互与样式细化（panelPart/part.css），补充菜单参考/需求拆解/源码分析等文档
+
+Files (2 changed):
+  A	Changes_Summary.md
+  A	View_Drag_To_Editor_Requirements.md

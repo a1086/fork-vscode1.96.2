@@ -1,0 +1,7 @@
+Commit : 4de4d8af389cf3978f717d63b73994cac628d423
+Short  : 4de4d8af389
+Subject: 调整工作台主要部件间距和面板边框样式 - 优化编辑器、侧边栏、辅助栏等主要部件之间的视觉间距 - 调整面板顶部边框宽度以改善视觉效果
+
+Files (2 changed):
+  M	src/vs/workbench/browser/media/part.css
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css

@@ -1,0 +1,32 @@
+Commit : 1be7212320504ef70a9d3d09c937f9fbf574bfae
+Short  : 1be72123205
+Subject: feat(workbench): support dual-side (split) panel layout
+
+Files (27 changed):
+  A	Panel_Side_Extension_API_Requirements.md
+  A	Panel_Three_Side_Requirements.md
+  M	src/vs/platform/actions/common/actions.ts
+  M	src/vs/workbench/browser/dnd.ts
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/compositePart.ts
+  M	src/vs/workbench/browser/parts/paneCompositeBar.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/browser/parts/paneCompositePartService.ts
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/panel/panelActions.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  A	src/vs/workbench/browser/parts/panel/panelSidePart.ts
+  M	src/vs/workbench/browser/parts/sidebar/sidebarPart.ts
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/common/contextkeys.ts
+  M	src/vs/workbench/common/views.ts
+  M	src/vs/workbench/contrib/debug/browser/repl.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroupService.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/services/layout/browser/layoutService.ts
+  M	src/vs/workbench/services/panecomposite/browser/panecomposite.ts
+  M	src/vs/workbench/services/views/browser/viewsService.ts
+  M	src/vs/workbench/test/browser/workbenchTestServices.ts

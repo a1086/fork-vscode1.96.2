@@ -1,0 +1,8 @@
+Commit : 69ace8765a3e06f7664d987acd1e7454c2b0ab0b
+Short  : 69ace8765a3
+Subject: doc: 更新总结文档（§55 视图拖出归位/残留覆盖层/无分隔线 sash 修复）
+Author : hhuanzheng
+Date   : 2026-09-03
+
+Files (1 changed):
+  M	Changes_Summary.md

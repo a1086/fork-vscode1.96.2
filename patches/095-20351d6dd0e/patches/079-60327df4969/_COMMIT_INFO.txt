@@ -1,0 +1,8 @@
+Commit : 60327df496967b0126415c69da729fd7256a78c6
+Short  : 60327df4969
+Subject: fix: 辅助侧边栏(Aux Bar)启动时默认显示运行和调试视图
+
+Files (3 changed):
+  M	Changes_Summary.md
+  M	src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts
+  M	src/vs/workbench/contrib/debug/browser/debug.contribution.ts

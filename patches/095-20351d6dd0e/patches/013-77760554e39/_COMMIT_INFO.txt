@@ -1,0 +1,8 @@
+Commit : 77760554e39b9c0e70cb283983f3c501aa7c239f
+Short  : 77760554e39
+Subject: docs: 追加 view-in-editor UNDEFINED 修复总结并更新 getName 兜底逻辑
+
+Files (3 changed):
+  M	src/vs/base/browser/ui/sash/sash.css
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  M	改动总结.md

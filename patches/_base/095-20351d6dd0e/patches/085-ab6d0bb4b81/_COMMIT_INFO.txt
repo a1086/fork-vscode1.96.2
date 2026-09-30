@@ -1,0 +1,9 @@
+Commit : ab6d0bb4b81e1f70d67cad19fe7e19843022cc96
+Short  : ab6d0bb4b81
+Subject: doc: 改动列表按模块归类重排 (Changes_List.md) 并补充汇总 (Changes_Summary.md §69)
+Author : hhuan
+Date   : 2026-09-10
+
+Files (2 changed):
+  M	Changes_List.md
+  M	Changes_Summary.md

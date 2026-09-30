@@ -1,6 +1,6 @@
 # Patch Index (full-file snapshot)
 Base: fabdb6a30b4 -> HEAD
-Total commits: 93
+Total commits: 99
 
 ## 1 - feat: 活动栏常驻 Run and Debug 图标，Debug 视图默认移至 Auxiliary Bar，活动栏默认位置改 top
 ## 2 - feat: 编辑器区显隐切换与空组关闭优化，Ctrl+K W 关闭后隐藏编辑器区，去除 X 按钮背景
@@ -95,3 +95,9 @@ Total commits: 93
 ## 91 - workbench: 启动恢复面板时处理 panel.lastHidden===false 并移除调试日志
 ## 92 - docs: 更新改动总结文档（新增 §58 面板启动恢复与调试日志清理）
 ## 93 - chore: 提交当前分支 patches/ 全量导出（91 个提交，基于 fabdb6a30b4）
+## 94 - workflow: 修复补丁生成/应用脚本（字节安全三方合并、_base 存父提交、日志重定向）
+## 95 - feat(workbench): 新增 ModulePart 并调整布局/主题/调试工具栏
+## 96 - chore(patches): 重新导出全量补丁快照（含 _base merge base 与 092/093）
+## 97 - docs: 更新 Changes_Summary.md 改动总结（新增 §59，汇总本次 4 个提交）
+## 98 - feat(theme): Accotest theme 归入独立分组并设为默认深色主题
+## 99 - docs: Changes_Summary.md 追加 §60 Accotest 主题分组与默认主题

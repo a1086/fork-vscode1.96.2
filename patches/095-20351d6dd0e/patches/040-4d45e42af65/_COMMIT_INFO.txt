@@ -1,0 +1,36 @@
+Commit : 4d45e42af653d9978bb50f7651fc6c663fd6018e
+Short  : 4d45e42af65
+Subject: feat: 新增 panel和aux 区域的视图能够拖拽脱离编辑器，并修复Panel分区的bug，主要修复了 没有视图的时候Panel应该隐藏，初始化打开编辑器的时候，展示单个Panel，单个Panel只展示Terminal和DEBUG CONSOLE两个视图，多次点击Toggle Panel的时候，能够记住上一次Panel的状态
+
+Files (31 changed):
+  A	View_Drag_Out_To_Window_Plan.md
+  M	build/lib/electron.js
+  M	product.json
+  M	resources/win32/code.ico
+  A	resources/win32/code.ico.bak
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts
+  M	src/vs/workbench/browser/parts/auxiliarybar/media/auxiliaryBarPart.css
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  M	src/vs/workbench/browser/parts/editor/editorParts.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/panel/panelSidePart.ts
+  A	src/vs/workbench/browser/parts/viewDragSession.ts
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/contrib/files/browser/views/explorerView.ts
+  M	src/vs/workbench/contrib/terminal/browser/media/terminal.css
+  M	src/vs/workbench/contrib/terminal/browser/terminal.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroup.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroupService.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalTabbedView.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalView.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts
+  M	src/vs/workbench/contrib/welcomeGettingStarted/common/gettingStartedContent.ts
+  M	src/vs/workbench/services/editor/common/editorGroupsService.ts
+  M	src/vs/workbench/test/browser/workbenchTestServices.ts

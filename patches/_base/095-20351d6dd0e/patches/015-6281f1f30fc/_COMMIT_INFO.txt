@@ -1,0 +1,13 @@
+Commit : 6281f1f30fc92861e7395e6418f2ea0f791dc03a
+Short  : 6281f1f30fc
+Subject: fix: 拖空 Panel 后自动隐藏（参考 Auxiliary Bar 机制）
+Author : hhuan
+Date   : 2026-08-03
+
+Files (6 changed):
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/services/views/browser/viewsService.ts
+  M	src/vs/workbench/services/views/common/viewsService.ts
+  M	src/vs/workbench/test/browser/workbenchTestServices.ts
+  M	改动总结.md

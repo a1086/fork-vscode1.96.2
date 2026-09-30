@@ -1,0 +1,12 @@
+Commit : 94ccabc88b26dc71dcad66c0eddc4c380ec81a83
+Short  : 94ccabc88b2
+Subject: fix: 修复视图拖出归位、残留覆盖层与无分隔线 sash 问题
+Author : hhuanzheng
+Date   : 2026-09-03
+
+Files (5 changed):
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/viewDragSession.ts
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts

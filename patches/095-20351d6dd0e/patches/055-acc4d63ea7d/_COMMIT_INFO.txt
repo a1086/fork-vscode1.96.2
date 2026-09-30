@@ -1,0 +1,8 @@
+Commit : acc4d63ea7df9e0ae07938aa3eb95a0403d1ee86
+Short  : acc4d63ea7d
+Subject: fix: 把菜单 8600 的位置从 最后移动到 view之后
+
+Files (3 changed):
+  M	src/vs/platform/menubar/electron-main/menubar.ts
+  M	src/vs/workbench/browser/parts/titlebar/menubarControl.ts
+  M	src/vs/workbench/electron-sandbox/parts/titlebar/menubarControl.ts

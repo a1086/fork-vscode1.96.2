@@ -1,0 +1,7 @@
+Commit : 9361994ffd6ebfbf65365f08979b80a26e7d2898
+Short  : 9361994ffd6
+Subject: fix: 为 Panel 自定义视图白名单增加容器 id 前缀双保险
+
+Files (2 changed):
+  M	Changes_Summary.md
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts

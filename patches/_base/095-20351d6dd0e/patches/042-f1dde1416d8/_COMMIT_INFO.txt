@@ -1,0 +1,14 @@
+Commit : f1dde1416d85da0828f5a523332880aca93f1b0d
+Short  : f1dde1416d8
+Subject: style: 各区域分隔改用 margin 间隙，并修复 hygiene 检查问题
+Author : hhuanzheng
+Date   : 2026-08-21
+
+Files (7 changed):
+  M	build/lib/stylelint/vscode-known-variables.json
+  M	src/vs/workbench/browser/parts/activitybar/media/activitybarpart.css
+  M	src/vs/workbench/browser/parts/auxiliarybar/media/auxiliaryBarPart.css
+  M	src/vs/workbench/browser/parts/editor/media/editorgroupview.css
+  M	src/vs/workbench/browser/parts/panel/media/panelpart.css
+  M	src/vs/workbench/browser/parts/sidebar/media/sidebarpart.css
+  M	src/vs/workbench/contrib/viewInEditor/browser/media/viewEditorPane.css

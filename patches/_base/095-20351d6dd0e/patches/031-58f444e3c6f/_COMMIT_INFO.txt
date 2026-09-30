@@ -1,0 +1,8 @@
+Commit : 58f444e3c6f17e337ff49fe1090a60857e6a4b93
+Short  : 58f444e3c6f
+Subject: docs: 在改动总结.md 追加第19章 Panel 关闭按钮修复说明
+Author : hhuan
+Date   : 2026-08-07
+
+Files (1 changed):
+  M	改动总结.md

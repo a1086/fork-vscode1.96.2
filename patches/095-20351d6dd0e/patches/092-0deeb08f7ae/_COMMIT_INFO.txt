@@ -1,0 +1,6 @@
+Commit : 0deeb08f7ae9b5235870f6231d5414c78fdd9f3b
+Short  : 0deeb08f7ae
+Subject: docs: 更新改动总结文档（新增 §58 面板启动恢复与调试日志清理）
+
+Files (1 changed):
+  M	Changes_Summary.md

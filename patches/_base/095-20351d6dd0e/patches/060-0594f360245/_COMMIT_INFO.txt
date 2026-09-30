@@ -1,0 +1,8 @@
+Commit : 0594f360245e442b219709f99eaa45fe374e1b90
+Short  : 0594f360245
+Subject: fix: 调整 aux bar，debug功能下的视图，可以拖拽到和debug图标水平一排显示
+Author : hhuan
+Date   : 2026-09-03
+
+Files (1 changed):
+  M	src/vs/workbench/browser/parts/compositeBar.ts

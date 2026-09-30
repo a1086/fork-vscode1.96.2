@@ -1,0 +1,9 @@
+Commit : 407756fe579462e723506a18f31cd9ad977386b3
+Short  : 407756fe579
+Subject: fix: 通过 View 打开的 Panel 高度过低（强制恢复首选高度 40%）
+
+Files (4 changed):
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/services/layout/browser/layoutService.ts
+  M	src/vs/workbench/test/browser/workbenchTestServices.ts

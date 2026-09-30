@@ -1,0 +1,7 @@
+Commit : d1f97b86385d45bf7ec4e536960a6aed34150dcc
+Short  : d1f97b86385
+Subject: fix: 点击 Activity Bar 的 Debug 图标时展开 Auxiliary Bar
+
+Files (2 changed):
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	改动总结.md

@@ -1,0 +1,6 @@
+Commit : 4c07bc2cd47554e302f8ef3d81e57e0452796a03
+Short  : 4c07bc2cd47
+Subject: docs: 追加 Panel 自动隐藏加固与 Panel 默认高度调整到改动总结
+
+Files (1 changed):
+  M	Changes_Summary.md

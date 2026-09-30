@@ -1,0 +1,6 @@
+Commit : c69d5e1209f5d35d9a53a2d905b5fecb6a5956ca
+Short  : c69d5e1209f
+Subject: docs: update Changes_Summary with rebrand and dual-side panel
+
+Files (1 changed):
+  M	Changes_Summary.md

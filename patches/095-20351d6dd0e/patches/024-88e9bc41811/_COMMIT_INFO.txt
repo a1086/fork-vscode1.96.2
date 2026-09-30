@@ -1,0 +1,8 @@
+Commit : 88e9bc41811262de2cb82eaa972c174b2625b48b
+Short  : 88e9bc41811
+Subject: fix: focus existing editor tab when opening an editor-hosted view via menu
+
+Files (3 changed):
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/services/views/browser/viewDescriptorService.ts
+  M	src/vs/workbench/services/views/browser/viewsService.ts

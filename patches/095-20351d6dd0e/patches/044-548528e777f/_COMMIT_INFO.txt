@@ -1,0 +1,12 @@
+Commit : 548528e777f8b97f5a8b9ac94c905df26f49c142
+Short  : 548528e777f
+Subject: chore: 删除视图拖拽相关调试日志打印
+
+Files (7 changed):
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/compositePart.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/viewDragSession.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

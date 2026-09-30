@@ -1,0 +1,10 @@
+Commit : 499b0fea21cdcfa650c3a47082bb59b102926028
+Short  : 499b0fea21c
+Subject: workflow: 修复补丁生成/应用脚本（字节安全三方合并、_base 存父提交、日志重定向）
+
+Files (5 changed):
+  M	PATCH_WORKFLOW.md
+  M	apply.bat
+  M	apply_patches.ps1
+  A	diag.bat
+  M	make_patches.ps1

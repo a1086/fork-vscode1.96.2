@@ -1,0 +1,8 @@
+Commit : bde2f79dcfc4fb394a682a46107cfdf8e358f270
+Short  : bde2f79dcfc
+Subject: fix: 编辑器分组拖拽只影响相邻组，修复 SplitView.resize 核心算法
+
+Files (3 changed):
+  M	Changes_Summary.md
+  M	src/vs/base/browser/ui/splitview/splitview.ts
+  M	改动总结.md

@@ -1,0 +1,8 @@
+Commit : 624b1e59497ceccd46f009b2eb322e56c49632f9
+Short  : 624b1e59497
+Subject: workbench: 启动恢复面板时处理 panel.lastHidden===false 并移除调试日志
+Author : hhuan
+Date   : 2026-09-28
+
+Files (1 changed):
+  M	src/vs/workbench/browser/layout.ts

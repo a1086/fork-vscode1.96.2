@@ -1,0 +1,19 @@
+Commit : 80f314f0575704adc1e8237df660497c0b894eb4
+Short  : 80f314f0575
+Subject: feat: 实现从panel bar/ aux bar/ activity bar的view 拖拽到edit code 区域，但是存在拖进去样式错位，不能再从edit code区域拖拽出来，在edit code 区域关闭view之后，view又出现了拖拽之前的位置
+
+Files (14 changed):
+  M	View_Drag_To_Editor_Requirements.md
+  A	implementation_plan.md
+  M	src/vs/workbench/browser/layout.ts
+  M	src/vs/workbench/browser/parts/compositeBarActions.ts
+  M	src/vs/workbench/browser/parts/editor/editorPart.ts
+  M	src/vs/workbench/browser/parts/paneCompositePart.ts
+  M	src/vs/workbench/browser/parts/paneCompositePartService.ts
+  M	src/vs/workbench/browser/parts/views/viewPaneContainer.ts
+  M	src/vs/workbench/common/views.ts
+  M	src/vs/workbench/contrib/terminal/browser/terminalGroup.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorInput.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewInEditor.contribution.ts
+  M	src/vs/workbench/services/views/browser/viewDescriptorService.ts

@@ -1,0 +1,6 @@
+Commit : f1a12a8aea96670c1c129f2141fd50227a1c972f
+Short  : f1a12a8aea9
+Subject: fix: 修复 Ports 等带 staticArguments 的视图拖入编辑器区报错
+
+Files (1 changed):
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

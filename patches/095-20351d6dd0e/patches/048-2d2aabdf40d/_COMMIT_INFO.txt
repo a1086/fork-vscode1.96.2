@@ -1,0 +1,11 @@
+Commit : 2d2aabdf40df2a72d08e9bd4bdf26b4b384fc9a8
+Short  : 2d2aabdf40d
+Subject: fix: 修正视图拖出窗口/拖拽归位与 Panel 空态的多处问题
+
+Files (6 changed):
+  M	src/vs/workbench/browser/parts/compositeBar.ts
+  M	src/vs/workbench/browser/parts/paneCompositePartService.ts
+  M	src/vs/workbench/browser/parts/panel/panelPart.ts
+  M	src/vs/workbench/browser/parts/panel/panelSidePart.ts
+  M	src/vs/workbench/contrib/timeline/browser/timelinePane.ts
+  M	src/vs/workbench/contrib/viewInEditor/browser/viewEditorPane.ts

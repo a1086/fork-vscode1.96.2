@@ -1,0 +1,7 @@
+Commit : 96d0539792fd511c3cda5f6e0123bcefa1da4ed0
+Short  : 96d0539792f
+Subject: feat(panel): Panel 视图 tab 关闭按钮默认隐藏，悬停/聚焦/激活时显示
+
+Files (2 changed):
+  M	src/vs/workbench/browser/parts/media/paneCompositePart.css
+  M	改动总结.md
