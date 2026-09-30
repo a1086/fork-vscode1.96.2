@@ -2083,3 +2083,18 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 
 ### 59.4 提交 4 — 本文档更新（docs）
 - 于 `Changes_Summary.md` 追加本 §59，汇总上述 4 个提交。
+
+---
+
+## 60. Accotest 主题独立分组并设为默认主题（2026-09-30）
+
+**需求**：Accotest theme 不应与内置深色主题混在「dark themes」分类里，而应单独作为一个分组（`groupId: "accotest theme"`）出现；安装/编译后的编辑器默认即使用该主题。
+
+### 60.1 改动文件
+- `src/vs/workbench/contrib/themes/browser/themes.contribution.ts`（~479-481）
+  - 主题选择器中，`lightEntries` / `darkEntries` / `hcEntries` 的过滤条件新增 `&& !t.groupId`：凡带有 `groupId` 的主题（如 Accotest theme）不再进入 light/dark/hc 默认分类，仅出现在以其 `groupId` 命名的自定义分组下，避免同一主题同时出现在两个分组。
+- `src/vs/workbench/services/themes/common/workbenchThemeService.ts`（~47）
+  - `ThemeSettingDefaults.COLOR_THEME_DARK` 由 `'Default Dark Modern'` 改为 `'Accotest theme'`，使未设置 `workbench.colorTheme` 的用户（以及开启「跟随系统」时的首选深色主题）默认加载 Accotest theme。
+
+### 60.2 说明
+- 主题定义文件 `extensions/theme-defaults/themes/accotest_theme.json`、扩展注册（`package.json` 的 `contributes.themes` 条目、`package.nls.json` 的 `accotestThemeLabel`）保持不变，仍由 §59.2 提交 2 引入；本次仅调整其分组归属与默认值。
