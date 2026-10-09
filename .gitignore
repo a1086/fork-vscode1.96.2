@@ -27,3 +27,6 @@ tsc-out.log
 tsc_check.err
 tsc_check.log
 *.diff
+
+# Patch export artifacts (local-only, applied to target repo via apply_patches.ps1)
+patches/
