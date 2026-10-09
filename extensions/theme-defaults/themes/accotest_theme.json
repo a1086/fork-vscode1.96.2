@@ -1,6 +1,6 @@
 {
 	"$schema": "vscode://schemas/color-theme",
-	"name": "Accotest theme",
+	"name": "AccoTest Dark",
 	"include": "./dark_vs.json",
 	"tokenColors": [
 		{
@@ -202,10 +202,33 @@
 		"numberLiteral": "#b5cea8"
 	},
 	"colors": {
-		"button.background": "#00C853",
+		"button.background": "#0DAFC6",
 		"button.foreground": "#FFFFFF",
-		"button.hoverBackground": "#00A847",
-		"menu.selectionBackground": "#00C853",
-		"menu.selectionForeground": "#FFFFFF"
+		"button.hoverBackground": "#028799",
+		"menu.selectionBackground": "#028799",
+		"menu.selectionForeground": "#FFFFFF",
+		"textLink.foreground": "#0DAFC6",
+		"textLink.activeForeground": "#0DAFC6",
+		"quickInputList.focusBackground": "#0DAFC6",
+		"quickInputList.focusForeground": "#FFFFFF",
+		"pickerGroup.foreground": "#0DAFC6",
+		"editor.background": "#23272e",
+		"editorGroup.emptyBackground": "#23272e",
+		"editorPane.background": "#23272e",
+		"sideBar.background": "#1e2227",
+		"sideBarSectionHeader.background": "#2d3036",
+		"titleBar.activeBackground": "#2d3036", // 各个区域分割线的颜色
+		"titleBar.inactiveBackground": "#23272e",
+		"commandCenter.background": "#2d3036",
+		"commandCenter.activeBackground": "#23272e",
+		"tab.inactiveBackground": "#1e2227",
+		"panelSide.titleBorder": "#2d3036",
+		"statusBar.background": "#1e2227",
+		"statusBar.debuggingBackground": "#1e2227",
+		"viewpaneFilter.background": "#000000",
+		"focusBorder": "#3e4452",
+		"list.inactiveSelectionBackground": "#323842",
+		"list.activeSelectionBackground": "#323842",
+		"list.hoverBackground": "#2c313a"
 	}
 }

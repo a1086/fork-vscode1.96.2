@@ -129,7 +129,7 @@
 .monaco-workbench .panel-side > .title {
 	flex: 0 0 auto;
 	min-height: 35px;
-	border-top: 4px solid var(--vscode-panel-border, transparent);
+	border-top: 4px solid var(--vscode-panelSide-titleBorder);
 }
 
 .monaco-workbench .part.panel .panel-side > .content {

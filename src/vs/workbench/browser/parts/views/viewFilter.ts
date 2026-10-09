@@ -25,6 +25,7 @@ import { SubmenuEntryActionViewItem } from '../../../../platform/actions/browser
 import { Widget } from '../../../../base/browser/ui/widget.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { defaultInputBoxStyles } from '../../../../platform/theme/browser/defaultStyles.js';
+import { VIEWPANE_FILTER_BACKGROUND } from '../../../common/theme.js';
 import { IActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
 
 const viewFilterMenu = new MenuId('menu.view.filter');
@@ -171,7 +172,7 @@ export class FilterWidget extends Widget {
 			ariaLabel: this.options.ariaLabel,
 			history: new Set(history),
 			showHistoryHint: () => showHistoryKeybindingHint(this.keybindingService),
-			inputBoxStyles: defaultInputBoxStyles
+			inputBoxStyles: { ...defaultInputBoxStyles, inputBackground: asCssVariable(VIEWPANE_FILTER_BACKGROUND) }
 		}));
 		if (this.options.text) {
 			inputBox.value = this.options.text;

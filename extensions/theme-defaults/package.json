@@ -62,11 +62,16 @@
         "path": "./themes/hc_light.json"
       },
       {
-        "id": "Accotest theme",
+        "id": "AccoTest Dark",
         "label": "%accotestThemeLabel%",
-        "groupId": "accotest theme",
         "uiTheme": "vs-dark",
         "path": "./themes/accotest_theme.json"
+      },
+      {
+        "id": "AccoTest Light",
+        "label": "%accotestLightThemeLabel%",
+        "uiTheme": "vs",
+        "path": "./themes/accotest_light_theme.json"
       }
     ],
     "iconThemes": [

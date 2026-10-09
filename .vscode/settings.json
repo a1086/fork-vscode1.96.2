@@ -197,22 +197,22 @@
 			"panelSectionHeader.border": "#A0A0A0"
 		},
 		"[Dark+]": {
-			"sideBarSectionHeader.background": "#3c3c3c",
-			"sideBarSectionHeader.border": "#4e4e4e",
-			"panelSectionHeader.background": "#3c3c3c",
-			"panelSectionHeader.border": "#4e4e4e"
+			"sideBarSectionHeader.background": "#484e59",
+			"sideBarSectionHeader.border": "#484e59",
+			"panelSectionHeader.background": "#484e59",
+			"panelSectionHeader.border": "#484e59"
 		},
 		"[Dark Modern]": {
-			"sideBarSectionHeader.background": "#3c3c3c",
-			"sideBarSectionHeader.border": "#4e4e4e",
-			"panelSectionHeader.background": "#3c3c3c",
-			"panelSectionHeader.border": "#4e4e4e"
+			"sideBarSectionHeader.background": "#484e59",
+			"sideBarSectionHeader.border": "#484e59",
+			"panelSectionHeader.background": "#484e59",
+			"panelSectionHeader.border": "#484e59"
 		},
 		"[Dark (Visual Studio)]": {
-			"sideBarSectionHeader.background": "#3c3c3c",
-			"sideBarSectionHeader.border": "#4e4e4e",
-			"panelSectionHeader.background": "#3c3c3c",
-			"panelSectionHeader.border": "#4e4e4e"
+			"sideBarSectionHeader.background": "#484e59",
+			"sideBarSectionHeader.border": "#484e59",
+			"panelSectionHeader.background": "#484e59",
+			"panelSectionHeader.border": "#484e59"
 		}
 	}
 }
