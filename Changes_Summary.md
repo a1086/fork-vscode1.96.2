@@ -2098,3 +2098,32 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 
 ### 60.2 说明
 - 主题定义文件 `extensions/theme-defaults/themes/accotest_theme.json`、扩展注册（`package.json` 的 `contributes.themes` 条目、`package.nls.json` 的 `accotestThemeLabel`）保持不变，仍由 §59.2 提交 2 引入；本次仅调整其分组归属与默认值。
+
+---
+
+## 61. AccoTest 主题细化、补丁脚本防护与移除误提交补丁快照（2026-10-09）
+
+**改动**：将 2026-09-30 以来的工作区改动按功能拆分为 4 个提交（主题、补丁脚本防护、补丁快照清理、本文档），并补本文档。
+
+### 61.1 提交 1 — AccoTest 主题改名、拆分深浅色并细化界面配色（feat）
+- `extensions/theme-defaults/package.json`：`contributes.themes` 中将原 `id: "Accotest theme"` 改名为 `id: "AccoTest Dark"`，并新增 `id: "AccoTest Light"`（浅色，`uiTheme: "vs"`，指向新建 `accotest_light_theme.json`），移除 `groupId`（不再单独分组）。
+- `extensions/theme-defaults/package.nls.json`：`accotestThemeLabel` 改为 `AccoTest Dark`，新增 `accotestLightThemeLabel` → `AccoTest Light`。
+- `extensions/theme-defaults/themes/accotest_theme.json`：主题名改为 `AccoTest Dark`；按钮/菜单配色由绿色（`#00C853`/`#00A847`）改为青色（`#0DAFC6`/`#028799`），并补全大量界面色（编辑器/侧栏/标题栏/状态栏背景、链接/列表选中/聚焦边框、视图筛选框背景 `viewpaneFilter.background` 等）。
+- `extensions/theme-defaults/themes/accotest_light_theme.json`（新增）：AccoTest Light 浅色主题定义（`include: ./light_vs.json`），主色同为青色 `#0e9eb5`。
+- `src/vs/workbench/services/themes/common/workbenchThemeService.ts`：`ThemeSettingDefaults.COLOR_THEME_DARK` 由 `'Accotest theme'` 改为 `'AccoTest Dark'`，保持默认深色主题为 AccoTest。
+- `src/vs/workbench/common/theme.ts`：新增两个颜色注册 `panelSide.titleBorder`、`viewpaneFilter.background`。
+- `src/vs/workbench/browser/parts/views/viewFilter.ts`：视图筛选输入框背景改为 `VIEWPANE_FILTER_BACKGROUND` 变量色。
+- `src/vs/workbench/browser/parts/panel/media/panelpart.css`：双栏面板侧边标题上边框改用 `var(--vscode-panelSide-titleBorder)`。
+- `src/vs/workbench/browser/parts/statusbar/media/statusbarpart.css`：状态栏 `:focus` 去除默认 outline。
+- `.vscode/settings.json`：Dark+ / Dark Modern / Dark (Visual Studio) 下的 `sideBarSectionHeader` 与 `panelSectionHeader` 背景/边框由 `#3c3c3c`/`#4e4e4e` 改为 `#484e59`。
+
+### 61.2 提交 2 — 补丁脚本增加嵌套 patches 自引用防护（workflow）
+- `make_patches.ps1`：导出前增加 guard，跳过位于自身输出目录 `patches/` 内的文件（如某次提交误改了 `patches/...`），避免写出 `patches/<NNN>/patches/...` 自嵌套产物，并给出 SKIP 警告。
+- `apply_patches.ps1`：遍历提交目录时增加 guard，检测并跳过嵌套的 `patches\` 子树（自引用产物），在汇总信息中新增 `nested-skipped` 计数，避免将历史嵌套补丁误应用到目标仓库。
+
+### 61.3 提交 3 — 从仓库移除误提交的全量补丁快照并加入 .gitignore（chore）
+- 移除 2026-09-30 误提交进仓库的 `patches/`（001–093 全量快照、`_COMMIT_INFO.txt`、`INDEX.md`/`_DELETED.txt`/`_LAST.txt` 等）与 `patches/_base/`（merge base 快照），共约 37.7 万行、502 个文件。
+- `.gitignore` 新增 `patches/`，使补丁导出产物不再被纳入版本控制（补丁仅为本地应用到目标仓库的中间产物，`make_patches.ps1` 仍可在本地正常生成并被 `apply_patches.ps1` 读取）。
+
+### 61.4 提交 4 — 本文档更新（docs）
+- 于 `Changes_Summary.md` 追加本 §61，汇总上述 3 个功能提交。
