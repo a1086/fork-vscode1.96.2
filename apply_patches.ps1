@@ -91,6 +91,7 @@ $deleted = if (Test-Path $deletedList) {
 
 $copied = 0
 $skipped = 0
+$nested  = 0
 $conflicts = New-Object System.Collections.Generic.List[string]
 $failed   = New-Object System.Collections.Generic.List[string]
 
@@ -98,9 +99,26 @@ foreach ($f in ($commitDirs | Sort-Object Name)) {
     $files = Get-ChildItem -File -Recurse -Path $f.FullName |
         Where-Object { $_.Name -ne '_COMMIT_INFO.txt' }
 
+    # GUARD: a commit folder must never contain a nested patches\ subtree
+    # (patches/<NNN>/patches/...). That is a self-referential export artifact
+    # and must not be applied into the target repo.
+    $nestedPatchDir = Join-Path $f.FullName 'patches'
+    if (Test-Path $nestedPatchDir) {
+        Write-Host "WARNING: $($f.Name) contains a nested patches\ subtree (self-referential artifact) - those files will be SKIPPED."
+    }
+
     foreach ($file in $files) {
         $rel = $file.FullName.Substring($f.FullName.Length + 1)
         $dest = Join-Path $Target $rel
+
+        # GUARD: skip files whose path lives inside a nested patches\ subtree
+        $normRel = $rel.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+        if ($normRel -eq 'patches' -or $normRel.StartsWith('patches' + [System.IO.Path]::DirectorySeparatorChar)) {
+            Write-Host "[GUARD] skip nested patch artifact -> $rel"
+            $nested++
+            continue
+        }
+
         $destDir = Split-Path -Parent $dest
 
         try {
@@ -244,9 +262,9 @@ foreach ($rel in $deleted) {
 Write-Host ''
 Write-Host '=================================='
 if ($DryRun) {
-    Write-Host "DRY RUN done: merge/apply $copied, skip $skipped, conflict $($conflicts.Count), delete $($deleted.Count)"
+    Write-Host "DRY RUN done: merge/apply $copied, skip $skipped, nested-skipped $nested, conflict $($conflicts.Count), delete $($deleted.Count)"
 } else {
-    Write-Host "APPLY done: merged $copied, skipped $skipped, conflicts $($conflicts.Count), deleted $delDone"
+    Write-Host "APPLY done: merged $copied, skipped $skipped, nested-skipped $nested, conflicts $($conflicts.Count), deleted $delDone"
 }
 Write-Host '=================================='
 

@@ -111,6 +111,15 @@ foreach ($c in $commits) {
         $path = $parts[-1]
         if ($st -eq 'D') { continue }
 
+        # guard: never export files that live inside our own output tree (patches/).
+        # If a commit touches patches/... (e.g. a re-export was committed), naively
+        # writing them to patches/<NNN>/patches/... would self-nest. Skip + warn.
+        $normPath = $path.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+        if ($normPath -eq 'patches' -or $normPath.StartsWith('patches' + [System.IO.Path]::DirectorySeparatorChar)) {
+            Write-Host "  SKIP (inside patches output, would nest): $path"
+            continue
+        }
+
         # for renames/copies the pre-change path lives at the source path
         $baseSidePath = $path
         if ($st -like 'R*' -or $st -like 'C*') { $baseSidePath = $parts[1] }
