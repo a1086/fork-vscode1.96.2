@@ -580,7 +580,7 @@ registerThemingParticipant((theme, collector) => {
 	if (activityBarActiveBorderColor) {
 		collector.addRule(`
 			.monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked .active-item-indicator:before {
-				border-left-color: ${activityBarActiveBorderColor};
+				border-left-color: var(--vscode-button-background);
 			}
 		`);
 	}
@@ -594,7 +594,7 @@ registerThemingParticipant((theme, collector) => {
 
 			.monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked:focus .active-item-indicator:before {
 				visibility: visible;
-				border-left-color: ${activityBarActiveFocusBorderColor};
+				border-left-color: var(--vscode-button-background);
 			}
 		`);
 	}

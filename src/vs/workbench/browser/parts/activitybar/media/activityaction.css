@@ -66,14 +66,16 @@
 }
 
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.active .action-label.codicon,
+.monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked .action-label.codicon,
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item:focus .action-label.codicon,
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item:hover .action-label.codicon {
-	color: var(--vscode-activityBar-foreground) !important;
+	color: var(--vscode-button-background) !important;
 }
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.active .action-label.uri-icon,
+.monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked .action-label.uri-icon,
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item:focus .action-label.uri-icon,
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item:hover .action-label.uri-icon {
-	background-color: var(--vscode-activityBar-foreground) !important;
+	background-color: var(--vscode-button-background) !important;
 }
 
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked .active-item-indicator:before,
@@ -84,7 +86,7 @@
 	top: 0;
 	height: 100%;
 	width: 0;
-	border-left: 2px solid;
+	border-left: 2px solid var(--vscode-button-background) !important;
 }
 
 .monaco-workbench.hc-black .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.checked .active-item-indicator:before,
@@ -106,7 +108,7 @@
 
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.clicked:focus:before,
 .monaco-workbench .activitybar > .content :not(.monaco-menu) > .monaco-action-bar .action-item.clicked:focus .active-item-indicator::before {
-	border-left: none !important; /* no focus feedback when using mouse */
+	border-left-color: var(--vscode-button-background) !important; /* no focus feedback when using mouse, keep indicator color */
 }
 
 .monaco-workbench .activitybar.left > .content :not(.monaco-menu) > .monaco-action-bar .action-item .active-item-indicator:before{

@@ -231,15 +231,17 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 		const colors = this.options.colors(theme);
 
 		if (this.label) {
+			const activityBarButtonBackground = 'var(--vscode-button-background)';
 			if (this.options.icon) {
 				const foreground = this._action.checked ? colors.activeForegroundColor : colors.inactiveForegroundColor;
+				const activeColor = this._action.checked ? activityBarButtonBackground : (foreground ? foreground.toString() : '');
 				if (this.compositeBarActionItem.iconUrl) {
 					// Apply background color to activity bar item provided with iconUrls
-					this.label.style.backgroundColor = foreground ? foreground.toString() : '';
+					this.label.style.backgroundColor = activeColor;
 					this.label.style.color = '';
 				} else {
 					// Apply foreground color to activity bar items provided with codicons
-					this.label.style.color = foreground ? foreground.toString() : '';
+					this.label.style.color = activeColor;
 					this.label.style.backgroundColor = '';
 				}
 			} else {
@@ -296,6 +298,21 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 			this.mouseUpTimeout = setTimeout(() => {
 				this.container.classList.remove('clicked');
 			}, 800); // delayed to prevent focus feedback from showing on mouse up
+		}));
+
+		// Hover feedback: use the button background color for the activity bar icon
+		this._register(addDisposableListener(this.container, EventType.MOUSE_ENTER, () => {
+			if (!this.label || !this.options.icon) {
+				return;
+			}
+			if (this.compositeBarActionItem.iconUrl) {
+				this.label.style.backgroundColor = 'var(--vscode-button-background)';
+			} else {
+				this.label.style.color = 'var(--vscode-button-background)';
+			}
+		}));
+		this._register(addDisposableListener(this.container, EventType.MOUSE_LEAVE, () => {
+			this.updateStyles();
 		}));
 
 		this._register(this.hoverService.setupDelayedHover(this.container, () => ({
