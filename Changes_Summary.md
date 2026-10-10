@@ -2154,3 +2154,18 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 
 ### 62.4 提交 4 — 本文档更新（docs）
 - 于 `Changes_Summary.md` 追加本 §62，汇总上述 3 个功能提交。
+
+---
+
+## 63. AccoTest Dark 主题文件改名与引用同步（2026-10-10）
+
+**改动**：将 AccoTest Dark 主题定义文件名由 `accotest_theme.json` 改为 `accotest_dark_theme.json`，并同步更新 `package.json` 中的主题路径引用（扩展本体与补丁快照两处一致修改），使文件名与 §61.1 引入的主题 id `AccoTest Dark` 对齐。
+
+### 63.1 提交 1 — AccoTest Dark 主题文件改名及引用同步（chore/theme）
+- `extensions/theme-defaults/themes/accotest_theme.json` → `accotest_dark_theme.json`（重命名，内容不变）：文件名与主题 id `AccoTest Dark` 对齐。
+- `extensions/theme-defaults/package.json`：`contributes.themes` 中 `id: "AccoTest Dark"` 的 `path` 由 `./themes/accotest_theme.json` 改为 `./themes/accotest_dark_theme.json`。
+- `patches/094-5bedaae27fb/extensions/theme-defaults/themes/accotest_theme.json` → `accotest_dark_theme.json`（重命名，内容不变）：与扩展本体保持一致的补丁快照。
+- `patches/094-5bedaae27fb/extensions/theme-defaults/package.json`：同上 `path` 引用同步更新。
+
+### 63.2 提交 2 — 本文档更新（docs）
+- 于 `Changes_Summary.md` 追加本 §63，汇总上述提交。
