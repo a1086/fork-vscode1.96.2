@@ -277,6 +277,22 @@ export const PANEL_BORDER = registerColor('panel.border', {
 	hcLight: contrastBorder
 }, localize('panelBorder', "Panel border color to separate the panel from the editor. Panels are shown below the editor area and contain views like output and integrated terminal."));
 
+// < --- Module --- >
+
+export const MODULE_BACKGROUND = registerColor('module.background', {
+	dark: TAB_INACTIVE_BACKGROUND,
+	light: TAB_INACTIVE_BACKGROUND,
+	hcDark: Color.fromHex('#000000'),
+	hcLight: Color.fromHex('#FFFFFF')
+}, localize('moduleBackground', "Background color of the module part. By default follows the inactive tab background."));
+
+export const MODULE_BORDER = registerColor('module.border', {
+	dark: PANEL_BORDER,
+	light: PANEL_BORDER,
+	hcDark: contrastBorder,
+	hcLight: contrastBorder
+}, localize('moduleBorder', "Border color on the bottom of the module part, separating it from the editor area."));
+
 export const PANEL_TITLE_BORDER = registerColor('panelTitle.border', {
 	dark: null,
 	light: null,
@@ -286,7 +302,7 @@ export const PANEL_TITLE_BORDER = registerColor('panelTitle.border', {
 
 export const PANEL_SIDE_TITLE_BORDER = registerColor('panelSide.titleBorder', '#3e4452', localize('panelSideTitleBorder', "Border color on top of the title bar of a dual-panel side."));
 
-export const VIEWPANE_FILTER_BACKGROUND = registerColor('viewpaneFilter.background', '#000000', localize('viewpaneFilterBackground', "Background color of the filter input box of view panes."));
+export const VIEWPANE_FILTER_BACKGROUND = registerColor('viewpaneFilter.background', '#1d1f23', localize('viewpaneFilterBackground', "Background color of the filter input box of view panes."));
 
 export const PANEL_ACTIVE_TITLE_FOREGROUND = registerColor('panelTitle.activeForeground', {
 	dark: '#E7E7E7',

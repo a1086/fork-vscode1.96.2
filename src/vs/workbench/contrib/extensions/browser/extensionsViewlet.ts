@@ -48,7 +48,7 @@ import { ILabelService } from '../../../../platform/label/common/label.js';
 import { MementoObject } from '../../../common/memento.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
-import { SIDE_BAR_DRAG_AND_DROP_BACKGROUND } from '../../../common/theme.js';
+import { SIDE_BAR_DRAG_AND_DROP_BACKGROUND, VIEWPANE_FILTER_BACKGROUND } from '../../../common/theme.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { VirtualWorkspaceContext, WorkbenchStateContext } from '../../../common/contextkeys.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -583,7 +583,7 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 				else { return 'd'; }
 			},
 			provideResults: (query: string) => Query.suggestions(query)
-		}, placeholder, 'extensions:searchinput', { placeholderText: placeholder, value: searchValue }));
+		}, placeholder, 'extensions:searchinput', { placeholderText: placeholder, value: searchValue, styleOverrides: { inputBackground: VIEWPANE_FILTER_BACKGROUND } }));
 
 		this.notificationContainer = append(this.header, $('.notification-container.hidden', { 'tabindex': '0' }));
 		this.renderNotificaiton();

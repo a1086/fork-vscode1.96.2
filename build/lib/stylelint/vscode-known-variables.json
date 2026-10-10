@@ -433,6 +433,8 @@
 		"--vscode-menubar-selectionBackground",
 		"--vscode-menubar-selectionBorder",
 		"--vscode-menubar-selectionForeground",
+		"--vscode-module-background",
+		"--vscode-module-border",
 		"--vscode-merge-border",
 		"--vscode-merge-commonContentBackground",
 		"--vscode-merge-commonHeaderBackground",

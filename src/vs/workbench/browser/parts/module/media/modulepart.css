@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 .part.module {
-	background-color: var(--module-background, #2d2d2d);
-	border-bottom: 1px solid var(--module-border, rgba(128, 128, 128, 0.35));
+	background-color: var(--vscode-module-background);
+	border-bottom: 1px solid var(--vscode-module-border);
 }
 
 .part.module .module-content {
