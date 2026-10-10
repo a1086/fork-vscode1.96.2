@@ -2127,3 +2127,30 @@ side 元素从水平 SplitView 中摘除，交给 workbench grid 作为全高列
 
 ### 61.4 提交 4 — 本文档更新（docs）
 - 于 `Changes_Summary.md` 追加本 §61，汇总上述 3 个功能提交。
+
+---
+
+## 62. 活动栏/侧栏/辅助栏选中态主题色与 AccoTest 主题细化（2026-10-10）
+
+**改动**：将工作区界面高亮色与 AccoTest 主题配色按功能拆分为 3 个提交（UI 选中态、主题强调色、module 主题色），并补本文档。
+
+### 62.1 提交 1 — 活动栏/侧栏/辅助栏选中态改用按钮主题色（feat/ui）
+选中(checked)与悬停(hover)态的强调色由固定的 activityBar 前景色改为跟随主题按钮色 `var(--vscode-button-background)`，使高亮色随主题统一变化。
+- `src/vs/workbench/browser/parts/activitybar/activitybarPart.ts`：选中/聚焦指示条左边框色由 `activityBarActiveBorderColor`/`activityBarActiveFocusBorderColor` 改为 `var(--vscode-button-background)`。
+- `src/vs/workbench/browser/parts/activitybar/media/activityaction.css`：活动/选中态的 codicon 颜色与 uri-icon 背景色、选中指示条左边框、鼠标点击聚焦边框统一改用 `var(--vscode-button-background)`；并新增 `.action-item.checked` 选择器。
+- `src/vs/workbench/browser/parts/compositeBarActions.ts`：`CompositeBarActionViewItem.updateStyles()` 中选中态图标颜色/背景改用 `var(--vscode-button-background)`；新增鼠标 `MOUSE_ENTER`/`MOUSE_LEAVE` 悬停反馈（离开时回退到 `updateStyles()`）。
+- `src/vs/workbench/browser/parts/auxiliarybar/media/auxiliaryBarPart.css`：辅助栏选中指示条上边框色由 `var(--vscode-activityBarTop-activeBorder)` 改为 `var(--vscode-button-background)`。
+- `src/vs/workbench/browser/parts/sidebar/media/sidebarpart.css`：侧栏选中指示条上边框色与选中态 label 颜色由 `var(--vscode-activityBarTop-activeBorder)`/`var(--vscode-activityBarTop-foreground)` 改为 `var(--vscode-button-background)`，并新增 `.action-item.checked .action-label` 选择器。
+
+### 62.2 提交 2 — AccoTest 主题强调色由青色改为紫色（feat/theme）
+- `extensions/theme-defaults/themes/accotest_theme.json`（`AccoTest Dark`）：button/textLink.activeForeground/menu.selectionBackground/statusBarItem.remoteBackground 等强调色由青色（`#0e9eb5`/`#0b8aa0`）改为紫色（`#8877c7`），editorCursor.foreground 改为纯黑 `#000000`；并补齐全屏浮层背景色（menu.background、contextView.background、quickInput.background 为 `#23272e`，editorHoverWidget.background 为 `#1e2227`、editorHoverWidget.border 为 `#3e4452`）。
+- `extensions/theme-defaults/themes/accotest_light_theme.json`（`AccoTest Light`）：上述同组强调色同步由青色改为紫色 `#8877c7`，editorCursor.foreground 改为 `#000000`。
+
+### 62.3 提交 3 — 新增 module 主题色并修正视图筛选框背景（feat/theme）
+- `src/vs/workbench/common/theme.ts`：新增 `MODULE_BACKGROUND`（`module.background`，默认跟随 `TAB_INACTIVE_BACKGROUND`）与 `MODULE_BORDER`（`module.border`，默认跟随 `PANEL_BORDER`）两个颜色注册；将 `VIEWPANE_FILTER_BACKGROUND`（`viewpaneFilter.background`）默认值由 `#000000` 改为 `#1d1f23`。
+- `build/lib/stylelint/vscode-known-variables.json`：登记新增的 `--vscode-module-background` 与 `--vscode-module-border`，使 CSS hygiene 检查通过。
+- `src/vs/workbench/browser/parts/module/media/modulepart.css`：module part 背景与下边框由写死的 `--module-background`/`--module-border` 默认值改为引用 `--vscode-module-background`/`--vscode-module-border`。
+- `src/vs/workbench/contrib/extensions/browser/extensionsViewlet.ts`：扩展视图搜索输入框背景经 `styleOverrides.inputBackground` 传入 `VIEWPANE_FILTER_BACKGROUND`，与视图筛选框背景色统一。
+
+### 62.4 提交 4 — 本文档更新（docs）
+- 于 `Changes_Summary.md` 追加本 §62，汇总上述 3 个功能提交。
