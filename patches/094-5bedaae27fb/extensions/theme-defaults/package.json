@@ -66,7 +66,7 @@
         "label": "%accotestThemeLabel%",
         "groupId": "accotest theme",
         "uiTheme": "vs-dark",
-        "path": "./themes/accotest_theme.json"
+        "path": "./themes/accotest_dark_theme.json"
       }
     ],
     "iconThemes": [

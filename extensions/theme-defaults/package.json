@@ -65,7 +65,7 @@
         "id": "AccoTest Dark",
         "label": "%accotestThemeLabel%",
         "uiTheme": "vs-dark",
-        "path": "./themes/accotest_theme.json"
+        "path": "./themes/accotest_dark_theme.json"
       },
       {
         "id": "AccoTest Light",
